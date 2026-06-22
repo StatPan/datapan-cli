@@ -98,8 +98,10 @@ func (a app) run() int {
 		return a.info(args[1:], jsonOut)
 	case "auth":
 		return a.auth(args[1:], jsonOut)
+	case "access":
+		return a.access(args[1:], jsonOut)
 	case "apply":
-		return a.apply(args[1:], jsonOut)
+		return a.access(args[1:], jsonOut)
 	case "call":
 		return a.call(args[1:], jsonOut, false)
 	case "export":
@@ -206,16 +208,19 @@ func (a app) auth(args []string, jsonOut bool) int {
 	return exitAuth
 }
 
-func (a app) apply(args []string, jsonOut bool) int {
+func (a app) access(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) > 0 {
 		switch args[0] {
 		case "login":
-			return a.applyLogin(args[1:], jsonOut)
-		case "submit":
-			return a.applySubmit(args[1:], jsonOut)
+			return a.accessLogin(args[1:], jsonOut)
+		case "request", "submit":
+			return a.accessRequest(args[1:], jsonOut)
 		}
+	}
+	if hasAnyArg(args, "--dry-run", "--apply", "--profile-dir", "--storage-state", "--browser-path", "--output") {
+		return a.accessRequest(args, jsonOut)
 	}
 	openBrowser, args := consumeBool(args, "--open")
 	copyPurpose, args := consumeBool(args, "--copy-purpose")
@@ -227,7 +232,7 @@ func (a app) apply(args []string, jsonOut bool) int {
 		showPurpose = true
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]")
+		return a.fail(exitUsage, "usage: datapan access <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]")
 	}
 	spec, ok := a.reg.ByID(args[0])
 	if !ok {
@@ -299,7 +304,7 @@ func (a app) apply(args []string, jsonOut bool) int {
 	return exitOK
 }
 
-func (a app) applyLogin(args []string, jsonOut bool) int {
+func (a app) accessLogin(args []string, jsonOut bool) int {
 	_ = jsonOut
 	_, args = consumeBool(args, "--json")
 	headed, args := consumeBool(args, "--headed")
@@ -328,7 +333,7 @@ func (a app) applyLogin(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]")
 	}
 	return runBrowserWorkflow(browserWorkflowOptions{
 		Command:     "login",
@@ -339,7 +344,7 @@ func (a app) applyLogin(args []string, jsonOut bool) int {
 	}, a.stdout, a.stderr)
 }
 
-func (a app) applySubmit(args []string, jsonOut bool) int {
+func (a app) accessRequest(args []string, jsonOut bool) int {
 	_ = jsonOut
 	_, args = consumeBool(args, "--json")
 	apply, args := consumeBool(args, "--apply")
@@ -372,7 +377,7 @@ func (a app) applySubmit(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--output PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan access <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--output PATH] [--json]")
 	}
 	spec, ok := a.reg.ByID(args[0])
 	if !ok {
@@ -632,9 +637,9 @@ Usage:
   datapan search <query> [--json] [--limit N]
   datapan info <list-id> [--json]
   datapan auth check [--json]
-  datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
-  datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
-  datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan access <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
+  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan access <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
   datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan version [--json]
@@ -662,6 +667,17 @@ func consumeBool(args []string, name string) (bool, []string) {
 		out = append(out, arg)
 	}
 	return found, out
+}
+
+func hasAnyArg(args []string, names ...string) bool {
+	for _, arg := range args {
+		for _, name := range names {
+			if arg == name || strings.HasPrefix(arg, name+"=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func consumeString(args []string, name, fallback string) (string, []string, error) {

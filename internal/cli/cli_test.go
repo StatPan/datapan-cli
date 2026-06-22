@@ -74,8 +74,8 @@ func TestCallDryRunRedactsKey(t *testing.T) {
 	}
 }
 
-func TestApplyJSONIncludesGuidedNextSteps(t *testing.T) {
-	code, stdout, stderr := runTest([]string{"apply", "15126469", "--json"}, nil, nil)
+func TestAccessJSONIncludesGuidedNextSteps(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"access", "15126469", "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
@@ -91,8 +91,8 @@ func TestApplyJSONIncludesGuidedNextSteps(t *testing.T) {
 	}
 }
 
-func TestApplySubmitRejectsApplyAndDryRunTogether(t *testing.T) {
-	code, _, stderr := runTest([]string{"apply", "submit", "15126469", "--apply", "--dry-run"}, nil, nil)
+func TestAccessRejectsApplyAndDryRunTogether(t *testing.T) {
+	code, _, stderr := runTest([]string{"access", "15126469", "--apply", "--dry-run"}, nil, nil)
 	if code != exitUsage {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
@@ -101,8 +101,28 @@ func TestApplySubmitRejectsApplyAndDryRunTogether(t *testing.T) {
 	}
 }
 
-func TestApplySubmitUnknownSpecDoesNotStartBrowser(t *testing.T) {
-	code, _, stderr := runTest([]string{"apply", "submit", "missing", "--dry-run"}, nil, nil)
+func TestAccessUnknownSpecDoesNotStartBrowser(t *testing.T) {
+	code, _, stderr := runTest([]string{"access", "missing", "--dry-run"}, nil, nil)
+	if code != exitNotFound {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, `unknown data.go.kr list id "missing"`) {
+		t.Fatalf("expected unknown spec message: %s", stderr)
+	}
+}
+
+func TestApplyAliasStillWorks(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"apply", "15126469", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"application_url": "https://www.data.go.kr/data/15126469/openapi.do"`) {
+		t.Fatalf("expected compatibility alias output: %s", stdout)
+	}
+}
+
+func TestAccessRequestAliasStillWorks(t *testing.T) {
+	code, _, stderr := runTest([]string{"access", "request", "missing", "--dry-run"}, nil, nil)
 	if code != exitNotFound {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}

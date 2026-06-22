@@ -20,7 +20,7 @@ a stable surface before any UI exists:
 - `--json` output for automation;
 - stdin/stdout-friendly parameter and export flows;
 - local API keys owned by the user;
-- browser automation only for explicit `datapan apply login/submit` workflows.
+- browser automation only for explicit `datapan access login` and `--apply` workflows.
 
 ## Install From Source
 
@@ -63,15 +63,15 @@ are accepted because they already appear in existing public-data workflows.
 datapan search "아파트 실거래가" --json
 datapan info 15126469
 datapan auth check --json
-datapan apply 15126469 --purpose
-datapan apply 15126469 --open
-datapan apply 15126469 --start
+datapan access 15126469 --purpose
+datapan access 15126469 --open
+datapan access 15126469 --start
 datapan call 15084084 --operation getVilageFcst --param base_date=20260622 --param base_time=0500 --param nx=60 --param ny=127 --json
 datapan call 15084084 --dry-run --json
 datapan export --input response.json --format csv
 ```
 
-`datapan apply <list-id> --start` is the fast path for usage applications: it
+`datapan access <list-id> --start` is the fast path for usage applications: it
 opens the data.go.kr application page, copies the standard purpose text to the
 clipboard when the OS supports it, prints the manual steps, and shows the smoke
 command to run after approval.
@@ -81,12 +81,12 @@ data.go.kr browser session. This flow does not bypass CAPTCHA or provider
 security controls; complete the login manually in the headed browser.
 
 ```bash
-datapan apply login --headed --profile-dir .datapan/browser-profile
-datapan apply submit 15126469 --dry-run --profile-dir .datapan/browser-profile --json
-datapan apply submit 15126469 --apply --profile-dir .datapan/browser-profile --json
+datapan access login --headed --profile-dir .datapan/browser-profile
+datapan access 15126469 --dry-run --profile-dir .datapan/browser-profile --json
+datapan access 15126469 --apply --profile-dir .datapan/browser-profile --json
 ```
 
-`datapan apply login` uses Go-native Chrome automation and a local browser
+`datapan access login` uses Go-native Chrome automation and a local browser
 profile directory. No Python or Playwright install is required. Use `--headed`
 for the first login so CAPTCHA or other provider security gates stay under the
 user's control.
@@ -94,8 +94,10 @@ user's control.
 If Chrome/Chromium is not discoverable on `PATH`, pass `--browser-path` or set
 `DATAPAN_BROWSER_PATH` to the browser executable.
 
-`submit` defaults to inspection/dry-run behavior. It submits only when `--apply`
-is explicitly present.
+Browser-backed access defaults to inspection/dry-run behavior. It submits only
+when `--apply` is explicitly present. `datapan apply` and
+`datapan access request` remain compatibility aliases for early builds; new docs
+and scripts should use `datapan access`.
 
 Exit codes are intentionally small and stable:
 

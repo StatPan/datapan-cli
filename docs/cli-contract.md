@@ -65,36 +65,37 @@ output must redact `serviceKey`.
 
 ## Application Help
 
-`datapan apply` is a guided helper, not an unattended browser automation system.
-It may open the data.go.kr application page, copy reusable purpose text to the
-clipboard, print manual steps, and show a bounded post-approval smoke command.
-It must not submit applications or store login sessions in the MVP.
+`datapan access` is the guided data.go.kr access helper. It may open the
+application page, copy reusable purpose text to the clipboard, print manual
+steps, show a bounded post-approval smoke command, and run explicit
+browser-backed access workflows only when the user asks for them.
 
 The fast path is:
 
 ```bash
-datapan apply <list-id> --start
+datapan access <list-id> --start
 ```
 
 `--start` is equivalent to opening the application page and copying/showing the
 purpose text. JSON output should expose `application_url`, `purpose_text`,
 `next_steps`, and `smoke_command` so an agent can guide the user without scraping
-human prose.
+human prose. `datapan apply` is a compatibility alias; `datapan access` is the
+canonical command.
 
 Browser-backed application automation is an explicit advanced flow:
 
 ```bash
-datapan apply login --headed --profile-dir .datapan/browser-profile
-datapan apply submit <list-id> --dry-run --profile-dir .datapan/browser-profile --json
-datapan apply submit <list-id> --apply --profile-dir .datapan/browser-profile --json
+datapan access login --headed --profile-dir .datapan/browser-profile
+datapan access <list-id> --dry-run --profile-dir .datapan/browser-profile --json
+datapan access <list-id> --apply --profile-dir .datapan/browser-profile --json
 ```
 
 The implementation should use Go-native browser automation and a local browser
-profile directory, without requiring Python or Playwright. `apply login` may
+profile directory, without requiring Python or Playwright. `access login` may
 persist a browser profile only after the user completes any CAPTCHA/security
-gate manually. `apply submit` must default to inspection and must submit only
-when `--apply` is present. It must reuse the saved profile, fill visible
-purpose/usage fields, accept visible checkboxes, and stop with a
+gate manually. Browser-backed `access <list-id>` must default to inspection and
+must submit only when `--apply` is present. It must reuse the saved profile,
+fill visible purpose/usage fields, accept visible checkboxes, and stop with a
 machine-readable status if the session is expired or a human gate appears.
 When Chrome/Chromium is not discoverable, the user may provide `--browser-path`
 or `DATAPAN_BROWSER_PATH`.
