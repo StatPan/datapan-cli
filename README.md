@@ -81,8 +81,12 @@ data.go.kr browser session. This flow does not bypass CAPTCHA or provider
 security controls; complete the login manually in the headed browser.
 
 ```bash
-python -m pip install playwright
-python -m playwright install chromium
+# If uv is installed, datapan runs Playwright through:
+# uv run --with playwright python ...
+#
+# Without uv, install Playwright for your Python first:
+# python -m pip install playwright
+# python -m playwright install chromium
 
 datapan apply login --headed --storage-state .datapan/data-go-kr-browser-state.json
 datapan apply submit 15126469 --dry-run --storage-state .datapan/data-go-kr-browser-state.json --json
