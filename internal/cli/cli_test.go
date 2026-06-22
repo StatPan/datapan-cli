@@ -91,6 +91,26 @@ func TestApplyJSONIncludesGuidedNextSteps(t *testing.T) {
 	}
 }
 
+func TestApplySubmitRejectsApplyAndDryRunTogether(t *testing.T) {
+	code, _, stderr := runTest([]string{"apply", "submit", "15126469", "--apply", "--dry-run"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "either --dry-run or --apply") {
+		t.Fatalf("expected conflict message: %s", stderr)
+	}
+}
+
+func TestApplySubmitUnknownSpecDoesNotStartBrowser(t *testing.T) {
+	code, _, stderr := runTest([]string{"apply", "submit", "missing", "--dry-run"}, nil, nil)
+	if code != exitNotFound {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, `unknown data.go.kr list id "missing"`) {
+		t.Fatalf("expected unknown spec message: %s", stderr)
+	}
+}
+
 func TestCallUsesHTTPClient(t *testing.T) {
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if got := req.URL.Query().Get("serviceKey"); got != "secret-value" {

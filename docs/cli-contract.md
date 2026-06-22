@@ -80,3 +80,17 @@ datapan apply <list-id> --start
 purpose text. JSON output should expose `application_url`, `purpose_text`,
 `next_steps`, and `smoke_command` so an agent can guide the user without scraping
 human prose.
+
+Browser-backed application automation is an explicit advanced flow:
+
+```bash
+datapan apply login --headed --storage-state .datapan/data-go-kr-browser-state.json
+datapan apply submit <list-id> --dry-run --storage-state .datapan/data-go-kr-browser-state.json --json
+datapan apply submit <list-id> --apply --storage-state .datapan/data-go-kr-browser-state.json --json
+```
+
+`apply login` may save a browser storage state only after the user completes any
+CAPTCHA/security gate manually. `apply submit` must default to inspection and
+must submit only when `--apply` is present. It must reuse the saved session,
+fill visible purpose/usage fields, accept visible checkboxes, and stop with a
+machine-readable status if the session is expired or a human gate appears.

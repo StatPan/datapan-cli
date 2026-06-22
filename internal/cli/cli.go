@@ -31,6 +31,8 @@ const (
 
 const version = "0.1.0-dev"
 
+const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
+
 type Env interface {
 	LookupEnv(string) (string, bool)
 }
@@ -206,6 +208,14 @@ func (a app) auth(args []string, jsonOut bool) int {
 func (a app) apply(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
+	if len(args) > 0 {
+		switch args[0] {
+		case "login":
+			return a.applyLogin(args[1:], jsonOut)
+		case "submit":
+			return a.applySubmit(args[1:], jsonOut)
+		}
+	}
 	openBrowser, args := consumeBool(args, "--open")
 	copyPurpose, args := consumeBool(args, "--copy-purpose")
 	start, args := consumeBool(args, "--start")
@@ -286,6 +296,71 @@ func (a app) apply(args []string, jsonOut bool) int {
 		fmt.Fprintf(a.stdout, "\nAfter approval smoke:\n  %s\n", smokeCommand)
 	}
 	return exitOK
+}
+
+func (a app) applyLogin(args []string, jsonOut bool) int {
+	_ = jsonOut
+	_, args = consumeBool(args, "--json")
+	headed, args := consumeBool(args, "--headed")
+	storageState, args, err := consumeString(args, "--storage-state", defaultStorageStatePath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	waitMS, args, err := consumeInt(args, "--manual-login-wait-ms", 120000)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan apply login [--headed] [--manual-login-wait-ms N] [--storage-state PATH] [--json]")
+	}
+	workflowArgs := []string{
+		"login",
+		"--storage-state", storageState,
+		"--manual-login-wait-ms", strconv.Itoa(waitMS),
+	}
+	if headed {
+		workflowArgs = append(workflowArgs, "--headed")
+	}
+	return runBrowserWorkflow(workflowArgs, a.stdout, a.stderr)
+}
+
+func (a app) applySubmit(args []string, jsonOut bool) int {
+	_ = jsonOut
+	_, args = consumeBool(args, "--json")
+	apply, args := consumeBool(args, "--apply")
+	dryRun, args := consumeBool(args, "--dry-run")
+	if apply && dryRun {
+		return a.fail(exitUsage, "use either --dry-run or --apply, not both")
+	}
+	storageState, args, err := consumeString(args, "--storage-state", defaultStorageStatePath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 1 {
+		return a.fail(exitUsage, "usage: datapan apply submit <list-id> [--dry-run|--apply] [--storage-state PATH] [--output PATH] [--json]")
+	}
+	spec, ok := a.reg.ByID(args[0])
+	if !ok {
+		return a.fail(exitNotFound, "unknown data.go.kr list id %q", args[0])
+	}
+	workflowArgs := []string{
+		"submit",
+		"--list-id", spec.ID,
+		"--application-url", spec.ApplicationURL(),
+		"--storage-state", storageState,
+		"--purpose-text", datago.PurposeTextKO,
+	}
+	if apply {
+		workflowArgs = append(workflowArgs, "--apply")
+	}
+	if output != "" {
+		workflowArgs = append(workflowArgs, "--output", output)
+	}
+	return runBrowserWorkflow(workflowArgs, a.stdout, a.stderr)
 }
 
 func (a app) call(args []string, jsonOut bool, exportMode bool) int {
@@ -531,6 +606,8 @@ Usage:
   datapan info <list-id> [--json]
   datapan auth check [--json]
   datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
+  datapan apply login [--headed] [--manual-login-wait-ms N] [--storage-state PATH] [--json]
+  datapan apply submit <list-id> [--dry-run|--apply] [--storage-state PATH] [--json]
   datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan version [--json]
