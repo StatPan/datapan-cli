@@ -36,6 +36,26 @@ datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 ```
 
+## Registry Import
+
+`datapan catalog import data-go-kr` imports the upstream data.go.kr open-data
+list into Datapan's normalized registry format. The command must preserve
+upstream metadata separately from Datapan-generated search helpers.
+
+```bash
+datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --pages 5 --json
+DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
+```
+
+`--output -` writes only the registry JSON array to stdout. It must not be
+combined with `--json`, because `--json` reserves stdout for one summary object.
+
+The normalized registry format is a JSON array of `Spec` objects. Canonical
+source fields include `id`, `title`, `provider`, `organization`,
+`source_category`, `source_keywords`, `operations`, and `source.raw`.
+`search_terms` is reserved for Datapan-created search helpers and must not be
+presented as upstream metadata.
+
 ## Exit Codes
 
 | Code | Meaning |

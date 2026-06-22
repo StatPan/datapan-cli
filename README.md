@@ -63,6 +63,7 @@ are accepted because they already appear in existing public-data workflows.
 datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
+datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --pages 1 --json
 datapan info 15126469
 datapan auth check --json
 datapan access 15126469 --purpose
@@ -83,6 +84,18 @@ Search can be narrowed with source metadata such as `--org`, `--category`,
 `data.go.kr`; `org` is the public agency or institution that provides the data.
 `category` maps to the upstream source category only when that value is present
 in the imported catalog; Datapan should not invent source categories.
+
+To move beyond the embedded seed catalog, import the upstream data.go.kr
+open-data list into a normalized Datapan registry:
+
+```bash
+datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --pages 5 --json
+DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
+```
+
+The importer uses data.go.kr's public list lookup API and preserves upstream
+metadata such as organization, source category, source keywords, operation
+names, request parameters, response parameters, and raw source fields.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
@@ -119,12 +132,9 @@ Exit codes are intentionally small and stable:
 
 ## Scope
 
-The seed catalog is intentionally small. It is based on the `datapan-data`
-application campaign evidence and covers a few priority `data.go.kr` services:
-weather, AirKorea, GoCamping, finance, real estate, and support programs.
-
-The near-term direction is to replace the seed catalog with a generated
-language-independent registry while keeping this CLI contract stable.
+The embedded seed catalog is intentionally small. For broader coverage, import
+the data.go.kr open-data list into a local normalized registry and point
+`DATAPAN_REGISTRY_PATH` at that file.
 
 ## Non-Goals For The MVP
 
@@ -132,7 +142,8 @@ language-independent registry while keeping this CLI contract stable.
 - No UI/TUI.
 - No CAPTCHA bypass or hidden provider-security workaround.
 - No credential printing or storage.
-- No claim that the full data.go.kr catalog is already callable.
+- No claim that every imported data.go.kr operation is immediately callable
+  without per-service approval or further endpoint cleanup.
 
 ## License
 

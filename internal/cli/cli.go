@@ -33,6 +33,7 @@ const version = "0.1.0-dev"
 
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
+const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 
 type Env interface {
 	LookupEnv(string) (string, bool)
@@ -63,13 +64,22 @@ type app struct {
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
+	reg := datago.DefaultRegistry()
+	if path, ok := env.LookupEnv("DATAPAN_REGISTRY_PATH"); ok && strings.TrimSpace(path) != "" {
+		loaded, err := datago.LoadRegistry(strings.TrimSpace(path))
+		if err != nil {
+			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+			return a.fail(exitUsage, "failed to load DATAPAN_REGISTRY_PATH: %v", err)
+		}
+		reg = loaded
+	}
 	a := app{
 		args:   args,
 		stdout: stdout,
 		stderr: stderr,
 		env:    env,
 		http:   httpClient,
-		reg:    datago.DefaultRegistry(),
+		reg:    reg,
 	}
 	return a.run()
 }
@@ -98,6 +108,8 @@ func (a app) run() int {
 		return a.info(args[1:], jsonOut)
 	case "auth":
 		return a.auth(args[1:], jsonOut)
+	case "catalog":
+		return a.catalog(args[1:], jsonOut)
 	case "access":
 		return a.access(args[1:], jsonOut)
 	case "apply":
@@ -166,7 +178,7 @@ func (a app) search(args []string, jsonOut bool) int {
 			"query":   query,
 			"filters": filters,
 			"count":   len(results),
-			"results": results,
+			"results": specSummaries(results),
 		})
 	}
 	if len(results) == 0 {
@@ -185,6 +197,109 @@ func (a app) search(args []string, jsonOut bool) int {
 			fmt.Fprintf(a.stdout, "  default operation: %s\n", spec.Operations[0].Name)
 		}
 	}
+	return exitOK
+}
+
+func (a app) catalog(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	if len(args) == 0 {
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+	}
+	switch args[0] {
+	case "import":
+		return a.catalogImport(args[1:], jsonOut)
+	default:
+		return a.fail(exitUsage, "unknown catalog command %q", args[0])
+	}
+}
+
+func (a app) catalogImport(args []string, jsonOut bool) int {
+	if len(args) == 0 || args[0] != "data-go-kr" {
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+	}
+	args = args[1:]
+	output, args, err := consumeString(args, "--output", defaultRegistryPath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	page, args, err := consumeInt(args, "--page", 1)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	perPage, args, err := consumeInt(args, "--per-page", 100)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	pages, args, err := consumeInt(args, "--pages", 1)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	query, args, err := consumeString(args, "--query", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	org, args, err := consumeString(args, "--org", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if org == "" {
+		org, args, err = consumeString(args, "--organization", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
+	category, args, err := consumeString(args, "--category", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the registry JSON to stdout")
+	}
+	keyName, key, ok := a.resolveKeyValue()
+	if !ok {
+		return a.fail(exitAuth, "missing data.go.kr API key; set one of: %s", strings.Join(datago.KeyEnvNames, ", "))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	rows, result, err := datago.FetchDataGoKrOpenDataList(ctx, a.http, datago.ImportOptions{
+		ServiceKey: key,
+		Page:       page,
+		PerPage:    perPage,
+		Pages:      pages,
+		Query:      query,
+		Org:        org,
+		Category:   category,
+	})
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	specs, operations := datago.NormalizeOpenDataRows(rows)
+	result.SpecsWritten = len(specs)
+	result.Operations = operations
+	payload := map[string]any{
+		"ok":                  true,
+		"provider":            "data.go.kr",
+		"selected_env_var":    keyName,
+		"output":              output,
+		"catalog_import":      result,
+		"registry_format":     "datapan.specs.v1",
+		"source_preservation": "source_category/source_keywords are upstream values; search_terms are Datapan search helpers",
+	}
+	if err := writeRegistryOutput(output, specs, a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	if output == "-" {
+		return exitOK
+	}
+	fmt.Fprintf(a.stdout, "Imported %d data.go.kr rows into %d specs (%d operations).\n", result.RowsFetched, len(specs), operations)
+	fmt.Fprintf(a.stdout, "Registry: %s\n", output)
 	return exitOK
 }
 
@@ -224,6 +339,32 @@ func (a app) info(args []string, jsonOut bool) int {
 		}
 	}
 	return exitOK
+}
+
+func specSummaries(specs []datago.Spec) []map[string]any {
+	out := make([]map[string]any, 0, len(specs))
+	for _, spec := range specs {
+		item := map[string]any{
+			"id":               spec.ID,
+			"title":            spec.Title,
+			"provider":         spec.Provider,
+			"organization":     spec.Organization,
+			"source_category":  spec.SourceCategory,
+			"priority":         spec.Priority,
+			"operations_count": len(spec.Operations),
+		}
+		if len(spec.SourceKeywords) > 0 {
+			item["source_keywords"] = spec.SourceKeywords
+		}
+		if len(spec.SearchTerms) > 0 {
+			item["search_terms"] = spec.SearchTerms
+		}
+		if spec.Description != "" {
+			item["description"] = spec.Description
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (a app) auth(args []string, jsonOut bool) int {
@@ -684,6 +825,7 @@ func (a app) printHelp() {
 
 Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan info <list-id> [--json]
   datapan auth check [--json]
   datapan access <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
@@ -813,6 +955,34 @@ func readAllInput(path string, stdin io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func writeRegistryOutput(path string, specs []datago.Spec, stdout io.Writer) error {
+	if path == "-" {
+		return datago.EncodeRegistry(stdout, specs)
+	}
+	if path == "" {
+		path = defaultRegistryPath
+	}
+	if dir := strings.TrimSpace(filepathDir(path)); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return datago.EncodeRegistry(f, specs)
+}
+
+func filepathDir(path string) string {
+	idx := strings.LastIndexAny(path, `/\`)
+	if idx < 0 {
+		return ""
+	}
+	return path[:idx]
 }
 
 func writeCSV(w io.Writer, rows []map[string]any) int {

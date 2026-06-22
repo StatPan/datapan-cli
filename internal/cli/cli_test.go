@@ -70,6 +70,92 @@ func TestSearchRejectsInventedSectorFilter(t *testing.T) {
 	}
 }
 
+func TestCatalogImportWritesRegistry(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("serviceKey"); got != "secret-value" {
+			t.Fatalf("serviceKey=%q", got)
+		}
+		body := `{
+			"currentCount": 2,
+			"data": [
+				{
+					"list_id": "999",
+					"list_title": "테스트기관_테스트 API",
+					"title": "테스트 API",
+					"org_nm": "테스트기관",
+					"new_category_nm": "테스트분류",
+					"keywords": "테스트,샘플",
+					"desc": "테스트 설명",
+					"meta_url": "https://www.data.go.kr/catalog/999/openapi.json",
+					"end_point_url": "https://example.test/api",
+					"operation_nm": "목록조회",
+					"request_param_nm_en": "PAGE,ROWS",
+					"request_param_nm": "\"페이지\",\"행수\"",
+					"response_param_nm_en": "resultCode,resultMsg",
+					"response_param_nm": "\"결과코드\",\"결과메시지\""
+				},
+				{
+					"list_id": "999",
+					"list_title": "테스트기관_테스트 API",
+					"title": "테스트 API",
+					"org_nm": "테스트기관",
+					"new_category_nm": "테스트분류",
+					"keywords": "테스트,샘플",
+					"end_point_url": "https://example.test/api",
+					"operation_nm": "상세조회",
+					"request_param_nm_en": "ID",
+					"request_param_nm": "\"식별자\""
+				}
+			],
+			"page": 1,
+			"perPage": 2,
+			"totalCount": 2
+		}`
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "2", "--pages", "1", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"specs_written": 1`) || !strings.Contains(stdout, `"operations": 2`) {
+		t.Fatalf("expected import summary: %s", stdout)
+	}
+	data, err := osReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"id": "999"`,
+		`"source_category": "테스트분류"`,
+		`"source_keywords"`,
+		`"request_params"`,
+		`"source"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in registry: %s", want, data)
+		}
+	}
+	code, stdout, stderr = runTest([]string{"search", "테스트", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": tmp}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "999"`) {
+		t.Fatalf("expected imported registry search result: %s", stdout)
+	}
+	if strings.Contains(stdout, `"raw"`) {
+		t.Fatalf("search output should stay compact and omit source raw: %s", stdout)
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {

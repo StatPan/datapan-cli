@@ -3,6 +3,9 @@ package datago
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
+	"io"
+	"os"
 	"slices"
 	"strings"
 )
@@ -33,18 +36,33 @@ type Spec struct {
 	SearchTerms    []string    `json:"search_terms,omitempty"`
 	Operations     []Operation `json:"operations"`
 	Smoke          *Smoke      `json:"smoke,omitempty"`
+	Source         *Source     `json:"source,omitempty"`
 	Description    string      `json:"description,omitempty"`
 }
 
 type Operation struct {
-	Name          string            `json:"name"`
-	Endpoint      string            `json:"endpoint,omitempty"`
-	DefaultParams map[string]string `json:"default_params,omitempty"`
+	Name           string            `json:"name"`
+	Endpoint       string            `json:"endpoint,omitempty"`
+	DefaultParams  map[string]string `json:"default_params,omitempty"`
+	RequestParams  []Param           `json:"request_params,omitempty"`
+	ResponseParams []Param           `json:"response_params,omitempty"`
+	Source         *Source           `json:"source,omitempty"`
 }
 
 type Smoke struct {
 	Operation string            `json:"operation,omitempty"`
 	Params    map[string]string `json:"params,omitempty"`
+}
+
+type Param struct {
+	Name  string `json:"name"`
+	Label string `json:"label,omitempty"`
+}
+
+type Source struct {
+	System string         `json:"system"`
+	URL    string         `json:"url,omitempty"`
+	Raw    map[string]any `json:"raw,omitempty"`
 }
 
 type SearchFilters struct {
@@ -60,6 +78,31 @@ func DefaultRegistry() Registry {
 		panic(err)
 	}
 	return Registry{specs: specs}
+}
+
+func NewRegistry(specs []Spec) Registry {
+	return Registry{specs: append([]Spec(nil), specs...)}
+}
+
+func LoadRegistry(path string) (Registry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return Registry{}, err
+	}
+	defer f.Close()
+	return DecodeRegistry(f)
+}
+
+func DecodeRegistry(r io.Reader) (Registry, error) {
+	var specs []Spec
+	if err := json.NewDecoder(r).Decode(&specs); err != nil {
+		return Registry{}, fmt.Errorf("decode registry: %w", err)
+	}
+	return NewRegistry(specs), nil
+}
+
+func (r Registry) Specs() []Spec {
+	return append([]Spec(nil), r.specs...)
 }
 
 func (r Registry) Search(query string, limit int, filters SearchFilters) []Spec {
