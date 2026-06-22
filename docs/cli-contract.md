@@ -70,6 +70,14 @@ datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_tim
 datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
 ```
 
+`datapan show <ref> --json` should be the stable handoff from search to use. In
+addition to the normalized `spec`, it returns:
+
+- `access`: data.go.kr application URL and known upstream access/status fields.
+- `operations`: operation names, endpoints, request parameters, response
+  parameter counts, and a generated `datapan get ...` example when callable.
+- `examples`: top-level `access` and `get` commands for the selected dataset.
+
 ## Exit Codes
 
 | Code | Meaning |

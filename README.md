@@ -103,6 +103,11 @@ data.go.kr list ID, a data.go.kr detail URL, an exact title, or a search query.
 If a query matches multiple datasets, Datapan stops and returns candidates
 instead of guessing.
 
+`datapan show <ref> --json` is the bridge from discovery to use. It keeps the
+normalized spec, and also returns access metadata, operation parameter names,
+response-field counts, and a copyable `datapan get ...` example where Datapan
+can synthesize one from the imported data.go.kr spec.
+
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
 security controls; complete the login manually in the headed browser.

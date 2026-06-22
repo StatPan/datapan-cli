@@ -68,6 +68,9 @@ func TestShowResolvesURLAndTitle(t *testing.T) {
 	if !strings.Contains(stdout, `"id": "15126469"`) {
 		t.Fatalf("expected URL ref to resolve: %s", stdout)
 	}
+	if !strings.Contains(stdout, `"get": "datapan get 15126469 --operation getRTMSDataSvcAptTrade DEAL_YMD=202501 LAWD_CD=11110 --json"`) {
+		t.Fatalf("expected concrete show example: %s", stdout)
+	}
 
 	code, stdout, stderr = runTest([]string{"show", "국토교통부_아파트 매매 실거래가 자료", "--json"}, nil, nil)
 	if code != exitOK {
@@ -75,6 +78,65 @@ func TestShowResolvesURLAndTitle(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"id": "15126469"`) {
 		t.Fatalf("expected title ref to resolve: %s", stdout)
+	}
+}
+
+func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id": "999",
+			"title": "테스트기관_테스트 API",
+			"provider": "data.go.kr",
+			"organization": "테스트기관",
+			"source_category": "테스트분류",
+			"priority": "P2",
+			"operations": [
+				{
+					"name": "목록조회",
+					"endpoint": "https://example.test/api",
+					"request_params": [
+						{"name": "PAGE", "label": "페이지"},
+						{"name": "ROWS", "label": "행수"}
+					],
+					"response_params": [
+						{"name": "resultCode", "label": "결과코드"}
+					]
+				}
+			],
+			"source": {
+				"system": "data.go.kr",
+				"url": "https://www.data.go.kr/data/999/openapi.do",
+				"raw": {
+					"is_confirmed_for_dev_nm": "신청가능",
+					"is_confirmed_for_prod_nm": "운영신청가능",
+					"is_charged": "무료",
+					"register_status": "정상",
+					"request_cnt": 421,
+					"data_format": "JSON",
+					"updated_at": "2026-06-22"
+				}
+			}
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"show", "테스트기관_테스트 API", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": tmp}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	for _, want := range []string{
+		`"dev_approval": "신청가능"`,
+		`"request_count": 421`,
+		`"request_params":`,
+		`"name": "PAGE"`,
+		`"label": "페이지"`,
+		`"response_params_count": 1`,
+		`"example": "datapan get 999 --operation 목록조회 PAGE=VALUE ROWS=VALUE --json"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
 	}
 }
 

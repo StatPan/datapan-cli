@@ -321,7 +321,7 @@ func (a app) info(args []string, jsonOut bool) int {
 		return code
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{"ok": true, "spec": spec})
+		return a.writeJSON(showPayload(spec))
 	}
 	fmt.Fprintf(a.stdout, "%s\n", spec.Title)
 	fmt.Fprintf(a.stdout, "  list id: %s\n", spec.ID)
@@ -335,17 +335,203 @@ func (a app) info(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  priority: %s\n", spec.Priority)
 	fmt.Fprintf(a.stdout, "  application: %s\n", spec.ApplicationURL())
 	fmt.Fprintf(a.stdout, "  env vars: %s\n", strings.Join(datago.KeyEnvNames, ", "))
-	if len(spec.Operations) > 0 {
-		fmt.Fprintln(a.stdout, "  operations:")
-		for _, op := range spec.Operations {
-			fmt.Fprintf(a.stdout, "    - %s", op.Name)
-			if op.Endpoint != "" {
-				fmt.Fprintf(a.stdout, " (%s)", op.Endpoint)
+	access := showAccessSummary(spec)
+	if len(access) > 1 {
+		fmt.Fprintln(a.stdout, "  access:")
+		for _, key := range []string{"dev_approval", "prod_approval", "charge", "register_status", "request_count", "data_format", "updated_at"} {
+			if value, ok := access[key]; ok && fmt.Sprint(value) != "" {
+				fmt.Fprintf(a.stdout, "    %s: %v\n", key, value)
 			}
-			fmt.Fprintln(a.stdout)
 		}
 	}
+	if len(spec.Operations) > 0 {
+		fmt.Fprintln(a.stdout, "  operations:")
+		for _, summary := range showOperationSummaries(spec) {
+			opName := fmt.Sprint(summary["name"])
+			fmt.Fprintf(a.stdout, "    - %s", opName)
+			if endpoint, ok := summary["endpoint"].(string); ok && endpoint != "" {
+				fmt.Fprintf(a.stdout, " (%s)", endpoint)
+			}
+			if callable, ok := summary["callable"].(bool); ok && !callable {
+				fmt.Fprint(a.stdout, " [not callable yet]")
+			}
+			fmt.Fprintln(a.stdout)
+			if params, ok := summary["request_params"].([]map[string]string); ok && len(params) > 0 {
+				fmt.Fprint(a.stdout, "      params:")
+				for _, param := range params {
+					if param["label"] != "" {
+						fmt.Fprintf(a.stdout, " %s(%s)", param["name"], param["label"])
+					} else {
+						fmt.Fprintf(a.stdout, " %s", param["name"])
+					}
+				}
+				fmt.Fprintln(a.stdout)
+			}
+			if defaults, ok := summary["default_params"].(map[string]string); ok && len(defaults) > 0 {
+				fmt.Fprintf(a.stdout, "      defaults: %s\n", formatParamMap(defaults))
+			}
+			if example, ok := summary["example"].(string); ok && example != "" {
+				fmt.Fprintf(a.stdout, "      example: %s\n", example)
+			}
+		}
+	}
+	if example := exampleGetCommand(spec); example != "" {
+		fmt.Fprintf(a.stdout, "  next get: %s\n", example)
+	}
 	return exitOK
+}
+
+func showPayload(spec datago.Spec) map[string]any {
+	return map[string]any{
+		"ok":         true,
+		"spec":       spec,
+		"access":     showAccessSummary(spec),
+		"operations": showOperationSummaries(spec),
+		"examples": map[string]string{
+			"access": "datapan access " + spec.ID + " --start",
+			"get":    exampleGetCommand(spec),
+		},
+	}
+}
+
+func showAccessSummary(spec datago.Spec) map[string]any {
+	raw := specRaw(spec)
+	out := map[string]any{
+		"application_url": spec.ApplicationURL(),
+	}
+	for _, pair := range []struct {
+		outKey string
+		rawKey string
+	}{
+		{"dev_approval", "is_confirmed_for_dev_nm"},
+		{"prod_approval", "is_confirmed_for_prod_nm"},
+		{"charge", "is_charged"},
+		{"register_status", "register_status"},
+		{"request_count", "request_cnt"},
+		{"data_format", "data_format"},
+		{"updated_at", "updated_at"},
+	} {
+		if value, ok := raw[pair.rawKey]; ok && fmt.Sprint(value) != "" {
+			out[pair.outKey] = value
+		}
+	}
+	if sourceURL := sourceURL(spec); sourceURL != "" {
+		out["source_url"] = sourceURL
+	}
+	return out
+}
+
+func showOperationSummaries(spec datago.Spec) []map[string]any {
+	out := make([]map[string]any, 0, len(spec.Operations))
+	for _, op := range spec.Operations {
+		item := map[string]any{
+			"name":                  op.Name,
+			"endpoint":              op.Endpoint,
+			"callable":              op.Endpoint != "",
+			"default_params":        op.DefaultParams,
+			"request_params":        paramSummaries(op.RequestParams),
+			"response_params_count": len(op.ResponseParams),
+			"example":               exampleCommandForOperation(spec, op),
+		}
+		if len(op.ResponseParams) > 0 {
+			item["response_params_sample"] = paramSummaries(limitParams(op.ResponseParams, 10))
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func paramSummaries(params []datago.Param) []map[string]string {
+	out := make([]map[string]string, 0, len(params))
+	for _, param := range params {
+		name := strings.TrimSpace(param.Name)
+		if name == "" {
+			continue
+		}
+		item := map[string]string{"name": name}
+		if label := strings.TrimSpace(param.Label); label != "" {
+			item["label"] = label
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func limitParams(params []datago.Param, limit int) []datago.Param {
+	if limit > 0 && len(params) > limit {
+		return params[:limit]
+	}
+	return params
+}
+
+func exampleGetCommand(spec datago.Spec) string {
+	if smoke := spec.SmokeCommand(); smoke != "" {
+		return smoke
+	}
+	if len(spec.Operations) == 0 {
+		return ""
+	}
+	return exampleCommandForOperation(spec, spec.Operations[0])
+}
+
+func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
+	if spec.Smoke != nil && spec.Smoke.Operation == op.Name {
+		if smoke := spec.SmokeCommand(); smoke != "" {
+			return smoke
+		}
+	}
+	if op.Endpoint == "" {
+		return ""
+	}
+	args := []string{"datapan", "get", spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	for _, param := range op.RequestParams {
+		name := strings.TrimSpace(param.Name)
+		if name != "" {
+			args = append(args, name+"=VALUE")
+		}
+	}
+	args = append(args, "--json")
+	return strings.Join(args, " ")
+}
+
+func formatParamMap(params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+params[key])
+	}
+	return strings.Join(parts, " ")
+}
+
+func specRaw(spec datago.Spec) map[string]any {
+	if spec.Source != nil && spec.Source.Raw != nil {
+		return spec.Source.Raw
+	}
+	for _, op := range spec.Operations {
+		if op.Source != nil && op.Source.Raw != nil {
+			return op.Source.Raw
+		}
+	}
+	return map[string]any{}
+}
+
+func sourceURL(spec datago.Spec) string {
+	if spec.Source != nil && strings.TrimSpace(spec.Source.URL) != "" {
+		return strings.TrimSpace(spec.Source.URL)
+	}
+	for _, op := range spec.Operations {
+		if op.Source != nil && strings.TrimSpace(op.Source.URL) != "" {
+			return strings.TrimSpace(op.Source.URL)
+		}
+	}
+	return ""
 }
 
 func specSummaries(specs []datago.Spec) []map[string]any {
