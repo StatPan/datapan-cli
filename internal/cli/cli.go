@@ -673,6 +673,16 @@ func (a app) resolveOne(ref string, jsonOut bool) (datago.Spec, int, bool) {
 		}
 		return datago.Spec{}, exitAmbiguous, false
 	default:
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":    false,
+				"error": "not_found",
+				"ref":   ref,
+			}); code != exitOK {
+				return datago.Spec{}, code, false
+			}
+			return datago.Spec{}, exitNotFound, false
+		}
 		return datago.Spec{}, a.fail(exitNotFound, "unknown data.go.kr ref %q", ref), false
 	}
 }

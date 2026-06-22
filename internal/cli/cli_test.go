@@ -157,6 +157,19 @@ func TestShowAmbiguousQueryReturnsCandidates(t *testing.T) {
 	}
 }
 
+func TestShowUnknownRefJSONReturnsNotFound(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"show", "missing-dataset", "--json"}, nil, nil)
+	if code != exitNotFound {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "not_found"`) || !strings.Contains(stdout, `"ref": "missing-dataset"`) {
+		t.Fatalf("expected not_found JSON: %s", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+}
+
 func TestSearchRejectsInventedSectorFilter(t *testing.T) {
 	code, _, stderr := runTest([]string{"search", "실거래", "--sector", "realestate"}, nil, nil)
 	if code != exitUsage {
@@ -716,6 +729,19 @@ func TestAccessUnknownSpecDoesNotStartBrowser(t *testing.T) {
 	}
 	if !strings.Contains(stderr, `unknown data.go.kr ref "missing"`) {
 		t.Fatalf("expected unknown spec message: %s", stderr)
+	}
+}
+
+func TestAccessUnknownSpecJSONReturnsNotFound(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"access", "missing", "--json"}, nil, nil)
+	if code != exitNotFound {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "not_found"`) || !strings.Contains(stdout, `"ref": "missing"`) {
+		t.Fatalf("expected not_found JSON: %s", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
 	}
 }
 
