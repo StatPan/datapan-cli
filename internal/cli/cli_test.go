@@ -60,6 +60,16 @@ func TestSearchAllowsFilterOnly(t *testing.T) {
 	}
 }
 
+func TestSearchRejectsInventedSectorFilter(t *testing.T) {
+	code, _, stderr := runTest([]string{"search", "실거래", "--sector", "realestate"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--sector is not a source metadata field") {
+		t.Fatalf("expected sector rejection: %s", stderr)
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {

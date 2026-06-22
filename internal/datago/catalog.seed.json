@@ -4,9 +4,8 @@
     "title": "기상청_단기예보 조회서비스",
     "provider": "data.go.kr",
     "organization": "기상청",
-    "sector": "weather_environment",
     "priority": "P0",
-    "keywords": ["기상청", "날씨", "단기예보", "초단기", "weather", "forecast", "kma"],
+    "search_terms": ["기상청", "날씨", "단기예보", "초단기", "weather", "forecast", "kma"],
     "description": "Immediate data.go.kr application target from datapan-data evidence.",
     "smoke": {
       "operation": "getVilageFcst",
@@ -52,9 +51,8 @@
     "title": "한국환경공단_에어코리아_대기오염정보",
     "provider": "data.go.kr",
     "organization": "한국환경공단",
-    "sector": "weather_environment",
     "priority": "P0",
-    "keywords": ["에어코리아", "대기오염", "미세먼지", "환경", "airkorea", "pm10", "pm25"],
+    "search_terms": ["에어코리아", "대기오염", "미세먼지", "환경", "airkorea", "pm10", "pm25"],
     "smoke": {
       "operation": "getCtprvnRltmMesureDnsty",
       "params": {
@@ -80,9 +78,8 @@
     "title": "한국관광공사_고캠핑 정보 조회서비스_GW",
     "provider": "data.go.kr",
     "organization": "한국관광공사",
-    "sector": "camping_travel",
     "priority": "P0",
-    "keywords": ["고캠핑", "캠핑", "관광", "여행", "gocamping", "camping"],
+    "search_terms": ["고캠핑", "캠핑", "관광", "여행", "gocamping", "camping"],
     "smoke": {
       "operation": "basedList",
       "params": {}
@@ -106,9 +103,8 @@
     "title": "금융위원회_기업기본정보",
     "provider": "data.go.kr",
     "organization": "금융위원회",
-    "sector": "finance_business",
     "priority": "P0",
-    "keywords": ["금융위원회", "기업", "사업자", "회사", "corp", "finance"],
+    "search_terms": ["금융위원회", "기업", "사업자", "회사", "corp", "finance"],
     "smoke": {
       "operation": "getCorpOutline_V2",
       "params": {}
@@ -130,9 +126,8 @@
     "title": "국토교통부_아파트 매매 실거래가 자료",
     "provider": "data.go.kr",
     "organization": "국토교통부",
-    "sector": "realestate",
     "priority": "P1",
-    "keywords": ["국토교통부", "아파트", "실거래가", "부동산", "realestate", "apt", "trade"],
+    "search_terms": ["국토교통부", "아파트", "실거래가", "부동산", "realestate", "apt", "trade"],
     "smoke": {
       "operation": "getRTMSDataSvcAptTrade",
       "params": {
@@ -156,9 +151,8 @@
     "title": "창업진흥원_K-Startup",
     "provider": "data.go.kr",
     "organization": "창업진흥원",
-    "sector": "support_program",
     "priority": "P0",
-    "keywords": ["창업", "지원사업", "K-Startup", "startup", "support"],
+    "search_terms": ["창업", "지원사업", "K-Startup", "startup", "support"],
     "smoke": {
       "operation": "announcement",
       "params": {}

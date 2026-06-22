@@ -28,10 +28,11 @@ datapan search "미세먼지" --json
 
 Search may be narrowed by source metadata. `provider` is the upstream platform,
 such as `data.go.kr`; `org` is the agency or institution that provides the
-dataset.
+dataset. `category` maps to the upstream source category only when that value
+is present in the imported catalog.
 
 ```bash
-datapan search "실거래" --org 국토교통부 --sector realestate --json
+datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 ```
 

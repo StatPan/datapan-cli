@@ -23,16 +23,17 @@ type Registry struct {
 }
 
 type Spec struct {
-	ID           string      `json:"id"`
-	Title        string      `json:"title"`
-	Provider     string      `json:"provider"`
-	Organization string      `json:"organization,omitempty"`
-	Sector       string      `json:"sector"`
-	Priority     string      `json:"priority"`
-	Keywords     []string    `json:"keywords"`
-	Operations   []Operation `json:"operations"`
-	Smoke        *Smoke      `json:"smoke,omitempty"`
-	Description  string      `json:"description,omitempty"`
+	ID             string      `json:"id"`
+	Title          string      `json:"title"`
+	Provider       string      `json:"provider"`
+	Organization   string      `json:"organization,omitempty"`
+	SourceCategory string      `json:"source_category,omitempty"`
+	Priority       string      `json:"priority"`
+	SourceKeywords []string    `json:"source_keywords,omitempty"`
+	SearchTerms    []string    `json:"search_terms,omitempty"`
+	Operations     []Operation `json:"operations"`
+	Smoke          *Smoke      `json:"smoke,omitempty"`
+	Description    string      `json:"description,omitempty"`
 }
 
 type Operation struct {
@@ -47,10 +48,10 @@ type Smoke struct {
 }
 
 type SearchFilters struct {
-	Provider     string `json:"provider"`
-	Organization string `json:"organization"`
-	Sector       string `json:"sector"`
-	Priority     string `json:"priority"`
+	Provider       string `json:"provider"`
+	Organization   string `json:"organization"`
+	SourceCategory string `json:"source_category"`
+	Priority       string `json:"priority"`
 }
 
 func DefaultRegistry() Registry {
@@ -103,13 +104,13 @@ func (r Registry) Search(query string, limit int, filters SearchFilters) []Spec 
 }
 
 func (f SearchFilters) empty() bool {
-	return f.Provider == "" && f.Organization == "" && f.Sector == "" && f.Priority == ""
+	return f.Provider == "" && f.Organization == "" && f.SourceCategory == "" && f.Priority == ""
 }
 
 func (f SearchFilters) match(spec Spec) bool {
 	return containsFold(spec.Provider, f.Provider) &&
 		containsFold(spec.Organization, f.Organization) &&
-		containsFold(spec.Sector, f.Sector) &&
+		containsFold(spec.SourceCategory, f.SourceCategory) &&
 		containsFold(spec.Priority, f.Priority)
 }
 
@@ -170,8 +171,9 @@ func (s Spec) SmokeCommand() string {
 }
 
 func (s Spec) searchText() []string {
-	parts := []string{s.ID, s.Title, s.Provider, s.Organization, s.Sector, s.Priority, s.Description}
-	parts = append(parts, s.Keywords...)
+	parts := []string{s.ID, s.Title, s.Provider, s.Organization, s.SourceCategory, s.Priority, s.Description}
+	parts = append(parts, s.SourceKeywords...)
+	parts = append(parts, s.SearchTerms...)
 	for _, op := range s.Operations {
 		parts = append(parts, op.Name, op.Endpoint)
 	}

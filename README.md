@@ -61,7 +61,7 @@ are accepted because they already appear in existing public-data workflows.
 
 ```bash
 datapan search "아파트 실거래가" --json
-datapan search "실거래" --org 국토교통부 --sector realestate --json
+datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 datapan info 15126469
 datapan auth check --json
@@ -78,9 +78,11 @@ opens the data.go.kr application page, copies the standard purpose text to the
 clipboard when the OS supports it, prints the manual steps, and shows the smoke
 command to run after approval.
 
-Search can be narrowed with source metadata such as `--org`, `--sector`,
+Search can be narrowed with source metadata such as `--org`, `--category`,
 `--priority`, and `--provider`. `provider` is the upstream platform such as
 `data.go.kr`; `org` is the public agency or institution that provides the data.
+`category` maps to the upstream source category only when that value is present
+in the imported catalog; Datapan should not invent source categories.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
