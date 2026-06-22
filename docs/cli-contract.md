@@ -108,6 +108,9 @@ datapan export --input - --format csv
 
 `get` and `save` also accept positional `KEY=VALUE` parameters for the common
 case where a user or agent has the required parameter names from `show`.
+`show` may expose provider auth parameters under `auth_params`, but generated
+examples must not ask the user to pass `serviceKey`; Datapan supplies that from
+the accepted environment variables.
 
 ## Credentials
 

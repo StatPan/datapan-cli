@@ -471,14 +471,20 @@ func showAccessSummary(spec datago.Spec) map[string]any {
 func showOperationSummaries(spec datago.Spec) []map[string]any {
 	out := make([]map[string]any, 0, len(spec.Operations))
 	for _, op := range spec.Operations {
+		requestParams := nonAuthParams(op.RequestParams)
+		authParams := authParamSummaries(op.RequestParams)
 		item := map[string]any{
 			"name":                  op.Name,
 			"endpoint":              op.Endpoint,
 			"callable":              op.Endpoint != "",
 			"default_params":        op.DefaultParams,
-			"request_params":        paramSummaries(op.RequestParams),
+			"request_params":        paramSummaries(requestParams),
 			"response_params_count": len(op.ResponseParams),
 			"example":               exampleCommandForOperation(spec, op),
+		}
+		if len(authParams) > 0 {
+			item["auth_params"] = authParams
+			item["auth_env_vars"] = datago.KeyEnvNames
 		}
 		if len(op.ResponseParams) > 0 {
 			item["response_params_sample"] = paramSummaries(limitParams(op.ResponseParams, 10))
@@ -486,6 +492,35 @@ func showOperationSummaries(spec datago.Spec) []map[string]any {
 		out = append(out, item)
 	}
 	return out
+}
+
+func authParamSummaries(params []datago.Param) []map[string]string {
+	return paramSummaries(authParams(params))
+}
+
+func authParams(params []datago.Param) []datago.Param {
+	out := make([]datago.Param, 0, len(params))
+	for _, param := range params {
+		if isAuthParam(param.Name) {
+			out = append(out, param)
+		}
+	}
+	return out
+}
+
+func nonAuthParams(params []datago.Param) []datago.Param {
+	out := make([]datago.Param, 0, len(params))
+	for _, param := range params {
+		if !isAuthParam(param.Name) {
+			out = append(out, param)
+		}
+	}
+	return out
+}
+
+func isAuthParam(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "_", ""))
+	return normalized == "servicekey" || normalized == "apikey" || normalized == "authkey"
 }
 
 func paramSummaries(params []datago.Param) []map[string]string {
@@ -534,7 +569,7 @@ func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
 	if op.Name != "" {
 		args = append(args, "--operation", op.Name)
 	}
-	for _, param := range op.RequestParams {
+	for _, param := range nonAuthParams(op.RequestParams) {
 		name := strings.TrimSpace(param.Name)
 		if name != "" {
 			args = append(args, name+"=VALUE")

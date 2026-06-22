@@ -97,6 +97,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 					"name": "목록 조회",
 					"endpoint": "https://example.test/api",
 					"request_params": [
+						{"name": "serviceKey", "label": "인증키"},
 						{"name": "PAGE", "label": "페이지"},
 						{"name": "ROWS", "label": "행수"}
 					],
@@ -130,6 +131,8 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"dev_approval": "신청가능"`,
 		`"request_count": 421`,
 		`"request_params":`,
+		`"auth_params":`,
+		`"name": "serviceKey"`,
 		`"name": "PAGE"`,
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
@@ -138,6 +141,9 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, `serviceKey=VALUE`) {
+		t.Fatalf("show example should not ask users to pass serviceKey: %s", stdout)
 	}
 }
 
