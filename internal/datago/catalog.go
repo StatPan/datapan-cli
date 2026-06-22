@@ -277,7 +277,31 @@ func (s Spec) SmokeCommand() string {
 		args = append(args, key+"="+s.Smoke.Params[key])
 	}
 	args = append(args, "--json")
-	return strings.Join(args, " ")
+	return CommandString(args)
+}
+
+func CommandString(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, commandArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func commandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	for _, r := range arg {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' || r == '-' || r == '.' || r == '/' || r == ':' || r == '=' || r == '@' || r == '%' || r == '+' {
+			continue
+		}
+		return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(arg) + `"`
+	}
+	return arg
 }
 
 func (s Spec) searchText() []string {

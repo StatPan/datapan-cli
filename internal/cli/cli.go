@@ -494,7 +494,7 @@ func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
 		}
 	}
 	args = append(args, "--json")
-	return strings.Join(args, " ")
+	return datago.CommandString(args)
 }
 
 func formatParamMap(params map[string]string) string {

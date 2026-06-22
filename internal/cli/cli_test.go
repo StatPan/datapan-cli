@@ -93,7 +93,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 			"priority": "P2",
 			"operations": [
 				{
-					"name": "목록조회",
+					"name": "목록 조회",
 					"endpoint": "https://example.test/api",
 					"request_params": [
 						{"name": "PAGE", "label": "페이지"},
@@ -132,7 +132,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"name": "PAGE"`,
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
-		`"example": "datapan get 999 --operation 목록조회 PAGE=VALUE ROWS=VALUE --json"`,
+		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
