@@ -55,6 +55,11 @@ func (RealHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
 
+var (
+	openURLFunc         = openURL
+	copyToClipboardFunc = copyToClipboard
+)
+
 type app struct {
 	args   []string
 	stdout io.Writer
@@ -735,7 +740,21 @@ func (a app) access(args []string, jsonOut bool) int {
 	}
 	opened := false
 	if openBrowser {
-		if err := openURL(spec.ApplicationURL()); err != nil {
+		if err := openURLFunc(spec.ApplicationURL()); err != nil {
+			if jsonOut {
+				if code := a.writeJSON(map[string]any{
+					"ok":              false,
+					"error":           "open_failed",
+					"provider":        "data.go.kr",
+					"list_id":         spec.ID,
+					"title":           spec.Title,
+					"application_url": spec.ApplicationURL(),
+					"message":         err.Error(),
+				}); code != exitOK {
+					return code
+				}
+				return exitRequest
+			}
 			return a.fail(exitRequest, "failed to open browser: %v", err)
 		}
 		opened = true
@@ -743,10 +762,24 @@ func (a app) access(args []string, jsonOut bool) int {
 	copied := false
 	copyError := ""
 	if copyPurpose {
-		if err := copyToClipboard(datago.PurposeTextKO); err != nil {
+		if err := copyToClipboardFunc(datago.PurposeTextKO); err != nil {
 			copyError = err.Error()
 			if jsonOut {
-				return a.fail(exitRequest, "failed to copy purpose text: %v", err)
+				if code := a.writeJSON(map[string]any{
+					"ok":              false,
+					"error":           "copy_failed",
+					"provider":        "data.go.kr",
+					"list_id":         spec.ID,
+					"title":           spec.Title,
+					"application_url": spec.ApplicationURL(),
+					"opened":          opened,
+					"purpose_copied":  false,
+					"purpose_text":    datago.PurposeTextKO,
+					"message":         err.Error(),
+				}); code != exitOK {
+					return code
+				}
+				return exitRequest
 			}
 		} else {
 			copied = true

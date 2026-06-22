@@ -614,6 +614,55 @@ func TestAccessJSONIncludesGuidedNextSteps(t *testing.T) {
 	}
 }
 
+func TestAccessOpenFailureJSON(t *testing.T) {
+	original := openURLFunc
+	openURLFunc = func(target string) error { return errors.New("browser unavailable") }
+	defer func() { openURLFunc = original }()
+
+	code, stdout, stderr := runTest([]string{"access", "15126469", "--open", "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"error": "open_failed"`,
+		`"message": "browser unavailable"`,
+		`"application_url": "https://www.data.go.kr/data/15126469/openapi.do"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+}
+
+func TestAccessCopyFailureJSON(t *testing.T) {
+	original := copyToClipboardFunc
+	copyToClipboardFunc = func(text string) error { return errors.New("clipboard unavailable") }
+	defer func() { copyToClipboardFunc = original }()
+
+	code, stdout, stderr := runTest([]string{"access", "15126469", "--copy-purpose", "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"error": "copy_failed"`,
+		`"message": "clipboard unavailable"`,
+		`"purpose_copied": false`,
+		`"purpose_text":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+}
+
 func TestAccessSynthesizesSmokeCommandFromImportedRegistry(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[

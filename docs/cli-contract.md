@@ -21,8 +21,8 @@ human prose on stdout. Diagnostic errors go to stderr.
 
 Machine-readable failures should also be JSON under `--json`, with `ok:false`
 and a stable `error` value such as `ambiguous_ref`, `not_found`,
-`missing_auth`, or `request_failed`. Commands should still use the documented
-exit code for that failure.
+`missing_auth`, `request_failed`, `open_failed`, or `copy_failed`. Commands
+should still use the documented exit code for that failure.
 
 `--json` may appear before or after the subcommand:
 
