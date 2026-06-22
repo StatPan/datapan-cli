@@ -118,15 +118,44 @@ func (a app) search(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	query := strings.TrimSpace(strings.Join(args, " "))
-	if query == "" {
-		return a.fail(exitUsage, "usage: datapan search <query> [--json] [--limit N]")
+	provider, args, err := consumeString(args, "--provider", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
 	}
-	results := a.reg.Search(query, limit)
+	organization, args, err := consumeString(args, "--org", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if organization == "" {
+		organization, args, err = consumeString(args, "--organization", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
+	sector, args, err := consumeString(args, "--sector", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	priority, args, err := consumeString(args, "--priority", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	query := strings.TrimSpace(strings.Join(args, " "))
+	filters := datago.SearchFilters{
+		Provider:     provider,
+		Organization: organization,
+		Sector:       sector,
+		Priority:     priority,
+	}
+	if query == "" && filters == (datago.SearchFilters{}) {
+		return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--sector NAME] [--priority P0] [--provider NAME] [--json] [--limit N]")
+	}
+	results := a.reg.Search(query, limit, filters)
 	if jsonOut {
 		return a.writeJSON(map[string]any{
 			"ok":      true,
 			"query":   query,
+			"filters": filters,
 			"count":   len(results),
 			"results": results,
 		})
@@ -137,6 +166,9 @@ func (a app) search(args []string, jsonOut bool) int {
 	}
 	for _, spec := range results {
 		fmt.Fprintf(a.stdout, "%s  %s  [%s/%s]\n", spec.ID, spec.Title, spec.Priority, spec.Sector)
+		if spec.Organization != "" {
+			fmt.Fprintf(a.stdout, "  organization: %s\n", spec.Organization)
+		}
 		if len(spec.Operations) > 0 {
 			fmt.Fprintf(a.stdout, "  default operation: %s\n", spec.Operations[0].Name)
 		}
@@ -160,6 +192,9 @@ func (a app) info(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "%s\n", spec.Title)
 	fmt.Fprintf(a.stdout, "  list id: %s\n", spec.ID)
 	fmt.Fprintf(a.stdout, "  provider: %s\n", spec.Provider)
+	if spec.Organization != "" {
+		fmt.Fprintf(a.stdout, "  organization: %s\n", spec.Organization)
+	}
 	fmt.Fprintf(a.stdout, "  sector: %s\n", spec.Sector)
 	fmt.Fprintf(a.stdout, "  priority: %s\n", spec.Priority)
 	fmt.Fprintf(a.stdout, "  application: %s\n", spec.ApplicationURL())
@@ -634,7 +669,7 @@ func (a app) printHelp() {
 	fmt.Fprintln(a.stdout, `datapan is an agent-friendly CLI for Korean public data.
 
 Usage:
-  datapan search <query> [--json] [--limit N]
+  datapan search [query] [--org NAME] [--sector NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan info <list-id> [--json]
   datapan auth check [--json]
   datapan access <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]

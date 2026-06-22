@@ -37,6 +37,29 @@ func TestSearchJSON(t *testing.T) {
 	}
 }
 
+func TestSearchFiltersByOrganization(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"search", "실거래", "--org", "국토교통부", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"organization": "국토교통부"`) {
+		t.Fatalf("expected organization metadata in output: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"id": "15126469"`) {
+		t.Fatalf("expected apartment trade spec in output: %s", stdout)
+	}
+}
+
+func TestSearchAllowsFilterOnly(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"search", "--org", "기상청", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "15084084"`) {
+		t.Fatalf("expected KMA forecast spec in output: %s", stdout)
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {

@@ -23,15 +23,16 @@ type Registry struct {
 }
 
 type Spec struct {
-	ID          string      `json:"id"`
-	Title       string      `json:"title"`
-	Provider    string      `json:"provider"`
-	Sector      string      `json:"sector"`
-	Priority    string      `json:"priority"`
-	Keywords    []string    `json:"keywords"`
-	Operations  []Operation `json:"operations"`
-	Smoke       *Smoke      `json:"smoke,omitempty"`
-	Description string      `json:"description,omitempty"`
+	ID           string      `json:"id"`
+	Title        string      `json:"title"`
+	Provider     string      `json:"provider"`
+	Organization string      `json:"organization,omitempty"`
+	Sector       string      `json:"sector"`
+	Priority     string      `json:"priority"`
+	Keywords     []string    `json:"keywords"`
+	Operations   []Operation `json:"operations"`
+	Smoke        *Smoke      `json:"smoke,omitempty"`
+	Description  string      `json:"description,omitempty"`
 }
 
 type Operation struct {
@@ -45,6 +46,13 @@ type Smoke struct {
 	Params    map[string]string `json:"params,omitempty"`
 }
 
+type SearchFilters struct {
+	Provider     string `json:"provider"`
+	Organization string `json:"organization"`
+	Sector       string `json:"sector"`
+	Priority     string `json:"priority"`
+}
+
 func DefaultRegistry() Registry {
 	var specs []Spec
 	if err := json.Unmarshal(catalogSeed, &specs); err != nil {
@@ -53,9 +61,9 @@ func DefaultRegistry() Registry {
 	return Registry{specs: specs}
 }
 
-func (r Registry) Search(query string, limit int) []Spec {
+func (r Registry) Search(query string, limit int, filters SearchFilters) []Spec {
 	terms := strings.Fields(strings.ToLower(query))
-	if len(terms) == 0 {
+	if len(terms) == 0 && filters.empty() {
 		return nil
 	}
 	type scored struct {
@@ -64,6 +72,9 @@ func (r Registry) Search(query string, limit int) []Spec {
 	}
 	var matches []scored
 	for _, spec := range r.specs {
+		if !filters.match(spec) {
+			continue
+		}
 		haystack := strings.ToLower(strings.Join(spec.searchText(), " "))
 		score := 0
 		for _, term := range terms {
@@ -71,7 +82,7 @@ func (r Registry) Search(query string, limit int) []Spec {
 				score++
 			}
 		}
-		if score > 0 {
+		if score > 0 || len(terms) == 0 {
 			matches = append(matches, scored{spec: spec, score: score})
 		}
 	}
@@ -89,6 +100,25 @@ func (r Registry) Search(query string, limit int) []Spec {
 		results[i] = match.spec
 	}
 	return results
+}
+
+func (f SearchFilters) empty() bool {
+	return f.Provider == "" && f.Organization == "" && f.Sector == "" && f.Priority == ""
+}
+
+func (f SearchFilters) match(spec Spec) bool {
+	return containsFold(spec.Provider, f.Provider) &&
+		containsFold(spec.Organization, f.Organization) &&
+		containsFold(spec.Sector, f.Sector) &&
+		containsFold(spec.Priority, f.Priority)
+}
+
+func containsFold(value, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(value), strings.ToLower(want))
 }
 
 func (r Registry) ByID(id string) (Spec, bool) {
@@ -140,7 +170,7 @@ func (s Spec) SmokeCommand() string {
 }
 
 func (s Spec) searchText() []string {
-	parts := []string{s.ID, s.Title, s.Provider, s.Sector, s.Priority, s.Description}
+	parts := []string{s.ID, s.Title, s.Provider, s.Organization, s.Sector, s.Priority, s.Description}
 	parts = append(parts, s.Keywords...)
 	for _, op := range s.Operations {
 		parts = append(parts, op.Name, op.Endpoint)
