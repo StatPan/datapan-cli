@@ -12,11 +12,6 @@ import (
 var dataGoKrApplyScript string
 
 func runBrowserWorkflow(args []string, stdout, stderr io.Writer) int {
-	python, err := findPython()
-	if err != nil {
-		_, _ = stderr.Write([]byte("python not found; install Python and Playwright to use browser-backed apply commands\n"))
-		return exitRequest
-	}
 	script, err := os.CreateTemp("", "datapan-data-go-kr-apply-*.py")
 	if err != nil {
 		_, _ = stderr.Write([]byte(err.Error() + "\n"))
@@ -32,8 +27,11 @@ func runBrowserWorkflow(args []string, stdout, stderr io.Writer) int {
 		_, _ = stderr.Write([]byte(err.Error() + "\n"))
 		return exitRequest
 	}
-	cmdArgs := append([]string{script.Name()}, args...)
-	cmd := exec.Command(python, cmdArgs...)
+	cmd, err := browserWorkflowCommand(script.Name(), args)
+	if err != nil {
+		_, _ = stderr.Write([]byte("python or uv not found; install uv or Python+Playwright to use browser-backed apply commands\n"))
+		return exitRequest
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
@@ -44,6 +42,37 @@ func runBrowserWorkflow(args []string, stdout, stderr io.Writer) int {
 		return exitRequest
 	}
 	return exitOK
+}
+
+func browserWorkflowCommand(script string, args []string) (*exec.Cmd, error) {
+	if uv, err := findUV(); err == nil {
+		cmdArgs := append([]string{"run", "--with", "playwright", "python", script}, args...)
+		return exec.Command(uv, cmdArgs...), nil
+	}
+	python, err := findPython()
+	if err != nil {
+		return nil, err
+	}
+	cmdArgs := append([]string{script}, args...)
+	return exec.Command(python, cmdArgs...), nil
+}
+
+func findUV() (string, error) {
+	if path, err := exec.LookPath("uv"); err == nil {
+		return path, nil
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates := []string{
+			home + "/.local/bin/uv",
+			home + "/.cargo/bin/uv",
+		}
+		for _, candidate := range candidates {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+	return "", os.ErrNotExist
 }
 
 func findPython() (string, error) {
