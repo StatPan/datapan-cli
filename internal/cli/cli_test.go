@@ -147,6 +147,39 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 	}
 }
 
+func TestShowMarksImportedServiceRootNotCallable(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id": "998",
+			"title": "테스트기관_루트 API",
+			"provider": "data.go.kr",
+			"organization": "테스트기관",
+			"priority": "P2",
+			"operations": [
+				{
+					"name": "목록 조회",
+					"request_params": [
+						{"name": "YY", "label": "년도"}
+					]
+				}
+			]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"show", "테스트기관_루트 API", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": tmp}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"callable": false`) {
+		t.Fatalf("expected not-callable operation: %s", stdout)
+	}
+	if strings.Contains(stdout, `datapan get 998`) {
+		t.Fatalf("show should not generate get example without callable endpoint: %s", stdout)
+	}
+}
+
 func TestShowAmbiguousQueryReturnsCandidates(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"show", "정보", "--json"}, nil, nil)
 	if code != exitAmbiguous {

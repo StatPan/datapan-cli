@@ -270,6 +270,9 @@ func operationEndpoint(base, op string) string {
 	base = strings.TrimSpace(base)
 	op = strings.TrimSpace(op)
 	if op == "" || op == " " {
+		if isServiceRootEndpoint(base) {
+			return ""
+		}
 		return base
 	}
 	if strings.HasPrefix(op, "http://") || strings.HasPrefix(op, "https://") {
@@ -279,6 +282,15 @@ func operationEndpoint(base, op string) string {
 		return op
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(op, "/")
+}
+
+func isServiceRootEndpoint(endpoint string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return false
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	return path == "/openapi/service"
 }
 
 func hasOperation(spec Spec, op Operation) bool {

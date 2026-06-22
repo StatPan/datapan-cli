@@ -55,3 +55,17 @@ func TestQueryWithServiceKeyEncodesDecodedKey(t *testing.T) {
 		t.Fatalf("expected decoded serviceKey to be encoded: %s", raw)
 	}
 }
+
+func TestOperationEndpointSkipsServiceRootWithoutOperationURL(t *testing.T) {
+	got := operationEndpoint("http://openapi.tour.go.kr/openapi/service", "")
+	if got != "" {
+		t.Fatalf("operationEndpoint()=%q; service root should not be treated as callable", got)
+	}
+}
+
+func TestOperationEndpointKeepsConcreteEndpointWithoutOperationURL(t *testing.T) {
+	got := operationEndpoint("https://example.test/api/items", "")
+	if got != "https://example.test/api/items" {
+		t.Fatalf("operationEndpoint()=%q", got)
+	}
+}
