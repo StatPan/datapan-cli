@@ -1,0 +1,136 @@
+[
+  {
+    "id": "15084084",
+    "title": "기상청_단기예보 조회서비스",
+    "provider": "data.go.kr",
+    "sector": "weather_environment",
+    "priority": "P0",
+    "keywords": ["기상청", "날씨", "단기예보", "초단기", "weather", "forecast", "kma"],
+    "description": "Immediate data.go.kr application target from datapan-data evidence.",
+    "operations": [
+      {
+        "name": "getVilageFcst",
+        "endpoint": "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst",
+        "default_params": {
+          "dataType": "JSON",
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      },
+      {
+        "name": "getUltraSrtFcst",
+        "endpoint": "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst",
+        "default_params": {
+          "dataType": "JSON",
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      },
+      {
+        "name": "getUltraSrtNcst",
+        "endpoint": "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst",
+        "default_params": {
+          "dataType": "JSON",
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      }
+    ]
+  },
+  {
+    "id": "15073861",
+    "title": "한국환경공단_에어코리아_대기오염정보",
+    "provider": "data.go.kr",
+    "sector": "weather_environment",
+    "priority": "P0",
+    "keywords": ["에어코리아", "대기오염", "미세먼지", "환경", "airkorea", "pm10", "pm25"],
+    "operations": [
+      {
+        "name": "getCtprvnRltmMesureDnsty",
+        "endpoint": "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty",
+        "default_params": {
+          "returnType": "json",
+          "numOfRows": "10",
+          "pageNo": "1",
+          "sidoName": "서울",
+          "ver": "1.0"
+        }
+      }
+    ]
+  },
+  {
+    "id": "15101933",
+    "title": "한국관광공사_고캠핑 정보 조회서비스_GW",
+    "provider": "data.go.kr",
+    "sector": "camping_travel",
+    "priority": "P0",
+    "keywords": ["고캠핑", "캠핑", "관광", "여행", "gocamping", "camping"],
+    "operations": [
+      {
+        "name": "basedList",
+        "endpoint": "https://apis.data.go.kr/B551011/GoCamping/basedList",
+        "default_params": {
+          "MobileOS": "ETC",
+          "MobileApp": "datapan",
+          "_type": "json",
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      }
+    ]
+  },
+  {
+    "id": "15043184",
+    "title": "금융위원회_기업기본정보",
+    "provider": "data.go.kr",
+    "sector": "finance_business",
+    "priority": "P0",
+    "keywords": ["금융위원회", "기업", "사업자", "회사", "corp", "finance"],
+    "operations": [
+      {
+        "name": "getCorpOutline_V2",
+        "endpoint": "https://apis.data.go.kr/1160100/service/GetCorpBasicInfoService_V2/getCorpOutline_V2",
+        "default_params": {
+          "resultType": "json",
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      }
+    ]
+  },
+  {
+    "id": "15126469",
+    "title": "국토교통부_아파트 매매 실거래가 자료",
+    "provider": "data.go.kr",
+    "sector": "realestate",
+    "priority": "P1",
+    "keywords": ["국토교통부", "아파트", "실거래가", "부동산", "realestate", "apt", "trade"],
+    "operations": [
+      {
+        "name": "getRTMSDataSvcAptTrade",
+        "endpoint": "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
+        "default_params": {
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      }
+    ]
+  },
+  {
+    "id": "15125364",
+    "title": "창업진흥원_K-Startup",
+    "provider": "data.go.kr",
+    "sector": "support_program",
+    "priority": "P0",
+    "keywords": ["창업", "지원사업", "K-Startup", "startup", "support"],
+    "operations": [
+      {
+        "name": "announcement",
+        "default_params": {
+          "numOfRows": "10",
+          "pageNo": "1"
+        }
+      }
+    ]
+  }
+]
