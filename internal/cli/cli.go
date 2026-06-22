@@ -843,7 +843,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	}
 	reqPlan, keyName, err := a.requestPlan(args[0], operation, params)
 	if err != nil {
-		return a.mapError(err)
+		return a.mapError(err, jsonOut || exportMode)
 	}
 	if dryRun {
 		payload := map[string]any{
@@ -865,6 +865,18 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 
 	respPayload, err := a.execute(reqPlan)
 	if err != nil {
+		if jsonOut || exportMode {
+			if code := a.writeJSON(map[string]any{
+				"ok":        false,
+				"error":     "request_failed",
+				"dataset":   reqPlan.Spec.ID,
+				"operation": reqPlan.Operation.Name,
+				"message":   err.Error(),
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
 		return a.fail(exitRequest, "%v", err)
 	}
 	if jsonOut || exportMode {
@@ -919,6 +931,9 @@ func (a app) save(args []string, jsonOut bool) int {
 	capture := bytes.Buffer{}
 	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(append(args, "--json"), true, true)
 	if code != exitOK {
+		if jsonOut && capture.Len() > 0 {
+			_, _ = a.stdout.Write(capture.Bytes())
+		}
 		return code
 	}
 	rows, err := datago.RowsFromJSON(capture.Bytes())
@@ -954,6 +969,9 @@ func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 	capture := bytes.Buffer{}
 	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(args, true, true)
 	if code != exitOK {
+		if jsonOut && capture.Len() > 0 {
+			_, _ = a.stdout.Write(capture.Bytes())
+		}
 		return code
 	}
 	rows, err := datago.RowsFromJSON(capture.Bytes())
@@ -1074,9 +1092,20 @@ func (a app) resolveKeyValue() (string, string, bool) {
 	return "", "", false
 }
 
-func (a app) mapError(err error) int {
+func (a app) mapError(err error, jsonOut bool) int {
 	var ambiguous errAmbiguous
 	if errors.As(err, &ambiguous) {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":         false,
+				"error":      "ambiguous_ref",
+				"ref":        ambiguous.ref,
+				"candidates": specSummaries(ambiguous.candidates),
+			}); code != exitOK {
+				return code
+			}
+			return exitAmbiguous
+		}
 		fmt.Fprintf(a.stderr, "ambiguous data.go.kr ref %q; candidates:\n", ambiguous.ref)
 		for _, spec := range ambiguous.candidates {
 			fmt.Fprintf(a.stderr, "  %s  %s\n", spec.ID, spec.Title)
@@ -1085,11 +1114,41 @@ func (a app) mapError(err error) int {
 	}
 	var nf errNotFound
 	if errors.As(err, &nf) {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":    false,
+				"error": "not_found",
+				"ref":   nf.id,
+			}); code != exitOK {
+				return code
+			}
+			return exitNotFound
+		}
 		return a.fail(exitNotFound, "unknown data.go.kr ref %q", nf.id)
 	}
 	var auth errAuth
 	if errors.As(err, &auth) {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":                false,
+				"error":             "missing_auth",
+				"accepted_env_vars": datago.KeyEnvNames,
+			}); code != exitOK {
+				return code
+			}
+			return exitAuth
+		}
 		return a.fail(exitAuth, "missing data.go.kr API key; set one of: %s", strings.Join(datago.KeyEnvNames, ", "))
+	}
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":      false,
+			"error":   "request_failed",
+			"message": err.Error(),
+		}); code != exitOK {
+			return code
+		}
+		return exitRequest
 	}
 	return a.fail(exitRequest, "%v", err)
 }

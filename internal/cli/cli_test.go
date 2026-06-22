@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -297,6 +298,76 @@ func TestGetAcceptsPositionalParams(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"dataset": "15084084"`) || !strings.Contains(stdout, `"base_date": "20260622"`) {
 		t.Fatalf("expected resolved dry-run with positional params: %s", stdout)
+	}
+}
+
+func TestGetAmbiguousRefJSONReturnsCandidates(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"get", "정보", "--dry-run", "--json"}, nil, nil)
+	if code != exitAmbiguous {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"error": "ambiguous_ref"`,
+		`"candidates":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestGetUnknownRefJSONReturnsNotFound(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"get", "missing-dataset", "--dry-run", "--json"}, nil, nil)
+	if code != exitNotFound {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "not_found"`) || !strings.Contains(stdout, `"ref": "missing-dataset"`) {
+		t.Fatalf("expected not_found JSON: %s", stdout)
+	}
+}
+
+func TestGetMissingAuthJSON(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"get", "15084084", "--json"}, nil, nil)
+	if code != exitAuth {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "missing_auth"`) || !strings.Contains(stdout, `"DATAPAN_DATA_GO_KR_KEY"`) {
+		t.Fatalf("expected missing_auth JSON: %s", stdout)
+	}
+}
+
+func TestGetRequestFailureJSON(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("network down")
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"error": "request_failed"`,
+		`"dataset": "15084084"`,
+		`"message": "network down"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestSaveJSONForwardsRefError(t *testing.T) {
+	tmp := t.TempDir() + "/rows.csv"
+	code, stdout, stderr := runTest([]string{"save", "정보", "--output", tmp, "--json"}, nil, nil)
+	if code != exitAmbiguous {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "ambiguous_ref"`) || !strings.Contains(stdout, `"candidates"`) {
+		t.Fatalf("expected forwarded ambiguous JSON: %s", stdout)
 	}
 }
 

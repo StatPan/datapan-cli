@@ -19,6 +19,11 @@ instructions should prefer `datapan`.
 Commands that support `--json` must produce one JSON object on stdout and no
 human prose on stdout. Diagnostic errors go to stderr.
 
+Machine-readable failures should also be JSON under `--json`, with `ok:false`
+and a stable `error` value such as `ambiguous_ref`, `not_found`,
+`missing_auth`, or `request_failed`. Commands should still use the documented
+exit code for that failure.
+
 `--json` may appear before or after the subcommand:
 
 ```bash
