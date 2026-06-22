@@ -30,6 +30,7 @@ type Spec struct {
 	Priority    string      `json:"priority"`
 	Keywords    []string    `json:"keywords"`
 	Operations  []Operation `json:"operations"`
+	Smoke       *Smoke      `json:"smoke,omitempty"`
 	Description string      `json:"description,omitempty"`
 }
 
@@ -37,6 +38,11 @@ type Operation struct {
 	Name          string            `json:"name"`
 	Endpoint      string            `json:"endpoint,omitempty"`
 	DefaultParams map[string]string `json:"default_params,omitempty"`
+}
+
+type Smoke struct {
+	Operation string            `json:"operation,omitempty"`
+	Params    map[string]string `json:"params,omitempty"`
 }
 
 func DefaultRegistry() Registry {
@@ -111,6 +117,26 @@ func (s Spec) Operation(name string) (Operation, bool) {
 		}
 	}
 	return Operation{}, false
+}
+
+func (s Spec) SmokeCommand() string {
+	if s.Smoke == nil {
+		return ""
+	}
+	args := []string{"datapan", "call", s.ID}
+	if s.Smoke.Operation != "" {
+		args = append(args, "--operation", s.Smoke.Operation)
+	}
+	keys := make([]string, 0, len(s.Smoke.Params))
+	for key := range s.Smoke.Params {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		args = append(args, "--param", key+"="+s.Smoke.Params[key])
+	}
+	args = append(args, "--json")
+	return strings.Join(args, " ")
 }
 
 func (s Spec) searchText() []string {

@@ -207,9 +207,16 @@ func (a app) apply(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	openBrowser, args := consumeBool(args, "--open")
+	copyPurpose, args := consumeBool(args, "--copy-purpose")
+	start, args := consumeBool(args, "--start")
 	showPurpose, args := consumeBool(args, "--purpose")
+	if start {
+		openBrowser = true
+		copyPurpose = true
+		showPurpose = true
+	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan apply <list-id> [--open] [--purpose] [--json]")
+		return a.fail(exitUsage, "usage: datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]")
 	}
 	spec, ok := a.reg.ByID(args[0])
 	if !ok {
@@ -222,6 +229,20 @@ func (a app) apply(args []string, jsonOut bool) int {
 		}
 		opened = true
 	}
+	copied := false
+	copyError := ""
+	if copyPurpose {
+		if err := copyToClipboard(datago.PurposeTextKO); err != nil {
+			copyError = err.Error()
+			if jsonOut {
+				return a.fail(exitRequest, "failed to copy purpose text: %v", err)
+			}
+		} else {
+			copied = true
+		}
+	}
+	smokeCommand := spec.SmokeCommand()
+	nextSteps := applyNextSteps(spec, smokeCommand)
 	payload := map[string]any{
 		"ok":              true,
 		"provider":        "data.go.kr",
@@ -229,18 +250,40 @@ func (a app) apply(args []string, jsonOut bool) int {
 		"title":           spec.Title,
 		"application_url": spec.ApplicationURL(),
 		"opened":          opened,
+		"purpose_copied":  copied,
 		"purpose_text":    datago.PurposeTextKO,
+		"smoke_command":   smokeCommand,
+		"next_steps":      nextSteps,
 		"notes": []string{
 			"Do not paste API keys into issues, logs, screenshots, or chat.",
 			"data.go.kr usually requires per-service usage approval even when a generic service key exists.",
 		},
 	}
+	if copyError != "" {
+		payload["copy_error"] = copyError
+	}
 	if jsonOut {
 		return a.writeJSON(payload)
 	}
+	fmt.Fprintf(a.stdout, "%s\n", spec.Title)
 	fmt.Fprintf(a.stdout, "Application page: %s\n", spec.ApplicationURL())
+	if opened {
+		fmt.Fprintln(a.stdout, "Opened application page in your browser.")
+	}
+	if copied {
+		fmt.Fprintln(a.stdout, "Copied purpose text to clipboard.")
+	} else if copyError != "" {
+		fmt.Fprintf(a.stdout, "Could not copy purpose text: %s\n", copyError)
+	}
 	if showPurpose || !openBrowser {
 		fmt.Fprintf(a.stdout, "\nPurpose text:\n%s\n", datago.PurposeTextKO)
+	}
+	fmt.Fprintln(a.stdout, "\nNext steps:")
+	for i, step := range nextSteps {
+		fmt.Fprintf(a.stdout, "  %d. %s\n", i+1, step)
+	}
+	if smokeCommand != "" {
+		fmt.Fprintf(a.stdout, "\nAfter approval smoke:\n  %s\n", smokeCommand)
 	}
 	return exitOK
 }
@@ -487,7 +530,7 @@ Usage:
   datapan search <query> [--json] [--limit N]
   datapan info <list-id> [--json]
   datapan auth check [--json]
-  datapan apply <list-id> [--open] [--purpose] [--json]
+  datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan version [--json]
@@ -633,6 +676,57 @@ func writeCSV(w io.Writer, rows []map[string]any) int {
 		return exitRequest
 	}
 	return exitOK
+}
+
+func applyNextSteps(spec datago.Spec, smokeCommand string) []string {
+	steps := []string{
+		"Log in to data.go.kr with the account that owns your service key.",
+		"Open the application page and click 활용신청 if the service is not already approved.",
+		"Paste the purpose text into the usage-purpose field.",
+		"Submit the application, then wait for approval if the portal marks it pending.",
+		"Keep the API key in an environment variable; do not paste it into docs, issues, logs, or chat.",
+	}
+	if smokeCommand != "" {
+		steps = append(steps, "After approval, run: "+smokeCommand)
+	}
+	return steps
+}
+
+func copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("clip")
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	default:
+		if _, err := exec.LookPath("wl-copy"); err == nil {
+			cmd = exec.Command("wl-copy")
+		} else if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else if _, err := exec.LookPath("xsel"); err == nil {
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		} else {
+			return fmt.Errorf("no clipboard command found; install wl-copy, xclip, or xsel")
+		}
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(stdin, text); err != nil {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+		return err
+	}
+	if err := stdin.Close(); err != nil {
+		_ = cmd.Wait()
+		return err
+	}
+	return cmd.Wait()
 }
 
 func openURL(target string) error {

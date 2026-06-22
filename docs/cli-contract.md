@@ -66,5 +66,17 @@ output must redact `serviceKey`.
 ## Application Help
 
 `datapan apply` is a guided helper, not an unattended browser automation system.
-The MVP may open the data.go.kr application page and print reusable purpose
-text, but it must not submit applications or store login sessions.
+It may open the data.go.kr application page, copy reusable purpose text to the
+clipboard, print manual steps, and show a bounded post-approval smoke command.
+It must not submit applications or store login sessions in the MVP.
+
+The fast path is:
+
+```bash
+datapan apply <list-id> --start
+```
+
+`--start` is equivalent to opening the application page and copying/showing the
+purpose text. JSON output should expose `application_url`, `purpose_text`,
+`next_steps`, and `smoke_command` so an agent can guide the user without scraping
+human prose.

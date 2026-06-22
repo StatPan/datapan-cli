@@ -65,10 +65,16 @@ datapan info 15126469
 datapan auth check --json
 datapan apply 15126469 --purpose
 datapan apply 15126469 --open
+datapan apply 15126469 --start
 datapan call 15084084 --operation getVilageFcst --param base_date=20260622 --param base_time=0500 --param nx=60 --param ny=127 --json
 datapan call 15084084 --dry-run --json
 datapan export --input response.json --format csv
 ```
+
+`datapan apply <list-id> --start` is the fast path for usage applications: it
+opens the data.go.kr application page, copies the standard purpose text to the
+clipboard when the OS supports it, prints the manual steps, and shows the smoke
+command to run after approval.
 
 Exit codes are intentionally small and stable:
 

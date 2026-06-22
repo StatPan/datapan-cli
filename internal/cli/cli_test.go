@@ -74,6 +74,23 @@ func TestCallDryRunRedactsKey(t *testing.T) {
 	}
 }
 
+func TestApplyJSONIncludesGuidedNextSteps(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"apply", "15126469", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	for _, want := range []string{
+		`"application_url": "https://www.data.go.kr/data/15126469/openapi.do"`,
+		`"purpose_text":`,
+		`"smoke_command": "datapan call 15126469 --operation getRTMSDataSvcAptTrade --param DEAL_YMD=202501 --param LAWD_CD=11110 --json"`,
+		`"next_steps":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCallUsesHTTPClient(t *testing.T) {
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if got := req.URL.Query().Get("serviceKey"); got != "secret-value" {

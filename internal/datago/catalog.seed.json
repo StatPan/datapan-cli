@@ -7,6 +7,15 @@
     "priority": "P0",
     "keywords": ["기상청", "날씨", "단기예보", "초단기", "weather", "forecast", "kma"],
     "description": "Immediate data.go.kr application target from datapan-data evidence.",
+    "smoke": {
+      "operation": "getVilageFcst",
+      "params": {
+        "base_date": "20260622",
+        "base_time": "0500",
+        "nx": "60",
+        "ny": "127"
+      }
+    },
     "operations": [
       {
         "name": "getVilageFcst",
@@ -44,6 +53,12 @@
     "sector": "weather_environment",
     "priority": "P0",
     "keywords": ["에어코리아", "대기오염", "미세먼지", "환경", "airkorea", "pm10", "pm25"],
+    "smoke": {
+      "operation": "getCtprvnRltmMesureDnsty",
+      "params": {
+        "sidoName": "서울"
+      }
+    },
     "operations": [
       {
         "name": "getCtprvnRltmMesureDnsty",
@@ -65,6 +80,10 @@
     "sector": "camping_travel",
     "priority": "P0",
     "keywords": ["고캠핑", "캠핑", "관광", "여행", "gocamping", "camping"],
+    "smoke": {
+      "operation": "basedList",
+      "params": {}
+    },
     "operations": [
       {
         "name": "basedList",
@@ -86,6 +105,10 @@
     "sector": "finance_business",
     "priority": "P0",
     "keywords": ["금융위원회", "기업", "사업자", "회사", "corp", "finance"],
+    "smoke": {
+      "operation": "getCorpOutline_V2",
+      "params": {}
+    },
     "operations": [
       {
         "name": "getCorpOutline_V2",
@@ -105,6 +128,13 @@
     "sector": "realestate",
     "priority": "P1",
     "keywords": ["국토교통부", "아파트", "실거래가", "부동산", "realestate", "apt", "trade"],
+    "smoke": {
+      "operation": "getRTMSDataSvcAptTrade",
+      "params": {
+        "LAWD_CD": "11110",
+        "DEAL_YMD": "202501"
+      }
+    },
     "operations": [
       {
         "name": "getRTMSDataSvcAptTrade",
@@ -123,6 +153,10 @@
     "sector": "support_program",
     "priority": "P0",
     "keywords": ["창업", "지원사업", "K-Startup", "startup", "support"],
+    "smoke": {
+      "operation": "announcement",
+      "params": {}
+    },
     "operations": [
       {
         "name": "announcement",
