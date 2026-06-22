@@ -66,6 +66,7 @@ datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
+datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
 datapan access 15126469 --purpose
@@ -109,10 +110,20 @@ data.go.kr list ID, a data.go.kr detail URL, an exact title, or a search query.
 If a query matches multiple datasets, Datapan stops and returns candidates
 instead of guessing.
 
+Use `datapan catalog diff` after a fresh import to inspect upstream catalog
+changes before replacing an existing registry. It reports added, removed, and
+changed specs by stable data.go.kr list ID and includes changed field names
+under `--json`.
+
 `datapan show <ref> --json` is the bridge from discovery to use. It keeps the
 normalized spec, and also returns access metadata, operation parameter names,
 response-field counts, and a copyable `datapan get ...` example where Datapan
 can synthesize one from the imported data.go.kr spec.
+
+`datapan get` treats HTTP failures, data.go.kr provider errors such as non-`00`
+`resultCode`, and HTML service pages as request failures. JSON output includes
+`semantic_status` so scripts and agents can tell whether a failure came from
+HTTP, provider semantics, or an unexpected response shape.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider

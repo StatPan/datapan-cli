@@ -24,6 +24,11 @@ and a stable `error` value such as `ambiguous_ref`, `not_found`,
 `missing_auth`, `request_failed`, `open_failed`, or `copy_failed`. Commands
 should still use the documented exit code for that failure.
 
+Request envelopes may also include `semantic_status`. This is the provider-level
+classification after HTTP succeeds or fails, such as `http_error`,
+`provider_error`, `html_response`, `provider_ok`, or `json_response`. A
+non-success semantic status must set `ok:false` and use exit code 4.
+
 `--json` may appear before or after the subcommand:
 
 ```bash
@@ -63,6 +68,12 @@ source fields include `id`, `title`, `provider`, `organization`,
 `source_category`, `source_keywords`, `operations`, and `source.raw`.
 `search_terms` is reserved for Datapan-created search helpers and must not be
 presented as upstream metadata.
+
+`datapan catalog diff --old OLD --new NEW --json` compares two normalized
+registry files by stable data.go.kr list ID. It must not guess renamed datasets.
+The JSON response includes `summary`, `added`, `removed`, and `changed`.
+`changed` entries include the changed field names and old/new digests so an
+agent can decide whether a registry replacement needs review.
 
 ## Dataset Refs
 

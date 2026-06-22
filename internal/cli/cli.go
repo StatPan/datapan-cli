@@ -216,11 +216,13 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json]")
 	}
 	switch args[0] {
 	case "import":
 		return a.catalogImport(args[1:], jsonOut)
+	case "diff":
+		return a.catalogDiff(args[1:], jsonOut)
 	default:
 		return a.fail(exitUsage, "unknown catalog command %q", args[0])
 	}
@@ -360,6 +362,83 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "Imported %d data.go.kr rows into %d specs (%d operations).\n", result.RowsFetched, len(specs), operations)
 	fmt.Fprintf(a.stdout, "Registry: %s\n", output)
 	return exitOK
+}
+
+func (a app) catalogDiff(args []string, jsonOut bool) int {
+	oldPath, args, err := consumeString(args, "--old", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	newPath, args, err := consumeString(args, "--new", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if oldPath == "" && len(args) > 0 {
+		oldPath = args[0]
+		args = args[1:]
+	}
+	if newPath == "" && len(args) > 0 {
+		newPath = args[0]
+		args = args[1:]
+	}
+	if oldPath == "" || newPath == "" || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog diff --old OLD --new NEW [--json]")
+	}
+	oldReg, err := datago.LoadRegistry(oldPath)
+	if err != nil {
+		return a.catalogDiffFailure(jsonOut, "old", oldPath, err)
+	}
+	newReg, err := datago.LoadRegistry(newPath)
+	if err != nil {
+		return a.catalogDiffFailure(jsonOut, "new", newPath, err)
+	}
+	diff := datago.DiffRegistries(oldReg, newReg)
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":      true,
+			"old":     oldPath,
+			"new":     newPath,
+			"summary": diff.Summary,
+			"added":   specSummaries(diff.Added),
+			"removed": specSummaries(diff.Removed),
+			"changed": diff.Changed,
+			"counts": map[string]int{
+				"old": len(oldReg.Specs()),
+				"new": len(newReg.Specs()),
+			},
+		})
+	}
+	fmt.Fprintf(a.stdout, "Catalog diff: %s -> %s\n", oldPath, newPath)
+	fmt.Fprintf(a.stdout, "  added: %d\n", diff.Summary.Added)
+	fmt.Fprintf(a.stdout, "  removed: %d\n", diff.Summary.Removed)
+	fmt.Fprintf(a.stdout, "  changed: %d\n", diff.Summary.Changed)
+	fmt.Fprintf(a.stdout, "  stable: %d\n", diff.Summary.Stable)
+	for _, spec := range diff.Added {
+		fmt.Fprintf(a.stdout, "+ %s  %s\n", spec.ID, spec.Title)
+	}
+	for _, spec := range diff.Removed {
+		fmt.Fprintf(a.stdout, "- %s  %s\n", spec.ID, spec.Title)
+	}
+	for _, change := range diff.Changed {
+		fmt.Fprintf(a.stdout, "~ %s  %s\n", change.ID, strings.Join(change.Fields, ","))
+	}
+	return exitOK
+}
+
+func (a app) catalogDiffFailure(jsonOut bool, side, path string, err error) int {
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":      false,
+			"error":   "request_failed",
+			"side":    side,
+			"path":    path,
+			"message": err.Error(),
+		}); code != exitOK {
+			return code
+		}
+		return exitRequest
+	}
+	return a.fail(exitRequest, "failed to load %s registry %q: %v", side, path, err)
 }
 
 func (a app) info(args []string, jsonOut bool) int {
@@ -1200,14 +1279,19 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 	if err != nil {
 		return datago.ResponseEnvelope{}, err
 	}
+	contentType := resp.Header.Get("Content-Type")
+	ok, semanticStatus, message := datago.ClassifyResponse(resp.StatusCode, contentType, body)
 	return datago.ResponseEnvelope{
-		OK:         resp.StatusCode >= 200 && resp.StatusCode < 300,
-		Provider:   "data.go.kr",
-		Dataset:    plan.Spec.ID,
-		Operation:  plan.Operation.Name,
-		StatusCode: resp.StatusCode,
-		URL:        plan.RedactedURL,
-		Body:       string(body),
+		OK:             ok,
+		Provider:       "data.go.kr",
+		Dataset:        plan.Spec.ID,
+		Operation:      plan.Operation.Name,
+		StatusCode:     resp.StatusCode,
+		ContentType:    contentType,
+		SemanticStatus: semanticStatus,
+		Message:        message,
+		URL:            plan.RedactedURL,
+		Body:           string(body),
 	}, nil
 }
 
@@ -1308,6 +1392,7 @@ func (a app) printHelp() {
 Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]
+  datapan catalog diff --old OLD --new NEW [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]

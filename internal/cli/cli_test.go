@@ -497,6 +497,42 @@ func TestCatalogImportOutputFailureJSON(t *testing.T) {
 	}
 }
 
+func TestCatalogDiffJSON(t *testing.T) {
+	dir := t.TempDir()
+	oldPath := dir + "/old.json"
+	newPath := dir + "/new.json"
+	if err := osWriteFile(oldPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://old.test"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(newPath, []byte(`[
+		{"id":"200","title":"기관_B 변경","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://new.test"}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","operations":[]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "diff", "--old", oldPath, "--new", newPath, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"added": 1`,
+		`"removed": 1`,
+		`"changed": 1`,
+		`"id": "300"`,
+		`"id": "100"`,
+		`"fields":`,
+		`"title"`,
+		`"operations"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {
@@ -607,6 +643,59 @@ func TestGetRequestFailureJSON(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+}
+
+func TestGetProviderErrorJSONReturnsRequestExit(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "application/json")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"30","resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR."}}}`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"status_code": 200`,
+		`"semantic_status": "provider_error"`,
+		`"message": "SERVICE KEY IS NOT REGISTERED ERROR."`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestGetHTMLResponseJSONReturnsRequestExit(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "text/html; charset=utf-8")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>service listing</body></html>`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"semantic_status": "html_response"`) {
+		t.Fatalf("expected html semantic failure: %s", stdout)
 	}
 }
 
