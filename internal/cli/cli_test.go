@@ -309,6 +309,45 @@ func TestCatalogImportAllFetchesUntilTotalCount(t *testing.T) {
 	}
 }
 
+func TestCatalogImportAllStopsAtMaxPages(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		page := req.URL.Query().Get("page")
+		body := `{
+			"currentCount": 1,
+			"data": [
+				{"list_id": "` + page + `", "list_title": "기관_` + page + `", "org_nm": "기관", "operation_nm": "목록", "end_point_url": "https://example.test/api"}
+			],
+			"page": ` + page + `,
+			"perPage": 1,
+			"totalCount": 99
+		}`
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "1", "--all", "--max-pages", "2", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"error": "request_failed"`,
+		`"max_pages": 2`,
+		`"pages_fetched": 2`,
+		`increase --max-pages`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogImportPreservesEncodedServiceKey(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {

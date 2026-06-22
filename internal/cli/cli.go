@@ -211,7 +211,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -223,7 +223,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 
 func (a app) catalogImport(args []string, jsonOut bool) int {
 	if len(args) == 0 || args[0] != "data-go-kr" {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
 	}
 	args = args[1:]
 	all, args := consumeBool(args, "--all")
@@ -240,6 +240,10 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	pages, args, err := consumeInt(args, "--pages", 1)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	maxPages, args, err := consumeInt(args, "--max-pages", datago.DefaultImportMaxPages)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
@@ -262,7 +266,7 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the registry JSON to stdout")
@@ -289,6 +293,7 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		PerPage:    perPage,
 		Pages:      pages,
 		All:        all,
+		MaxPages:   maxPages,
 		Query:      query,
 		Org:        org,
 		Category:   category,
@@ -305,6 +310,7 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 					"page":          result.Page,
 					"per_page":      result.PerPage,
 					"pages_fetched": result.PagesFetched,
+					"max_pages":     result.MaxPages,
 					"rows_fetched":  result.RowsFetched,
 					"total_count":   result.TotalCount,
 				},
@@ -1223,7 +1229,7 @@ func (a app) printHelp() {
 
 Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
-  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--query TEXT] [--org NAME] [--category NAME] [--json]
+  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]

@@ -100,7 +100,9 @@ The importer uses data.go.kr's public list lookup API and preserves upstream
 metadata such as organization, source category, source keywords, operation
 names, request parameters, response parameters, and raw source fields.
 Use `--all` to continue fetching pages until the upstream `totalCount` has been
-reached; use `--pages N` for a bounded sample or smoke test.
+reached; use `--pages N` for a bounded sample or smoke test. `--all` has a
+default `--max-pages 1000` guard that can be raised for unusually large
+catalogs.
 
 Commands that operate on one dataset accept a `<ref>`. A ref can be a
 data.go.kr list ID, a data.go.kr detail URL, an exact title, or a search query.

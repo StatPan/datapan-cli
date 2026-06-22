@@ -15,6 +15,8 @@ import (
 
 const DataGoKrOpenDataListURL = "https://api.odcloud.kr/api/15077093/v1/open-data-list"
 
+const DefaultImportMaxPages = 1000
+
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
@@ -25,6 +27,7 @@ type ImportOptions struct {
 	PerPage    int
 	Pages      int
 	All        bool
+	MaxPages   int
 	Query      string
 	Org        string
 	Category   string
@@ -36,6 +39,7 @@ type ImportResult struct {
 	Page         int    `json:"page"`
 	PerPage      int    `json:"per_page"`
 	PagesFetched int    `json:"pages_fetched"`
+	MaxPages     int    `json:"max_pages,omitempty"`
 	RowsFetched  int    `json:"rows_fetched"`
 	TotalCount   int    `json:"total_count"`
 	SpecsWritten int    `json:"specs_written"`
@@ -107,6 +111,9 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 	if opts.Pages <= 0 && !opts.All {
 		opts.Pages = 1
 	}
+	if opts.MaxPages <= 0 {
+		opts.MaxPages = DefaultImportMaxPages
+	}
 
 	var rows []OpenDataListRow
 	result := ImportResult{
@@ -114,6 +121,9 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		SourceURL: DataGoKrOpenDataListURL,
 		Page:      opts.Page,
 		PerPage:   opts.PerPage,
+	}
+	if opts.All {
+		result.MaxPages = opts.MaxPages
 	}
 	for page := opts.Page; ; page++ {
 		resp, err := fetchOpenDataListPage(ctx, client, opts, page)
@@ -126,6 +136,9 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		rows = append(rows, resp.Data...)
 		if len(resp.Data) == 0 || len(rows) >= resp.TotalCount {
 			break
+		}
+		if opts.All && result.PagesFetched >= opts.MaxPages {
+			return rows, result, fmt.Errorf("data.go.kr catalog import stopped after %d pages before reaching total_count %d; increase --max-pages", opts.MaxPages, resp.TotalCount)
 		}
 		if !opts.All && page+1 >= opts.Page+opts.Pages {
 			break

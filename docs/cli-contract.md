@@ -55,7 +55,8 @@ DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거�
 `--output -` writes only the registry JSON array to stdout. It must not be
 combined with `--json`, because `--json` reserves stdout for one summary object.
 `--all` fetches pages until the upstream `totalCount` has been reached. `--pages
-N` remains available for bounded samples and CI smoke tests.
+N` remains available for bounded samples and CI smoke tests. `--all` uses a
+default `--max-pages 1000` guard so a bad upstream counter cannot loop forever.
 
 The normalized registry format is a JSON array of `Spec` objects. Canonical
 source fields include `id`, `title`, `provider`, `organization`,
