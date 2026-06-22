@@ -20,7 +20,7 @@ a stable surface before any UI exists:
 - `--json` output for automation;
 - stdin/stdout-friendly parameter and export flows;
 - local API keys owned by the user;
-- no browser automation requirement for the MVP.
+- browser automation only for explicit `datapan apply login/submit` workflows.
 
 ## Install From Source
 
@@ -81,14 +81,15 @@ data.go.kr browser session. This flow does not bypass CAPTCHA or provider
 security controls; complete the login manually in the headed browser.
 
 ```bash
-datapan apply login --headed --storage-state .datapan/data-go-kr-browser-state.json
-datapan apply submit 15126469 --dry-run --storage-state .datapan/data-go-kr-browser-state.json --json
-datapan apply submit 15126469 --apply --storage-state .datapan/data-go-kr-browser-state.json --json
+datapan apply login --headed --profile-dir .datapan/browser-profile
+datapan apply submit 15126469 --dry-run --profile-dir .datapan/browser-profile --json
+datapan apply submit 15126469 --apply --profile-dir .datapan/browser-profile --json
 ```
 
-`datapan apply login` prepares the Playwright Chromium runtime before opening
-the browser. If `uv` is available, Datapan uses it automatically; otherwise it
-falls back to the local Python Playwright installation.
+`datapan apply login` uses Go-native Chrome automation and a local browser
+profile directory. No Python or Playwright install is required. Use `--headed`
+for the first login so CAPTCHA or other provider security gates stay under the
+user's control.
 
 `submit` defaults to inspection/dry-run behavior. It submits only when `--apply`
 is explicitly present.

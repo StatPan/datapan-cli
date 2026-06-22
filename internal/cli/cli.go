@@ -32,6 +32,7 @@ const (
 const version = "0.1.0-dev"
 
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
+const defaultBrowserProfilePath = ".datapan/browser-profile"
 
 type Env interface {
 	LookupEnv(string) (string, bool)
@@ -302,26 +303,30 @@ func (a app) applyLogin(args []string, jsonOut bool) int {
 	_ = jsonOut
 	_, args = consumeBool(args, "--json")
 	headed, args := consumeBool(args, "--headed")
-	storageState, args, err := consumeString(args, "--storage-state", defaultStorageStatePath)
+	profileDir, args, err := consumeString(args, "--profile-dir", defaultBrowserProfilePath)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
+	}
+	storageState, args, err := consumeString(args, "--storage-state", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if storageState != "" {
+		profileDir = storageState
 	}
 	waitMS, args, err := consumeInt(args, "--manual-login-wait-ms", 120000)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan apply login [--headed] [--manual-login-wait-ms N] [--storage-state PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--json]")
 	}
-	workflowArgs := []string{
-		"login",
-		"--storage-state", storageState,
-		"--manual-login-wait-ms", strconv.Itoa(waitMS),
-	}
-	if headed {
-		workflowArgs = append(workflowArgs, "--headed")
-	}
-	return runBrowserWorkflow(workflowArgs, a.stdout, a.stderr)
+	return runBrowserWorkflow(browserWorkflowOptions{
+		Command:    "login",
+		ProfileDir: profileDir,
+		ManualWait: time.Duration(waitMS) * time.Millisecond,
+		Headed:     headed,
+	}, a.stdout, a.stderr)
 }
 
 func (a app) applySubmit(args []string, jsonOut bool) int {
@@ -332,35 +337,37 @@ func (a app) applySubmit(args []string, jsonOut bool) int {
 	if apply && dryRun {
 		return a.fail(exitUsage, "use either --dry-run or --apply, not both")
 	}
-	storageState, args, err := consumeString(args, "--storage-state", defaultStorageStatePath)
+	profileDir, args, err := consumeString(args, "--profile-dir", defaultBrowserProfilePath)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
+	}
+	storageState, args, err := consumeString(args, "--storage-state", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if storageState != "" {
+		profileDir = storageState
 	}
 	output, args, err := consumeString(args, "--output", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan apply submit <list-id> [--dry-run|--apply] [--storage-state PATH] [--output PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--output PATH] [--json]")
 	}
 	spec, ok := a.reg.ByID(args[0])
 	if !ok {
 		return a.fail(exitNotFound, "unknown data.go.kr list id %q", args[0])
 	}
-	workflowArgs := []string{
-		"submit",
-		"--list-id", spec.ID,
-		"--application-url", spec.ApplicationURL(),
-		"--storage-state", storageState,
-		"--purpose-text", datago.PurposeTextKO,
-	}
-	if apply {
-		workflowArgs = append(workflowArgs, "--apply")
-	}
-	if output != "" {
-		workflowArgs = append(workflowArgs, "--output", output)
-	}
-	return runBrowserWorkflow(workflowArgs, a.stdout, a.stderr)
+	return runBrowserWorkflow(browserWorkflowOptions{
+		Command:        "submit",
+		ListID:         spec.ID,
+		ApplicationURL: spec.ApplicationURL(),
+		ProfileDir:     profileDir,
+		PurposeText:    datago.PurposeTextKO,
+		Apply:          apply,
+		Output:         output,
+	}, a.stdout, a.stderr)
 }
 
 func (a app) call(args []string, jsonOut bool, exportMode bool) int {
@@ -606,8 +613,8 @@ Usage:
   datapan info <list-id> [--json]
   datapan auth check [--json]
   datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
-  datapan apply login [--headed] [--manual-login-wait-ms N] [--storage-state PATH] [--json]
-  datapan apply submit <list-id> [--dry-run|--apply] [--storage-state PATH] [--json]
+  datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--json]
+  datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--json]
   datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan version [--json]

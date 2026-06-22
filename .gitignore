@@ -8,6 +8,7 @@
 .env
 .env.*
 !/.env.example
+.datapan/
 
 # OS/editor noise
 .DS_Store

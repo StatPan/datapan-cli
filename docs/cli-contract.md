@@ -84,16 +84,15 @@ human prose.
 Browser-backed application automation is an explicit advanced flow:
 
 ```bash
-datapan apply login --headed --storage-state .datapan/data-go-kr-browser-state.json
-datapan apply submit <list-id> --dry-run --storage-state .datapan/data-go-kr-browser-state.json --json
-datapan apply submit <list-id> --apply --storage-state .datapan/data-go-kr-browser-state.json --json
+datapan apply login --headed --profile-dir .datapan/browser-profile
+datapan apply submit <list-id> --dry-run --profile-dir .datapan/browser-profile --json
+datapan apply submit <list-id> --apply --profile-dir .datapan/browser-profile --json
 ```
 
-The implementation should prepare the Playwright Chromium runtime before opening
-the browser. It may prefer `uv run --with playwright ...` when `uv` is
-available, and may fall back to a local Python with Playwright installed.
-`apply login` may save a browser storage state only after the user completes any
-CAPTCHA/security gate manually. `apply submit` must default to inspection and
-must submit only when `--apply` is present. It must reuse the saved session,
-fill visible purpose/usage fields, accept visible checkboxes, and stop with a
+The implementation should use Go-native browser automation and a local browser
+profile directory, without requiring Python or Playwright. `apply login` may
+persist a browser profile only after the user completes any CAPTCHA/security
+gate manually. `apply submit` must default to inspection and must submit only
+when `--apply` is present. It must reuse the saved profile, fill visible
+purpose/usage fields, accept visible checkboxes, and stop with a
 machine-readable status if the session is expired or a human gate appears.
