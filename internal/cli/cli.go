@@ -22,11 +22,12 @@ import (
 )
 
 const (
-	exitOK       = 0
-	exitUsage    = 1
-	exitNotFound = 2
-	exitAuth     = 3
-	exitRequest  = 4
+	exitOK        = 0
+	exitUsage     = 1
+	exitNotFound  = 2
+	exitAuth      = 3
+	exitRequest   = 4
+	exitAmbiguous = 5
 )
 
 const version = "0.1.0-dev"
@@ -106,6 +107,8 @@ func (a app) run() int {
 		return a.search(args[1:], jsonOut)
 	case "info":
 		return a.info(args[1:], jsonOut)
+	case "show":
+		return a.info(args[1:], jsonOut)
 	case "auth":
 		return a.auth(args[1:], jsonOut)
 	case "catalog":
@@ -116,8 +119,12 @@ func (a app) run() int {
 		return a.access(args[1:], jsonOut)
 	case "call":
 		return a.call(args[1:], jsonOut, false)
+	case "get":
+		return a.call(args[1:], jsonOut, false)
 	case "export":
 		return a.export(args[1:], jsonOut)
+	case "save":
+		return a.save(args[1:], jsonOut)
 	default:
 		return a.fail(exitUsage, "unknown command %q\n\nRun `datapan help`.", args[0])
 	}
@@ -307,11 +314,11 @@ func (a app) info(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan info <list-id> [--json]")
+		return a.fail(exitUsage, "usage: datapan show <ref> [--json]")
 	}
-	spec, ok := a.reg.ByID(args[0])
+	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
-		return a.fail(exitNotFound, "unknown data.go.kr list id %q", args[0])
+		return code
 	}
 	if jsonOut {
 		return a.writeJSON(map[string]any{"ok": true, "spec": spec})
@@ -365,6 +372,36 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 		out = append(out, item)
 	}
 	return out
+}
+
+func (a app) resolveOne(ref string, jsonOut bool) (datago.Spec, int, bool) {
+	result := a.reg.Resolve(ref, 10)
+	switch result.Status {
+	case datago.ResolveFound:
+		return result.Spec, exitOK, true
+	case datago.ResolveAmbiguous:
+		payload := map[string]any{
+			"ok":         false,
+			"error":      "ambiguous_ref",
+			"ref":        ref,
+			"candidates": specSummaries(result.Candidates),
+		}
+		if jsonOut {
+			_ = a.writeJSON(payload)
+		} else {
+			fmt.Fprintf(a.stderr, "ambiguous data.go.kr ref %q; candidates:\n", ref)
+			for _, spec := range result.Candidates {
+				fmt.Fprintf(a.stderr, "  %s  %s", spec.ID, spec.Title)
+				if spec.Organization != "" {
+					fmt.Fprintf(a.stderr, "  (%s)", spec.Organization)
+				}
+				fmt.Fprintln(a.stderr)
+			}
+		}
+		return datago.Spec{}, exitAmbiguous, false
+	default:
+		return datago.Spec{}, a.fail(exitNotFound, "unknown data.go.kr ref %q", ref), false
+	}
 }
 
 func (a app) auth(args []string, jsonOut bool) int {
@@ -422,11 +459,11 @@ func (a app) access(args []string, jsonOut bool) int {
 		showPurpose = true
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan access <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]")
+		return a.fail(exitUsage, "usage: datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]")
 	}
-	spec, ok := a.reg.ByID(args[0])
+	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
-		return a.fail(exitNotFound, "unknown data.go.kr list id %q", args[0])
+		return code
 	}
 	opened := false
 	if openBrowser {
@@ -567,11 +604,11 @@ func (a app) accessRequest(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan access <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--output PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--output PATH] [--json]")
 	}
-	spec, ok := a.reg.ByID(args[0])
+	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
-		return a.fail(exitNotFound, "unknown data.go.kr list id %q", args[0])
+		return code
 	}
 	return runBrowserWorkflow(browserWorkflowOptions{
 		Command:        "submit",
@@ -601,8 +638,15 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]")
+	if len(args) < 1 {
+		return a.fail(exitUsage, "usage: datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]")
+	}
+	positionalParams, err := parseKeyValueArgs(args[1:])
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	for k, v := range positionalParams {
+		params[k] = v
 	}
 	fileParams, err := readParamsFile(paramsFile, os.Stdin)
 	if err != nil {
@@ -619,7 +663,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		payload := map[string]any{
 			"ok":           true,
 			"dry_run":      true,
-			"dataset":      args[0],
+			"dataset":      reqPlan.Spec.ID,
 			"operation":    reqPlan.Operation.Name,
 			"method":       http.MethodGet,
 			"url":          reqPlan.RedactedURL,
@@ -672,6 +716,54 @@ func (a app) export(args []string, jsonOut bool) int {
 	return a.writeRows(rows, format, jsonOut)
 }
 
+func (a app) save(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	format, args, err := consumeString(args, "--format", "csv")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes data to stdout")
+	}
+	capture := bytes.Buffer{}
+	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(append(args, "--json"), true, true)
+	if code != exitOK {
+		return code
+	}
+	rows, err := datago.RowsFromJSON(capture.Bytes())
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	var out bytes.Buffer
+	switch format {
+	case "json":
+		enc := json.NewEncoder(&out)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(map[string]any{"rows": rows}); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+	case "csv":
+		if code := writeCSV(&out, rows); code != exitOK {
+			return code
+		}
+	default:
+		return a.fail(exitUsage, "unsupported save format %q; use csv or json", format)
+	}
+	if err := writeOutput(output, out.Bytes(), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{"ok": true, "format": format, "output": output, "count": len(rows)})
+	}
+	return exitOK
+}
+
 func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 	capture := bytes.Buffer{}
 	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(args, true, true)
@@ -707,17 +799,21 @@ type requestPlan struct {
 	PublicParams map[string]string
 }
 
-func (a app) requestPlan(id, operation string, params map[string]string) (requestPlan, string, error) {
-	spec, ok := a.reg.ByID(id)
-	if !ok {
-		return requestPlan{}, "", errNotFound{id}
+func (a app) requestPlan(ref, operation string, params map[string]string) (requestPlan, string, error) {
+	result := a.reg.Resolve(ref, 10)
+	if result.Status != datago.ResolveFound {
+		if result.Status == datago.ResolveAmbiguous {
+			return requestPlan{}, "", errAmbiguous{ref: ref, candidates: result.Candidates}
+		}
+		return requestPlan{}, "", errNotFound{ref}
 	}
+	spec := result.Spec
 	op, ok := spec.Operation(operation)
 	if !ok {
 		if operation == "" {
-			return requestPlan{}, "", fmt.Errorf("spec %s has no callable operation endpoint yet", id)
+			return requestPlan{}, "", fmt.Errorf("spec %s has no callable operation endpoint yet", spec.ID)
 		}
-		return requestPlan{}, "", fmt.Errorf("unknown operation %q for %s", operation, id)
+		return requestPlan{}, "", fmt.Errorf("unknown operation %q for %s", operation, spec.ID)
 	}
 	keyName, key, ok := a.resolveKeyValue()
 	if !ok {
@@ -793,9 +889,17 @@ func (a app) resolveKeyValue() (string, string, bool) {
 }
 
 func (a app) mapError(err error) int {
+	var ambiguous errAmbiguous
+	if errors.As(err, &ambiguous) {
+		fmt.Fprintf(a.stderr, "ambiguous data.go.kr ref %q; candidates:\n", ambiguous.ref)
+		for _, spec := range ambiguous.candidates {
+			fmt.Fprintf(a.stderr, "  %s  %s\n", spec.ID, spec.Title)
+		}
+		return exitAmbiguous
+	}
 	var nf errNotFound
 	if errors.As(err, &nf) {
-		return a.fail(exitNotFound, "unknown data.go.kr list id %q", nf.id)
+		return a.fail(exitNotFound, "unknown data.go.kr ref %q", nf.id)
 	}
 	var auth errAuth
 	if errors.As(err, &auth) {
@@ -826,12 +930,14 @@ func (a app) printHelp() {
 Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]
-  datapan info <list-id> [--json]
+  datapan show <ref> [--json]
   datapan auth check [--json]
-  datapan access <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
+  datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
-  datapan access <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
-  datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
+  datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
+  datapan save <ref> [KEY=VALUE ...] [--format csv|json] [--output PATH|-] [--json]
+  datapan call <ref> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan version [--json]
 
@@ -842,6 +948,13 @@ Accepted data.go.kr key env vars:
 type errNotFound struct{ id string }
 
 func (e errNotFound) Error() string { return "not found: " + e.id }
+
+type errAmbiguous struct {
+	ref        string
+	candidates []datago.Spec
+}
+
+func (e errAmbiguous) Error() string { return "ambiguous: " + e.ref }
 
 type errAuth struct{}
 
@@ -927,6 +1040,18 @@ func consumeParams(args []string) (map[string]string, []string, error) {
 	return params, out, nil
 }
 
+func parseKeyValueArgs(args []string) (map[string]string, error) {
+	params := map[string]string{}
+	for _, arg := range args {
+		key, value, ok := strings.Cut(arg, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, fmt.Errorf("expected KEY=VALUE argument, got %q", arg)
+		}
+		params[key] = value
+	}
+	return params, nil
+}
+
 func readParamsFile(path string, stdin io.Reader) (map[string]string, error) {
 	if path == "" {
 		return map[string]string{}, nil
@@ -975,6 +1100,19 @@ func writeRegistryOutput(path string, specs []datago.Spec, stdout io.Writer) err
 	}
 	defer f.Close()
 	return datago.EncodeRegistry(f, specs)
+}
+
+func writeOutput(path string, data []byte, stdout io.Writer) error {
+	if path == "-" || path == "" {
+		_, err := stdout.Write(data)
+		return err
+	}
+	if dir := strings.TrimSpace(filepathDir(path)); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 func filepathDir(path string) string {

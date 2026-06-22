@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -70,6 +72,22 @@ type SearchFilters struct {
 	Organization   string `json:"organization"`
 	SourceCategory string `json:"source_category"`
 	Priority       string `json:"priority"`
+}
+
+type ResolveStatus string
+
+const (
+	ResolveFound     ResolveStatus = "found"
+	ResolveNotFound  ResolveStatus = "not_found"
+	ResolveAmbiguous ResolveStatus = "ambiguous"
+)
+
+type ResolveResult struct {
+	Status     ResolveStatus `json:"status"`
+	Ref        string        `json:"ref"`
+	Mode       string        `json:"mode,omitempty"`
+	Spec       Spec          `json:"spec,omitempty"`
+	Candidates []Spec        `json:"candidates,omitempty"`
 }
 
 func DefaultRegistry() Registry {
@@ -174,6 +192,55 @@ func (r Registry) ByID(id string) (Spec, bool) {
 	return Spec{}, false
 }
 
+func (r Registry) Resolve(ref string, limit int) ResolveResult {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ResolveResult{Status: ResolveNotFound, Ref: ref}
+	}
+	if id := ExtractDataGoKrListID(ref); id != "" {
+		if spec, ok := r.ByID(id); ok {
+			return ResolveResult{Status: ResolveFound, Ref: ref, Mode: "url", Spec: spec}
+		}
+		return ResolveResult{Status: ResolveNotFound, Ref: ref, Mode: "url"}
+	}
+	if spec, ok := r.ByID(ref); ok {
+		return ResolveResult{Status: ResolveFound, Ref: ref, Mode: "id", Spec: spec}
+	}
+	for _, spec := range r.specs {
+		if strings.EqualFold(strings.TrimSpace(spec.Title), ref) {
+			return ResolveResult{Status: ResolveFound, Ref: ref, Mode: "title", Spec: spec}
+		}
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	matches := r.Search(ref, limit, SearchFilters{})
+	switch len(matches) {
+	case 0:
+		return ResolveResult{Status: ResolveNotFound, Ref: ref, Mode: "query"}
+	case 1:
+		return ResolveResult{Status: ResolveFound, Ref: ref, Mode: "query", Spec: matches[0]}
+	default:
+		return ResolveResult{Status: ResolveAmbiguous, Ref: ref, Mode: "query", Candidates: matches}
+	}
+}
+
+var dataGoKrListIDPattern = regexp.MustCompile(`/data/([0-9]+)/`)
+
+func ExtractDataGoKrListID(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(ref); err == nil && parsed.Host != "" {
+		match := dataGoKrListIDPattern.FindStringSubmatch(parsed.Path + "/")
+		if len(match) == 2 {
+			return match[1]
+		}
+	}
+	return ""
+}
+
 func (s Spec) ApplicationURL() string {
 	return "https://www.data.go.kr/data/" + s.ID + "/openapi.do"
 }
@@ -197,7 +264,7 @@ func (s Spec) SmokeCommand() string {
 	if s.Smoke == nil {
 		return ""
 	}
-	args := []string{"datapan", "call", s.ID}
+	args := []string{"datapan", "get", s.ID}
 	if s.Smoke.Operation != "" {
 		args = append(args, "--operation", s.Smoke.Operation)
 	}
@@ -207,7 +274,7 @@ func (s Spec) SmokeCommand() string {
 	}
 	slices.Sort(keys)
 	for _, key := range keys {
-		args = append(args, "--param", key+"="+s.Smoke.Params[key])
+		args = append(args, key+"="+s.Smoke.Params[key])
 	}
 	args = append(args, "--json")
 	return strings.Join(args, " ")

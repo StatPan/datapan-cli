@@ -56,6 +56,20 @@ source fields include `id`, `title`, `provider`, `organization`,
 `search_terms` is reserved for Datapan-created search helpers and must not be
 presented as upstream metadata.
 
+## Dataset Refs
+
+Commands that operate on one dataset accept a `<ref>`. A ref may be a data.go.kr
+list ID, a data.go.kr detail URL, an exact title, or a query string. Exact ID,
+URL, and title matches resolve directly. Query matches must resolve to exactly
+one dataset before a command can call, save, or request access. Ambiguous refs
+must fail with exit code 5 and return candidate summaries under `--json`.
+
+```bash
+datapan show "국토교통부_아파트 매매 실거래가 자료" --json
+datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 --json
+datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
+```
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -65,6 +79,7 @@ presented as upstream metadata.
 | 2 | unknown spec/list ID |
 | 3 | missing local API key |
 | 4 | request or export failure |
+| 5 | ambiguous dataset ref |
 
 ## Stdin And Files
 
@@ -74,6 +89,9 @@ Parameter and export flows should accept `-` for stdin where practical:
 datapan call 15084084 --params-file - --json
 datapan export --input - --format csv
 ```
+
+`get` and `save` also accept positional `KEY=VALUE` parameters for the common
+case where a user or agent has the required parameter names from `show`.
 
 ## Credentials
 

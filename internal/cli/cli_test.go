@@ -60,6 +60,34 @@ func TestSearchAllowsFilterOnly(t *testing.T) {
 	}
 }
 
+func TestShowResolvesURLAndTitle(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"show", "https://www.data.go.kr/data/15126469/openapi.do", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "15126469"`) {
+		t.Fatalf("expected URL ref to resolve: %s", stdout)
+	}
+
+	code, stdout, stderr = runTest([]string{"show", "국토교통부_아파트 매매 실거래가 자료", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "15126469"`) {
+		t.Fatalf("expected title ref to resolve: %s", stdout)
+	}
+}
+
+func TestShowAmbiguousQueryReturnsCandidates(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"show", "정보", "--json"}, nil, nil)
+	if code != exitAmbiguous {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "ambiguous_ref"`) || !strings.Contains(stdout, `"candidates"`) {
+		t.Fatalf("expected ambiguous candidates: %s", stdout)
+	}
+}
+
 func TestSearchRejectsInventedSectorFilter(t *testing.T) {
 	code, _, stderr := runTest([]string{"search", "실거래", "--sector", "realestate"}, nil, nil)
 	if code != exitUsage {
@@ -193,6 +221,52 @@ func TestCallDryRunRedactsKey(t *testing.T) {
 	}
 }
 
+func TestGetAcceptsPositionalParams(t *testing.T) {
+	code, stdout, stderr := runTest(
+		[]string{"get", "기상청_단기예보 조회서비스", "--dry-run", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("secret leaked in output: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"dataset": "15084084"`) || !strings.Contains(stdout, `"base_date": "20260622"`) {
+		t.Fatalf("expected resolved dry-run with positional params: %s", stdout)
+	}
+}
+
+func TestSaveWritesCSVFromGet(t *testing.T) {
+	tmp := t.TempDir() + "/rows.csv"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"body":{"items":{"item":[{"name":"alpha","count":2}]}}}}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"save", "15084084", "--output", tmp, "--format", "csv", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"format": "csv"`) || !strings.Contains(stdout, `"count": 1`) {
+		t.Fatalf("expected save summary: %s", stdout)
+	}
+	data, err := osReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "count,name") || !strings.Contains(string(data), "2,alpha") {
+		t.Fatalf("unexpected CSV: %s", data)
+	}
+}
+
 func TestAccessJSONIncludesGuidedNextSteps(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"access", "15126469", "--json"}, nil, nil)
 	if code != exitOK {
@@ -201,7 +275,7 @@ func TestAccessJSONIncludesGuidedNextSteps(t *testing.T) {
 	for _, want := range []string{
 		`"application_url": "https://www.data.go.kr/data/15126469/openapi.do"`,
 		`"purpose_text":`,
-		`"smoke_command": "datapan call 15126469 --operation getRTMSDataSvcAptTrade --param DEAL_YMD=202501 --param LAWD_CD=11110 --json"`,
+		`"smoke_command": "datapan get 15126469 --operation getRTMSDataSvcAptTrade DEAL_YMD=202501 LAWD_CD=11110 --json"`,
 		`"next_steps":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -225,7 +299,7 @@ func TestAccessUnknownSpecDoesNotStartBrowser(t *testing.T) {
 	if code != exitNotFound {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
-	if !strings.Contains(stderr, `unknown data.go.kr list id "missing"`) {
+	if !strings.Contains(stderr, `unknown data.go.kr ref "missing"`) {
 		t.Fatalf("expected unknown spec message: %s", stderr)
 	}
 }
@@ -245,7 +319,7 @@ func TestAccessRequestAliasStillWorks(t *testing.T) {
 	if code != exitNotFound {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
-	if !strings.Contains(stderr, `unknown data.go.kr list id "missing"`) {
+	if !strings.Contains(stderr, `unknown data.go.kr ref "missing"`) {
 		t.Fatalf("expected unknown spec message: %s", stderr)
 	}
 }
