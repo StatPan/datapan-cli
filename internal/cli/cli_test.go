@@ -247,6 +247,31 @@ func TestCatalogImportWritesRegistry(t *testing.T) {
 	}
 }
 
+func TestCatalogImportPreservesEncodedServiceKey(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.RawQuery, "%252B") || strings.Contains(req.URL.RawQuery, "%252F") || strings.Contains(req.URL.RawQuery, "%253D") {
+			t.Fatalf("serviceKey was double encoded: %s", req.URL.RawQuery)
+		}
+		if !strings.Contains(req.URL.RawQuery, "serviceKey=abc%2Bdef%2Fghi%3D") {
+			t.Fatalf("expected encoded serviceKey in raw query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"currentCount":0,"data":[],"page":1,"perPage":1,"totalCount":0}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, _, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "1", "--pages", "1", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "abc%2Bdef%2Fghi%3D"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {
@@ -514,6 +539,33 @@ func TestCallUsesHTTPClient(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"status_code": 200`) {
 		t.Fatalf("expected response envelope: %s", stdout)
+	}
+}
+
+func TestCallPreservesEncodedServiceKey(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.RawQuery, "%252B") || strings.Contains(req.URL.RawQuery, "%252F") || strings.Contains(req.URL.RawQuery, "%253D") {
+			t.Fatalf("serviceKey was double encoded: %s", req.URL.RawQuery)
+		}
+		if !strings.Contains(req.URL.RawQuery, "serviceKey=abc%2Bdef%2Fghi%3D") {
+			t.Fatalf("expected encoded serviceKey in raw query: %s", req.URL.RawQuery)
+		}
+		if got := req.URL.Query().Get("serviceKey"); got != "abc+def/ghi=" {
+			t.Fatalf("serviceKey=%q", got)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"rows":[{"ok":true}]}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, _, stderr := runTest(
+		[]string{"call", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "abc%2Bdef%2Fghi%3D"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 }
 

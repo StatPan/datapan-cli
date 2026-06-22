@@ -196,7 +196,6 @@ func fetchOpenDataListPage(ctx context.Context, client HTTPClient, opts ImportOp
 	q.Set("page", strconv.Itoa(page))
 	q.Set("perPage", strconv.Itoa(opts.PerPage))
 	q.Set("returnType", "JSON")
-	q.Set("serviceKey", opts.ServiceKey)
 	if opts.Query != "" {
 		q.Set("cond[list_title::LIKE]", opts.Query)
 	}
@@ -206,7 +205,7 @@ func fetchOpenDataListPage(ctx context.Context, client HTTPClient, opts ImportOp
 	if opts.Category != "" {
 		q.Set("cond[new_category_nm::LIKE]", opts.Category)
 	}
-	u.RawQuery = q.Encode()
+	u.RawQuery = QueryWithServiceKey(q, opts.ServiceKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

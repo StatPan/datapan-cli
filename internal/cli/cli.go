@@ -1037,7 +1037,6 @@ func (a app) requestPlan(ref, operation string, params map[string]string) (reque
 		return requestPlan{}, "", err
 	}
 	q := u.Query()
-	q.Set("serviceKey", key)
 	for k, v := range params {
 		q.Set(k, v)
 	}
@@ -1046,7 +1045,7 @@ func (a app) requestPlan(ref, operation string, params map[string]string) (reque
 			q.Set(k, v)
 		}
 	}
-	u.RawQuery = q.Encode()
+	u.RawQuery = datago.QueryWithServiceKey(q, key)
 	redacted := *u
 	rq := redacted.Query()
 	rq.Set("serviceKey", "REDACTED")

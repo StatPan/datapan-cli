@@ -304,6 +304,32 @@ func commandArg(arg string) string {
 	return arg
 }
 
+func QueryWithServiceKey(values url.Values, key string) string {
+	values.Del("serviceKey")
+	query := values.Encode()
+	serviceKey := "serviceKey=" + serviceKeyQueryValue(key)
+	if query == "" {
+		return serviceKey
+	}
+	return query + "&" + serviceKey
+}
+
+func serviceKeyQueryValue(key string) string {
+	key = strings.TrimSpace(key)
+	if isPercentEncoded(key) && !strings.ContainsAny(key, "&?#") {
+		return key
+	}
+	return url.QueryEscape(key)
+}
+
+func isPercentEncoded(value string) bool {
+	if !strings.Contains(value, "%") {
+		return false
+	}
+	decoded, err := url.QueryUnescape(value)
+	return err == nil && decoded != value
+}
+
 func (s Spec) searchText() []string {
 	parts := []string{s.ID, s.Title, s.Provider, s.Organization, s.SourceCategory, s.Priority, s.Description}
 	parts = append(parts, s.SourceKeywords...)

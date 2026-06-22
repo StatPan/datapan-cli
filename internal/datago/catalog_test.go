@@ -1,6 +1,10 @@
 package datago
 
-import "testing"
+import (
+	"net/url"
+	"strings"
+	"testing"
+)
 
 func TestSmokeCommandQuotesArgsWithSpaces(t *testing.T) {
 	spec := Spec{
@@ -25,5 +29,29 @@ func TestCommandStringLeavesSimpleArgsUnquoted(t *testing.T) {
 	want := "datapan get 15126469 LAWD_CD=11110 --json"
 	if got != want {
 		t.Fatalf("CommandString()=%q want %q", got, want)
+	}
+}
+
+func TestQueryWithServiceKeyPreservesEncodedPortalKey(t *testing.T) {
+	raw := QueryWithServiceKey(url.Values{"page": {"1"}}, "abc%2Bdef%2Fghi%3D")
+	if !strings.Contains(raw, "serviceKey=abc%2Bdef%2Fghi%3D") {
+		t.Fatalf("expected encoded serviceKey to be preserved: %s", raw)
+	}
+	if strings.Contains(raw, "%252B") || strings.Contains(raw, "%252F") || strings.Contains(raw, "%253D") {
+		t.Fatalf("serviceKey was double encoded: %s", raw)
+	}
+	parsed, err := url.ParseQuery(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Get("serviceKey"); got != "abc+def/ghi=" {
+		t.Fatalf("serviceKey=%q", got)
+	}
+}
+
+func TestQueryWithServiceKeyEncodesDecodedKey(t *testing.T) {
+	raw := QueryWithServiceKey(url.Values{"page": {"1"}}, "abc+def/ghi=")
+	if !strings.Contains(raw, "serviceKey=abc%2Bdef%2Fghi%3D") {
+		t.Fatalf("expected decoded serviceKey to be encoded: %s", raw)
 	}
 }

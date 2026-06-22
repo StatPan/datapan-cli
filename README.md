@@ -56,6 +56,8 @@ DATA_GO_KR_SERVICE_KEY=...
 
 `DATAPAN_DATA_GO_KR_KEY` is the preferred Datapan-specific name. The other names
 are accepted because they already appear in existing public-data workflows.
+Both decoded service keys and URL-encoded keys copied from data.go.kr are
+accepted; Datapan avoids double-encoding the key when building request URLs.
 
 ## MVP Commands
 
