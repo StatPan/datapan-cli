@@ -48,12 +48,14 @@ list into Datapan's normalized registry format. The command must preserve
 upstream metadata separately from Datapan-generated search helpers.
 
 ```bash
-datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --pages 5 --json
+datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
 ```
 
 `--output -` writes only the registry JSON array to stdout. It must not be
 combined with `--json`, because `--json` reserves stdout for one summary object.
+`--all` fetches pages until the upstream `totalCount` has been reached. `--pages
+N` remains available for bounded samples and CI smoke tests.
 
 The normalized registry format is a JSON array of `Spec` objects. Canonical
 source fields include `id`, `title`, `provider`, `organization`,

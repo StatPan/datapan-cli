@@ -247,6 +247,68 @@ func TestCatalogImportWritesRegistry(t *testing.T) {
 	}
 }
 
+func TestCatalogImportAllFetchesUntilTotalCount(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	var pages []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		page := req.URL.Query().Get("page")
+		pages = append(pages, page)
+		var body string
+		switch page {
+		case "1":
+			body = `{
+				"currentCount": 1,
+				"data": [
+					{"list_id": "100", "list_title": "기관_A", "org_nm": "기관", "operation_nm": "목록", "end_point_url": "https://example.test/a"}
+				],
+				"page": 1,
+				"perPage": 1,
+				"totalCount": 2
+			}`
+		case "2":
+			body = `{
+				"currentCount": 1,
+				"data": [
+					{"list_id": "101", "list_title": "기관_B", "org_nm": "기관", "operation_nm": "목록", "end_point_url": "https://example.test/b"}
+				],
+				"page": 2,
+				"perPage": 1,
+				"totalCount": 2
+			}`
+		default:
+			t.Fatalf("unexpected page %s", page)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "1", "--all", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if strings.Join(pages, ",") != "1,2" {
+		t.Fatalf("pages=%v", pages)
+	}
+	for _, want := range []string{`"pages_fetched": 2`, `"rows_fetched": 2`, `"specs_written": 2`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in import summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"id": "100"`) || !strings.Contains(string(data), `"id": "101"`) {
+		t.Fatalf("expected both pages in registry: %s", data)
+	}
+}
+
 func TestCatalogImportPreservesEncodedServiceKey(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {

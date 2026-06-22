@@ -24,6 +24,7 @@ type ImportOptions struct {
 	Page       int
 	PerPage    int
 	Pages      int
+	All        bool
 	Query      string
 	Org        string
 	Category   string
@@ -103,7 +104,7 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 	if opts.PerPage <= 0 {
 		opts.PerPage = 100
 	}
-	if opts.Pages <= 0 {
+	if opts.Pages <= 0 && !opts.All {
 		opts.Pages = 1
 	}
 
@@ -114,7 +115,7 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		Page:      opts.Page,
 		PerPage:   opts.PerPage,
 	}
-	for page := opts.Page; page < opts.Page+opts.Pages; page++ {
+	for page := opts.Page; ; page++ {
 		resp, err := fetchOpenDataListPage(ctx, client, opts, page)
 		if err != nil {
 			return nil, result, err
@@ -124,6 +125,9 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		result.TotalCount = resp.TotalCount
 		rows = append(rows, resp.Data...)
 		if len(resp.Data) == 0 || len(rows) >= resp.TotalCount {
+			break
+		}
+		if !opts.All && page+1 >= opts.Page+opts.Pages {
 			break
 		}
 	}
