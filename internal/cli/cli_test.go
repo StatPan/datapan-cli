@@ -346,6 +346,42 @@ func TestAccessJSONIncludesGuidedNextSteps(t *testing.T) {
 	}
 }
 
+func TestAccessSynthesizesSmokeCommandFromImportedRegistry(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id": "999",
+			"title": "테스트기관_테스트 API",
+			"provider": "data.go.kr",
+			"organization": "테스트기관",
+			"priority": "P2",
+			"operations": [
+				{
+					"name": "목록 조회",
+					"endpoint": "https://example.test/api",
+					"request_params": [
+						{"name": "PAGE", "label": "페이지"},
+						{"name": "ROWS", "label": "행수"}
+					]
+				}
+			]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"access", "테스트기관_테스트 API", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": tmp}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	want := `"smoke_command": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`
+	if !strings.Contains(stdout, want) {
+		t.Fatalf("expected synthesized smoke command %q in output: %s", want, stdout)
+	}
+	if !strings.Contains(stdout, `After approval, run: datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json`) {
+		t.Fatalf("expected next step to include synthesized smoke command: %s", stdout)
+	}
+}
+
 func TestAccessRejectsApplyAndDryRunTogether(t *testing.T) {
 	code, _, stderr := runTest([]string{"access", "15126469", "--apply", "--dry-run"}, nil, nil)
 	if code != exitUsage {

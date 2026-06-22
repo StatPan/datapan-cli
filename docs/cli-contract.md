@@ -135,8 +135,9 @@ datapan access <list-id> --start
 `--start` is equivalent to opening the application page and copying/showing the
 purpose text. JSON output should expose `application_url`, `purpose_text`,
 `next_steps`, and `smoke_command` so an agent can guide the user without scraping
-human prose. `datapan apply` is a compatibility alias; `datapan access` is the
-canonical command.
+human prose. `smoke_command` may come from curated smoke metadata or be
+synthesized from the selected operation in the imported registry. `datapan
+apply` is a compatibility alias; `datapan access` is the canonical command.
 
 Browser-backed application automation is an explicit advanced flow:
 

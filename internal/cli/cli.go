@@ -670,7 +670,7 @@ func (a app) access(args []string, jsonOut bool) int {
 			copied = true
 		}
 	}
-	smokeCommand := spec.SmokeCommand()
+	smokeCommand := exampleGetCommand(spec)
 	nextSteps := applyNextSteps(spec, smokeCommand)
 	payload := map[string]any{
 		"ok":              true,
