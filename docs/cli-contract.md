@@ -96,3 +96,5 @@ gate manually. `apply submit` must default to inspection and must submit only
 when `--apply` is present. It must reuse the saved profile, fill visible
 purpose/usage fields, accept visible checkboxes, and stop with a
 machine-readable status if the session is expired or a human gate appears.
+When Chrome/Chromium is not discoverable, the user may provide `--browser-path`
+or `DATAPAN_BROWSER_PATH`.

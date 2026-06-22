@@ -91,6 +91,9 @@ profile directory. No Python or Playwright install is required. Use `--headed`
 for the first login so CAPTCHA or other provider security gates stay under the
 user's control.
 
+If Chrome/Chromium is not discoverable on `PATH`, pass `--browser-path` or set
+`DATAPAN_BROWSER_PATH` to the browser executable.
+
 `submit` defaults to inspection/dry-run behavior. It submits only when `--apply`
 is explicitly present.
 

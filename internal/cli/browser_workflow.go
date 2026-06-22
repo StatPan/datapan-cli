@@ -24,6 +24,7 @@ type browserWorkflowOptions struct {
 	ListID         string
 	ApplicationURL string
 	ProfileDir     string
+	BrowserPath    string
 	PurposeText    string
 	ManualWait     time.Duration
 	Headed         bool
@@ -103,6 +104,9 @@ func newBrowserContext(opts browserWorkflowOptions) (context.Context, context.Ca
 		chromedp.Flag("no-default-browser-check", true),
 		chromedp.WindowSize(1280, 900),
 	)
+	if opts.BrowserPath != "" {
+		allocOpts = append(allocOpts, chromedp.ExecPath(opts.BrowserPath))
+	}
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), allocOpts...)
 	ctx, ctxCancel := chromedp.NewContext(allocCtx)
 	cancel := func() {

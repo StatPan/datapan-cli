@@ -314,18 +314,28 @@ func (a app) applyLogin(args []string, jsonOut bool) int {
 	if storageState != "" {
 		profileDir = storageState
 	}
+	browserPath, args, err := consumeString(args, "--browser-path", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if browserPath == "" {
+		if value, ok := a.env.LookupEnv("DATAPAN_BROWSER_PATH"); ok {
+			browserPath = strings.TrimSpace(value)
+		}
+	}
 	waitMS, args, err := consumeInt(args, "--manual-login-wait-ms", 120000)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]")
 	}
 	return runBrowserWorkflow(browserWorkflowOptions{
-		Command:    "login",
-		ProfileDir: profileDir,
-		ManualWait: time.Duration(waitMS) * time.Millisecond,
-		Headed:     headed,
+		Command:     "login",
+		ProfileDir:  profileDir,
+		BrowserPath: browserPath,
+		ManualWait:  time.Duration(waitMS) * time.Millisecond,
+		Headed:      headed,
 	}, a.stdout, a.stderr)
 }
 
@@ -348,12 +358,21 @@ func (a app) applySubmit(args []string, jsonOut bool) int {
 	if storageState != "" {
 		profileDir = storageState
 	}
+	browserPath, args, err := consumeString(args, "--browser-path", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if browserPath == "" {
+		if value, ok := a.env.LookupEnv("DATAPAN_BROWSER_PATH"); ok {
+			browserPath = strings.TrimSpace(value)
+		}
+	}
 	output, args, err := consumeString(args, "--output", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--output PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--output PATH] [--json]")
 	}
 	spec, ok := a.reg.ByID(args[0])
 	if !ok {
@@ -364,6 +383,7 @@ func (a app) applySubmit(args []string, jsonOut bool) int {
 		ListID:         spec.ID,
 		ApplicationURL: spec.ApplicationURL(),
 		ProfileDir:     profileDir,
+		BrowserPath:    browserPath,
 		PurposeText:    datago.PurposeTextKO,
 		Apply:          apply,
 		Output:         output,
@@ -613,8 +633,8 @@ Usage:
   datapan info <list-id> [--json]
   datapan auth check [--json]
   datapan apply <list-id> [--open] [--copy-purpose] [--start] [--purpose] [--json]
-  datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--json]
-  datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--json]
+  datapan apply login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan apply submit <list-id> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
   datapan call <list-id> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan version [--json]
