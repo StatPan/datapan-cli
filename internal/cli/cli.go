@@ -880,9 +880,18 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		return a.fail(exitRequest, "%v", err)
 	}
 	if jsonOut || exportMode {
-		return a.writeJSON(respPayload)
+		if code := a.writeJSON(respPayload); code != exitOK {
+			return code
+		}
+		if !respPayload.OK {
+			return exitRequest
+		}
+		return exitOK
 	}
 	fmt.Fprintln(a.stdout, respPayload.Body)
+	if !respPayload.OK {
+		return exitRequest
+	}
 	return exitOK
 }
 

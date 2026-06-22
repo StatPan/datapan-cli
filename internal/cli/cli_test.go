@@ -517,6 +517,55 @@ func TestCallUsesHTTPClient(t *testing.T) {
 	}
 }
 
+func TestCallHTTPFailureKeepsJSONAndExitRequest(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Body:       io.NopCloser(strings.NewReader(`{"error":"not found"}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"status_code": 404`,
+		`"body": "{\"error\":\"not found\"}"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestSaveJSONForwardsHTTPFailure(t *testing.T) {
+	tmp := t.TempDir() + "/rows.csv"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 500,
+			Body:       io.NopCloser(strings.NewReader(`server error`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"save", "15084084", "--output", tmp, "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"ok": false`) || !strings.Contains(stdout, `"status_code": 500`) {
+		t.Fatalf("expected forwarded HTTP failure JSON: %s", stdout)
+	}
+}
+
 func TestExportInputCSV(t *testing.T) {
 	tmp := t.TempDir() + "/rows.json"
 	if err := osWriteFile(tmp, []byte(`{"rows":[{"name":"alpha","count":2}]}`)); err != nil {
