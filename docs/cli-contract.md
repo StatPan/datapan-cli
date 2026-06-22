@@ -89,7 +89,8 @@ datapan apply submit <list-id> --dry-run --storage-state .datapan/data-go-kr-bro
 datapan apply submit <list-id> --apply --storage-state .datapan/data-go-kr-browser-state.json --json
 ```
 
-The implementation may prefer `uv run --with playwright python` when `uv` is
+The implementation should prepare the Playwright Chromium runtime before opening
+the browser. It may prefer `uv run --with playwright ...` when `uv` is
 available, and may fall back to a local Python with Playwright installed.
 `apply login` may save a browser storage state only after the user completes any
 CAPTCHA/security gate manually. `apply submit` must default to inspection and

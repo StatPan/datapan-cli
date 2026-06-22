@@ -2,6 +2,7 @@ package cli
 
 import (
 	_ "embed"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -27,11 +28,16 @@ func runBrowserWorkflow(args []string, stdout, stderr io.Writer) int {
 		_, _ = stderr.Write([]byte(err.Error() + "\n"))
 		return exitRequest
 	}
-	cmd, err := browserWorkflowCommand(script.Name(), args)
+	runtime, err := resolveBrowserRuntime()
 	if err != nil {
 		_, _ = stderr.Write([]byte("python or uv not found; install uv or Python+Playwright to use browser-backed apply commands\n"))
 		return exitRequest
 	}
+	if err := runtime.ensureChromium(stderr); err != nil {
+		_, _ = stderr.Write([]byte(fmt.Sprintf("failed to prepare Playwright Chromium: %v\n", err)))
+		return exitRequest
+	}
+	cmd := runtime.command(script.Name(), args)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
@@ -44,17 +50,41 @@ func runBrowserWorkflow(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func browserWorkflowCommand(script string, args []string) (*exec.Cmd, error) {
+type browserRuntime struct {
+	uv     string
+	python string
+}
+
+func resolveBrowserRuntime() (browserRuntime, error) {
 	if uv, err := findUV(); err == nil {
-		cmdArgs := append([]string{"run", "--with", "playwright", "python", script}, args...)
-		return exec.Command(uv, cmdArgs...), nil
+		return browserRuntime{uv: uv}, nil
 	}
 	python, err := findPython()
 	if err != nil {
-		return nil, err
+		return browserRuntime{}, err
+	}
+	return browserRuntime{python: python}, nil
+}
+
+func (r browserRuntime) command(script string, args []string) *exec.Cmd {
+	if r.uv != "" {
+		cmdArgs := append([]string{"run", "--with", "playwright", "python", script}, args...)
+		return exec.Command(r.uv, cmdArgs...)
 	}
 	cmdArgs := append([]string{script}, args...)
-	return exec.Command(python, cmdArgs...), nil
+	return exec.Command(r.python, cmdArgs...)
+}
+
+func (r browserRuntime) ensureChromium(stderr io.Writer) error {
+	var cmd *exec.Cmd
+	if r.uv != "" {
+		cmd = exec.Command(r.uv, "run", "--with", "playwright", "playwright", "install", "chromium")
+	} else {
+		cmd = exec.Command(r.python, "-m", "playwright", "install", "chromium")
+	}
+	cmd.Stdout = stderr
+	cmd.Stderr = stderr
+	return cmd.Run()
 }
 
 func findUV() (string, error) {

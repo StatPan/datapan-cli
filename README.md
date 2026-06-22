@@ -81,17 +81,14 @@ data.go.kr browser session. This flow does not bypass CAPTCHA or provider
 security controls; complete the login manually in the headed browser.
 
 ```bash
-# If uv is installed, datapan runs Playwright through:
-# uv run --with playwright python ...
-#
-# Without uv, install Playwright for your Python first:
-# python -m pip install playwright
-# python -m playwright install chromium
-
 datapan apply login --headed --storage-state .datapan/data-go-kr-browser-state.json
 datapan apply submit 15126469 --dry-run --storage-state .datapan/data-go-kr-browser-state.json --json
 datapan apply submit 15126469 --apply --storage-state .datapan/data-go-kr-browser-state.json --json
 ```
+
+`datapan apply login` prepares the Playwright Chromium runtime before opening
+the browser. If `uv` is available, Datapan uses it automatically; otherwise it
+falls back to the local Python Playwright installation.
 
 `submit` defaults to inspection/dry-run behavior. It submits only when `--apply`
 is explicitly present.
@@ -119,7 +116,7 @@ language-independent registry while keeping this CLI contract stable.
 
 - No hosted server dependency.
 - No UI/TUI.
-- No unattended data.go.kr usage application flow.
+- No CAPTCHA bypass or hidden provider-security workaround.
 - No credential printing or storage.
 - No claim that the full data.go.kr catalog is already callable.
 
