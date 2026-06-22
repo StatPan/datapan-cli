@@ -269,6 +269,16 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 	}
 	keyName, key, ok := a.resolveKeyValue()
 	if !ok {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":                false,
+				"error":             "missing_auth",
+				"accepted_env_vars": datago.KeyEnvNames,
+			}); code != exitOK {
+				return code
+			}
+			return exitAuth
+		}
 		return a.fail(exitAuth, "missing data.go.kr API key; set one of: %s", strings.Join(datago.KeyEnvNames, ", "))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -284,6 +294,25 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		Category:   category,
 	})
 	if err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "request_failed",
+				"message": err.Error(),
+				"catalog_import": map[string]any{
+					"provider":      result.Provider,
+					"source_url":    result.SourceURL,
+					"page":          result.Page,
+					"per_page":      result.PerPage,
+					"pages_fetched": result.PagesFetched,
+					"rows_fetched":  result.RowsFetched,
+					"total_count":   result.TotalCount,
+				},
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
 		return a.fail(exitRequest, "%v", err)
 	}
 	specs, operations := datago.NormalizeOpenDataRows(rows)
@@ -299,6 +328,16 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		"source_preservation": "source_category/source_keywords are upstream values; search_terms are Datapan search helpers",
 	}
 	if err := writeRegistryOutput(output, specs, a.stdout); err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "request_failed",
+				"message": err.Error(),
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
 		return a.fail(exitRequest, "%v", err)
 	}
 	if jsonOut {

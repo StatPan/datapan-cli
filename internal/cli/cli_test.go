@@ -334,6 +334,71 @@ func TestCatalogImportPreservesEncodedServiceKey(t *testing.T) {
 	}
 }
 
+func TestCatalogImportMissingAuthJSON(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"catalog", "import", "data-go-kr", "--output", "registry.json", "--json"}, nil, nil)
+	if code != exitAuth {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "missing_auth"`) || !strings.Contains(stdout, `"DATAPAN_DATA_GO_KR_KEY"`) {
+		t.Fatalf("expected missing_auth JSON: %s", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+}
+
+func TestCatalogImportRequestFailureJSON(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 503,
+			Body:       io.NopCloser(strings.NewReader(`portal unavailable`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", "registry.json", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"error": "request_failed"`,
+		`"message": "data.go.kr catalog import failed: HTTP 503 portal unavailable"`,
+		`"pages_fetched": 0`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogImportOutputFailureJSON(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"currentCount":0,"data":[],"page":1,"perPage":1,"totalCount":0}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	blocker := t.TempDir() + "/not-a-dir"
+	if err := osWriteFile(blocker, []byte("file")); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", blocker + "/registry.json", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "request_failed"`) || !strings.Contains(stdout, `"message":`) {
+		t.Fatalf("expected output failure JSON: %s", stdout)
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {
