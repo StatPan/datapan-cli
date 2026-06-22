@@ -249,11 +249,17 @@ func TestCatalogImportWritesRegistry(t *testing.T) {
 					"operation_nm": "상세조회",
 					"request_param_nm_en": "ID",
 					"request_param_nm": "\"식별자\""
+				},
+				{
+					"list_id": "998",
+					"list_title": "테스트기관_빈 API",
+					"title": "빈 API",
+					"org_nm": "테스트기관"
 				}
 			],
 			"page": 1,
-			"perPage": 2,
-			"totalCount": 2
+			"perPage": 3,
+			"totalCount": 3
 		}`
 		return &http.Response{
 			StatusCode: 200,
@@ -262,14 +268,14 @@ func TestCatalogImportWritesRegistry(t *testing.T) {
 		}, nil
 	})
 	code, stdout, stderr := runTest(
-		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "2", "--pages", "1", "--json"},
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "3", "--pages", "1", "--json"},
 		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
 		client,
 	)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, `"specs_written": 1`) || !strings.Contains(stdout, `"operations": 2`) {
+	if !strings.Contains(stdout, `"specs_written": 2`) || !strings.Contains(stdout, `"operations": 2`) {
 		t.Fatalf("expected import summary: %s", stdout)
 	}
 	data, err := osReadFile(tmp)
@@ -282,6 +288,7 @@ func TestCatalogImportWritesRegistry(t *testing.T) {
 		`"source_keywords"`,
 		`"request_params"`,
 		`"source"`,
+		`"operations": []`,
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("expected %q in registry: %s", want, data)

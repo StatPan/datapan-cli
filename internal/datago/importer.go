@@ -166,6 +166,7 @@ func NormalizeOpenDataRows(rows []OpenDataListRow) ([]Spec, int) {
 				Priority:       "P2",
 				SourceKeywords: splitCSVLike(row.Keywords),
 				Description:    strings.TrimSpace(row.Description),
+				Operations:     []Operation{},
 				Source: &Source{
 					System: "data.go.kr",
 					URL:    firstNonEmpty(row.MetaURL, dataGoKrApplicationURL(id)),
@@ -245,9 +246,14 @@ func fetchOpenDataListPage(ctx context.Context, client HTTPClient, opts ImportOp
 }
 
 func (r OpenDataListRow) operation() Operation {
+	endpoint := operationEndpoint(r.EndpointURL, r.OperationURL)
+	name := strings.TrimSpace(r.OperationName)
+	if name == "" && endpoint != "" {
+		name = strings.TrimSpace(r.Title)
+	}
 	return Operation{
-		Name:           firstNonEmpty(r.OperationName, r.Title),
-		Endpoint:       operationEndpoint(r.EndpointURL, r.OperationURL),
+		Name:           name,
+		Endpoint:       endpoint,
 		DefaultParams:  map[string]string{},
 		RequestParams:  pairParams(r.RequestParamNamesEN, r.RequestParamNames),
 		ResponseParams: pairParams(r.ResponseParamNamesEN, r.ResponseParamNames),
