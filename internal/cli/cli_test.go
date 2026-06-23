@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1957,6 +1958,59 @@ func TestOpenAPIExportWritesDocument(t *testing.T) {
 	}
 	if strings.Contains(text, "secret-value") || strings.Contains(text, "{{DATA_PORTAL_API_KEY}}") {
 		t.Fatalf("OpenAPI document should use env placeholder only: %s", data)
+	}
+}
+
+func TestCodegenGoWritesCompilableClient(t *testing.T) {
+	dir := t.TempDir()
+	output := dir + "/client.go"
+	code, stdout, stderr := runTest(
+		[]string{"codegen", "go", "15084084", "--package", "forecastclient", "--output", output, "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"target": "go"`,
+		`"package": "forecastclient"`,
+		`"function": "GetVilageFcst"`,
+		`"dataset": "15084084"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in codegen summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`package forecastclient`,
+		`const defaultServiceKeyEnv = "DATA_PORTAL_API_KEY"`,
+		`func NewFromEnv() (*Client, error)`,
+		`func (c *Client) GetVilageFcst(ctx context.Context, params map[string]string) ([]byte, error)`,
+		`"base_date": "20260622"`,
+		`q.Set("serviceKey", c.ServiceKey)`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in generated Go client: %s", want, data)
+		}
+	}
+	if strings.Contains(text, "secret-value") || strings.Contains(text, "${DATA_PORTAL_API_KEY}") {
+		t.Fatalf("generated Go client should not embed key material or shell placeholders: %s", data)
+	}
+	goMod := dir + "/go.mod"
+	if err := osWriteFile(goMod, []byte("module example.test/generated\n\ngo 1.26\n")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated client should compile: %v\n%s", err, out)
 	}
 }
 

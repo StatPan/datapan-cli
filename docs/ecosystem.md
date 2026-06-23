@@ -543,7 +543,7 @@ Required:
 - Postman collection export;
 - OpenAPI export as the first SDK/codegen bridge;
 - Datapan schema export;
-- Go client prototype;
+- Go client prototype through `datapan codegen go`;
 - Node/Python clients only after schema stability.
 
 Completion bar:

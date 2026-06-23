@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/format"
 	"io"
 	"net/http"
 	"net/url"
@@ -194,6 +195,8 @@ func (a app) run() int {
 		return a.curl(args[1:], jsonOut)
 	case "export":
 		return a.export(args[1:], jsonOut)
+	case "codegen":
+		return a.codegen(args[1:], jsonOut)
 	case "save":
 		return a.save(args[1:], jsonOut)
 	default:
@@ -3048,6 +3051,62 @@ func (a app) export(args []string, jsonOut bool) int {
 	return a.writeRows(rows, format, jsonOut)
 }
 
+func (a app) codegen(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	if len(args) == 0 {
+		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--json]")
+	}
+	switch args[0] {
+	case "go", "golang":
+		return a.codegenGo(args[1:], jsonOut)
+	default:
+		return a.fail(exitUsage, "unsupported codegen target %q; use go", args[0])
+	}
+}
+
+func (a app) codegenGo(args []string, jsonOut bool) int {
+	pkg, args, err := consumeString(args, "--package", "datapanclient")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if !validGoPackageName(pkg) {
+		return a.fail(exitUsage, "--package must be a valid Go package identifier")
+	}
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes generated Go code to stdout")
+	}
+	plan, err := a.curlExportPlan(args)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	source := goClientForPlan(plan, pkg)
+	formatted, err := format.Source([]byte(source))
+	if err != nil {
+		return a.fail(exitRequest, "generated Go code is not formattable: %v", err)
+	}
+	source = string(formatted)
+	if err := writeOutput(output, []byte(source), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":        true,
+			"target":    "go",
+			"output":    output,
+			"package":   pkg,
+			"dataset":   plan.Spec.ID,
+			"operation": plan.Operation.Name,
+			"function":  goFunctionName(plan),
+		})
+	}
+	return exitOK
+}
+
 func (a app) save(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -3490,6 +3549,146 @@ func openAPITag(spec datago.Spec) string {
 	return "data.go.kr"
 }
 
+func goClientForPlan(plan curlExportPlan, pkg string) string {
+	endpoint, _ := url.Parse(plan.Operation.Endpoint)
+	endpoint.RawQuery = ""
+	endpoint.Fragment = ""
+	function := goFunctionName(plan)
+	defaults := goDefaultParamLiteral(plan.PublicParams)
+	var b strings.Builder
+	fmt.Fprintf(&b, "package %s\n\n", pkg)
+	b.WriteString("import (\n")
+	b.WriteString("\t\"context\"\n")
+	b.WriteString("\t\"fmt\"\n")
+	b.WriteString("\t\"io\"\n")
+	b.WriteString("\t\"net/http\"\n")
+	b.WriteString("\t\"net/url\"\n")
+	b.WriteString("\t\"os\"\n")
+	b.WriteString("\t\"strings\"\n")
+	b.WriteString(")\n\n")
+	fmt.Fprintf(&b, "const defaultBaseURL = %q\n", endpoint.String())
+	fmt.Fprintf(&b, "const defaultServiceKeyEnv = %q\n\n", plan.EnvVar)
+	b.WriteString("// HTTPDoer is satisfied by *http.Client and test clients.\n")
+	b.WriteString("type HTTPDoer interface {\n\tDo(*http.Request) (*http.Response, error)\n}\n\n")
+	b.WriteString("// Client calls one Datapan-planned public data operation.\n")
+	b.WriteString("type Client struct {\n\tHTTPClient HTTPDoer\n\tServiceKey string\n\tBaseURL string\n}\n\n")
+	b.WriteString("// New creates a client with an explicit service key.\n")
+	b.WriteString("func New(serviceKey string) *Client {\n")
+	b.WriteString("\treturn &Client{HTTPClient: http.DefaultClient, ServiceKey: strings.TrimSpace(serviceKey), BaseURL: defaultBaseURL}\n")
+	b.WriteString("}\n\n")
+	b.WriteString("// NewFromEnv creates a client from the Datapan-planned service-key environment variable.\n")
+	b.WriteString("func NewFromEnv() (*Client, error) {\n")
+	b.WriteString("\tkey := strings.TrimSpace(os.Getenv(defaultServiceKeyEnv))\n")
+	b.WriteString("\tif key == \"\" {\n")
+	b.WriteString("\t\treturn nil, fmt.Errorf(\"missing %s\", defaultServiceKeyEnv)\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\treturn New(key), nil\n")
+	b.WriteString("}\n\n")
+	fmt.Fprintf(&b, "// %s calls %s (%s).\n", function, goCommentText(plan.Operation.Name), plan.Spec.ID)
+	fmt.Fprintf(&b, "func (c *Client) %s(ctx context.Context, params map[string]string) ([]byte, error) {\n", function)
+	fmt.Fprintf(&b, "\treq, err := c.New%sRequest(ctx, params)\n", function)
+	b.WriteString("\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	b.WriteString("\thttpClient := c.HTTPClient\n\tif httpClient == nil {\n\t\thttpClient = http.DefaultClient\n\t}\n")
+	b.WriteString("\tresp, err := httpClient.Do(req)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	b.WriteString("\tdefer resp.Body.Close()\n")
+	b.WriteString("\tbody, err := io.ReadAll(resp.Body)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	b.WriteString("\tif resp.StatusCode < 200 || resp.StatusCode >= 300 {\n\t\treturn nil, fmt.Errorf(\"provider returned HTTP %d: %s\", resp.StatusCode, strings.TrimSpace(string(body)))\n\t}\n")
+	b.WriteString("\treturn body, nil\n")
+	b.WriteString("}\n\n")
+	fmt.Fprintf(&b, "// New%sRequest builds the HTTP request without executing it.\n", function)
+	fmt.Fprintf(&b, "func (c *Client) New%sRequest(ctx context.Context, params map[string]string) (*http.Request, error) {\n", function)
+	b.WriteString("\tif strings.TrimSpace(c.ServiceKey) == \"\" {\n\t\treturn nil, fmt.Errorf(\"missing service key\")\n\t}\n")
+	b.WriteString("\tbaseURL := strings.TrimSpace(c.BaseURL)\n\tif baseURL == \"\" {\n\t\tbaseURL = defaultBaseURL\n\t}\n")
+	b.WriteString("\tu, err := url.Parse(baseURL)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	b.WriteString("\tq := u.Query()\n")
+	fmt.Fprintf(&b, "\tfor key, value := range %s {\n\t\tq.Set(key, value)\n\t}\n", defaults)
+	b.WriteString("\tfor key, value := range params {\n\t\tif strings.TrimSpace(key) != \"\" && key != \"serviceKey\" {\n\t\t\tq.Set(key, value)\n\t\t}\n\t}\n")
+	b.WriteString("\tq.Set(\"serviceKey\", c.ServiceKey)\n\tu.RawQuery = q.Encode()\n")
+	b.WriteString("\treturn http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)\n")
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func goDefaultParamLiteral(params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		if strings.TrimSpace(key) != "" && !isAuthParam(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return "map[string]string{}"
+	}
+	var b strings.Builder
+	b.WriteString("map[string]string{\n")
+	for _, key := range keys {
+		fmt.Fprintf(&b, "\t\t%q: %q,\n", key, params[key])
+	}
+	b.WriteString("\t}")
+	return b.String()
+}
+
+func goFunctionName(plan curlExportPlan) string {
+	name := goExportedIdentifier(plan.Operation.Name)
+	if name == "" {
+		name = "Call" + goExportedIdentifier(plan.Spec.ID)
+	}
+	if name == "Call" {
+		name = "CallOperation"
+	}
+	return name
+}
+
+func goExportedIdentifier(value string) string {
+	var b strings.Builder
+	upperNext := true
+	for _, r := range value {
+		isLower := r >= 'a' && r <= 'z'
+		isUpper := r >= 'A' && r <= 'Z'
+		isDigit := r >= '0' && r <= '9'
+		if !isLower && !isUpper && !isDigit {
+			upperNext = true
+			continue
+		}
+		if b.Len() == 0 && isDigit {
+			b.WriteString("Call")
+		}
+		if upperNext && isLower {
+			r -= 'a' - 'A'
+		}
+		b.WriteRune(r)
+		upperNext = false
+	}
+	return b.String()
+}
+
+func validGoPackageName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for idx, r := range value {
+		isLower := r >= 'a' && r <= 'z'
+		isUpper := r >= 'A' && r <= 'Z'
+		isDigit := r >= '0' && r <= '9'
+		if idx == 0 && isDigit {
+			return false
+		}
+		if !isLower && !isUpper && !isDigit && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func goCommentText(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
+	if value == "" {
+		return "the planned operation"
+	}
+	return value
+}
+
 func (a app) requestPlan(ref, operation string, params map[string]string) (requestPlan, string, error) {
 	result := a.reg.Resolve(ref, 10)
 	if result.Status != datago.ResolveFound {
@@ -3711,6 +3910,7 @@ Usage:
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
   datapan version [--json]
 
 Accepted data.go.kr key env vars:

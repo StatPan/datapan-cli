@@ -99,6 +99,7 @@ datapan save 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --format cs
 datapan export --format curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.postman_collection.json
 datapan export --format openapi 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.openapi.json
+datapan codegen go 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --package forecastclient --output forecast_client.go
 datapan export --input response.json --format csv
 ```
 
@@ -236,6 +237,10 @@ endpoint, query parameters, response fields, and a `serviceKey` apiKey security
 scheme with an environment-variable placeholder such as
 `${DATA_PORTAL_API_KEY}`. This is the first bridge toward SDK generation and
 Studio-style tooling without hand-writing one wrapper per API.
+Use `datapan codegen go <ref> --output client.go` to generate a small
+compilable Go client for one operation. The generated client keeps public-data
+parameter names as `map[string]string`, reads the service key from the planned
+environment variable via `NewFromEnv`, and does not embed credential values.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider

@@ -275,6 +275,7 @@ datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output fo
 datapan export --format curl 15084084 base_date=20260622 base_time=0500
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 --output forecast.postman_collection.json
 datapan export --format openapi 15084084 base_date=20260622 base_time=0500 --output forecast.openapi.json
+datapan codegen go 15084084 base_date=20260622 base_time=0500 --package forecastclient --output forecast_client.go
 ```
 
 `datapan show <ref> --json` should be the stable handoff from search to use. In
@@ -325,6 +326,11 @@ parameter, response-field, and `serviceKey` apiKey security-scheme metadata. It
 must represent the service key as an environment-variable placeholder such as
 `${DATAPAN_DATA_GO_KR_KEY}` or `${DATA_PORTAL_API_KEY}`, never as the
 credential value.
+`datapan codegen go <ref>` writes a small compilable Go client for the same
+request plan. The generated file must use a caller-provided service key or
+`NewFromEnv`, must expose operation parameters as `map[string]string` so
+upstream parameter names remain exact, and must not embed credential values or
+shell placeholders.
 
 ## Credentials
 
