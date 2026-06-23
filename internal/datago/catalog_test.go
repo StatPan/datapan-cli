@@ -69,3 +69,46 @@ func TestOperationEndpointKeepsConcreteEndpointWithoutOperationURL(t *testing.T)
 		t.Fatalf("operationEndpoint()=%q", got)
 	}
 }
+
+func TestAuditSamplesDeduplicateDatasetIDs(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:       "100",
+			Title:    "중복 샘플",
+			Provider: "data.go.kr",
+			Priority: "P2",
+			Operations: []Operation{
+				{
+					Name: "목록",
+					Source: &Source{System: "data.go.kr", Raw: map[string]any{
+						"end_point_url": "http://openapi.tour.go.kr/openapi/service",
+						"api_type":      "SOAP",
+						"data_format":   "WMS",
+					}},
+				},
+				{
+					Name: "상세",
+					Source: &Source{System: "data.go.kr", Raw: map[string]any{
+						"end_point_url": "http://openapi.tour.go.kr/openapi/service",
+						"api_type":      "SOAP",
+						"data_format":   "WMS",
+					}},
+				},
+			},
+		},
+	})
+
+	audit := AuditRegistry(reg, 5)
+	if audit.Dependency.ServiceRootOnlyOperations != 2 || audit.Dependency.SOAPOperations != 2 || audit.Dependency.WMSOperations != 2 {
+		t.Fatalf("operation counts should stay operation-scoped: %#v", audit.Dependency)
+	}
+	for name, samples := range map[string][]AuditSample{
+		"service_root_only": audit.Samples.ServiceRootOnly,
+		"soap":              audit.Samples.SOAP,
+		"wms":               audit.Samples.WMS,
+	} {
+		if len(samples) != 1 || samples[0].ID != "100" {
+			t.Fatalf("%s samples should be dataset-deduplicated: %#v", name, samples)
+		}
+	}
+}

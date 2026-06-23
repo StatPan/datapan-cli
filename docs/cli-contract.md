@@ -88,7 +88,9 @@ and missing source metadata. It also includes dependency classification for
 data.go.kr gateway operations, external endpoint operations, gateway operations
 with external guide documents, service-root-only operations, SOAP/WMS
 operations, approval-required operations, and malformed endpoint or guide URLs.
-Samples should be included only as bounded summaries.
+Samples should be included only as bounded summaries and should not repeat the
+same dataset ID within a sample bucket, even when multiple operations from that
+dataset contribute to the same audit count.
 
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary

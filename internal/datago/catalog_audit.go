@@ -180,6 +180,11 @@ func appendSample(samples []AuditSample, spec Spec, limit int) []AuditSample {
 	if limit == 0 || len(samples) >= limit {
 		return samples
 	}
+	for _, sample := range samples {
+		if sample.ID == spec.ID {
+			return samples
+		}
+	}
 	return append(samples, auditSample(spec))
 }
 

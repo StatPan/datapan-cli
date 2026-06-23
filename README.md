@@ -132,6 +132,9 @@ callable endpoints, dependency classes, and missing source metadata. Dependency
 classes distinguish data.go.kr gateway operations, external endpoint operations,
 gateway operations with external guide documents, service-root-only operations,
 SOAP/WMS operations, approval-required operations, and malformed source URLs.
+Audit counts remain operation/spec scoped, while sample buckets are bounded and
+dataset-deduplicated so one multi-operation dataset does not hide other
+examples.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, missing adapter hosts, operations that need adapters, and
