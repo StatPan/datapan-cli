@@ -158,9 +158,11 @@ artifact for release or CI use.
 registry release layout without fetching upstream data or calling provider
 APIs. It copies Datapan schema files, writes `data/data-go-kr.registry.json`,
 generates `reports/provider-backlog.json`, optionally copies a verification
-report with `--verification PATH`, and writes provenance under
-`provenance/data-go-kr.md`. Use `--output-dir DIR` to choose the release draft
-directory and `--provider-limit N` to bound provider report output.
+report with `--verification PATH`, writes
+`reports/latest-verification-summary.json` from that report, and writes
+provenance under `provenance/data-go-kr.md`. Use `--output-dir DIR` to choose
+the release draft directory and `--provider-limit N` to bound provider report
+output.
 
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the

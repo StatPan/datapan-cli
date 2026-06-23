@@ -91,6 +91,7 @@ Path:
 
 ```text
 reports/latest-verification.json
+reports/latest-verification-summary.json
 ```
 
 Schema:
@@ -126,6 +127,10 @@ datapan catalog audit --registry .datapan/release/data/data-go-kr.registry.json 
 datapan catalog verify --input .datapan/release/reports/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/release/reports/latest-verification.json --json
 ```
+
+When `--verification` is provided, `catalog release draft` writes both
+`reports/latest-verification.json` and
+`reports/latest-verification-summary.json`.
 
 The local draft directory is ignored by git in this repository. Published
 registry artifacts should live in a dedicated registry repository once release

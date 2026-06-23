@@ -1190,6 +1190,7 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 		return a.releaseFailure(jsonOut, err)
 	}
 	verificationCopied := false
+	verificationSummaryWritten := false
 	if verificationPath != "" {
 		report, err := readVerificationReport(verificationPath)
 		if err != nil {
@@ -1201,25 +1202,32 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 		if err := writeJSONFile(paths.VerificationPath, report); err != nil {
 			return a.releaseFailure(jsonOut, err)
 		}
+		summary := datago.SummarizeVerificationReport(report, paths.VerificationPath, 0)
+		if err := writeJSONFile(paths.VerificationSummaryPath, summary); err != nil {
+			return a.releaseFailure(jsonOut, err)
+		}
 		verificationCopied = true
+		verificationSummaryWritten = true
 	}
 	provenance := releaseProvenance(generatedAt, registryPath, verificationPath, providerLimit, paths)
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
 	payload := map[string]any{
-		"ok":                  true,
-		"output_dir":          outputDir,
-		"generated_at":        generatedAt,
-		"registry":            paths.RegistryPath,
-		"schemas":             datapanSchemaFileNames(),
-		"provider_backlog":    paths.ProviderBacklogPath,
-		"verification":        emptyIfFalse(paths.VerificationPath, verificationCopied),
-		"provenance":          paths.ProvenancePath,
-		"specs":               len(specs),
-		"providers":           len(providers),
-		"provider_truncated":  providerReport.Truncated,
-		"verification_copied": verificationCopied,
+		"ok":                           true,
+		"output_dir":                   outputDir,
+		"generated_at":                 generatedAt,
+		"registry":                     paths.RegistryPath,
+		"schemas":                      datapanSchemaFileNames(),
+		"provider_backlog":             paths.ProviderBacklogPath,
+		"verification":                 emptyIfFalse(paths.VerificationPath, verificationCopied),
+		"verification_summary":         emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
+		"provenance":                   paths.ProvenancePath,
+		"specs":                        len(specs),
+		"providers":                    len(providers),
+		"provider_truncated":           providerReport.Truncated,
+		"verification_copied":          verificationCopied,
+		"verification_summary_written": verificationSummaryWritten,
 	}
 	if jsonOut {
 		return a.writeJSON(payload)
@@ -1230,6 +1238,7 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  provider backlog: %s\n", paths.ProviderBacklogPath)
 	if verificationCopied {
 		fmt.Fprintf(a.stdout, "  verification: %s\n", paths.VerificationPath)
+		fmt.Fprintf(a.stdout, "  verification summary: %s\n", paths.VerificationSummaryPath)
 	}
 	fmt.Fprintf(a.stdout, "  provenance: %s\n", paths.ProvenancePath)
 	fmt.Fprintf(a.stdout, "  specs: %d\n", len(specs))
@@ -2784,28 +2793,30 @@ func writeOutput(path string, data []byte, stdout io.Writer) error {
 }
 
 type releasePaths struct {
-	OutputDir           string
-	SchemaDir           string
-	DataDir             string
-	ReportsDir          string
-	ProvenanceDir       string
-	RegistryPath        string
-	ProviderBacklogPath string
-	VerificationPath    string
-	ProvenancePath      string
+	OutputDir               string
+	SchemaDir               string
+	DataDir                 string
+	ReportsDir              string
+	ProvenanceDir           string
+	RegistryPath            string
+	ProviderBacklogPath     string
+	VerificationPath        string
+	VerificationSummaryPath string
+	ProvenancePath          string
 }
 
 func releaseDraftPaths(outputDir string) releasePaths {
 	return releasePaths{
-		OutputDir:           outputDir,
-		SchemaDir:           joinPath(outputDir, "schemas"),
-		DataDir:             joinPath(outputDir, "data"),
-		ReportsDir:          joinPath(outputDir, "reports"),
-		ProvenanceDir:       joinPath(outputDir, "provenance"),
-		RegistryPath:        joinPath(outputDir, "data/data-go-kr.registry.json"),
-		ProviderBacklogPath: joinPath(outputDir, "reports/provider-backlog.json"),
-		VerificationPath:    joinPath(outputDir, "reports/latest-verification.json"),
-		ProvenancePath:      joinPath(outputDir, "provenance/data-go-kr.md"),
+		OutputDir:               outputDir,
+		SchemaDir:               joinPath(outputDir, "schemas"),
+		DataDir:                 joinPath(outputDir, "data"),
+		ReportsDir:              joinPath(outputDir, "reports"),
+		ProvenanceDir:           joinPath(outputDir, "provenance"),
+		RegistryPath:            joinPath(outputDir, "data/data-go-kr.registry.json"),
+		ProviderBacklogPath:     joinPath(outputDir, "reports/provider-backlog.json"),
+		VerificationPath:        joinPath(outputDir, "reports/latest-verification.json"),
+		VerificationSummaryPath: joinPath(outputDir, "reports/latest-verification-summary.json"),
+		ProvenancePath:          joinPath(outputDir, "provenance/data-go-kr.md"),
 	}
 }
 
@@ -2934,6 +2945,7 @@ func releaseProvenance(generatedAt, registryPath, verificationPath string, provi
 	fmt.Fprintf(&b, "datapan catalog providers --registry %s --limit %d --output %s --json\n", paths.RegistryPath, providerLimit, paths.ProviderBacklogPath)
 	if verificationPath != "" {
 		fmt.Fprintf(&b, "datapan catalog verify --input %s --json\n", paths.VerificationPath)
+		fmt.Fprintf(&b, "datapan catalog verify summary --input %s --output %s --json\n", paths.VerificationPath, paths.VerificationSummaryPath)
 	}
 	fmt.Fprintf(&b, "```\n")
 	return b.String()

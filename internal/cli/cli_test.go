@@ -1198,6 +1198,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	registryPath := dir + "/registry.json"
 	verificationPath := dir + "/verification.json"
 	outputDir := dir + "/release"
+	paths := releaseDraftPaths(outputDir)
 	if err := osWriteFile(registryPath, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
 	]`)); err != nil {
@@ -1223,9 +1224,11 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	for _, want := range []string{
 		`"ok": true`,
 		`"verification_copied": true`,
+		`"verification_summary_written": true`,
 		`"specs": 1`,
 		`"providers": 1`,
 		`"provider_backlog":`,
+		`"verification_summary":`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1240,6 +1243,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
+		outputDir + "/reports/latest-verification-summary.json",
 		outputDir + "/provenance/data-go-kr.md",
 	} {
 		if _, err := osReadFile(path); err != nil {
@@ -1252,6 +1256,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "datapan catalog audit") {
 		t.Fatalf("unexpected provenance: %s", provenance)
+	}
+	summary, err := osReadFile(outputDir + "/reports/latest-verification-summary.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(summary), `"source": "`+jsonEscaped(paths.VerificationPath)+`"`) || !strings.Contains(string(summary), `"external_provider_adapter_missing"`) {
+		t.Fatalf("unexpected verification summary: %s", summary)
 	}
 }
 

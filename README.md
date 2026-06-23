@@ -158,8 +158,8 @@ artifact and filter results by status without making new provider calls.
 Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
-from existing registry, provider backlog, schema, verification, and provenance
-artifacts without calling upstream APIs.
+from existing registry, provider backlog, schema, verification, verification
+summary, and provenance artifacts without calling upstream APIs.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`
