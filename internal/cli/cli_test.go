@@ -1830,6 +1830,48 @@ func TestGetAcceptsPositionalParams(t *testing.T) {
 	}
 }
 
+func TestCurlExportsCommandWithoutCredential(t *testing.T) {
+	code, stdout, stderr := runTest(
+		[]string{"curl", "기상청_단기예보 조회서비스", "--json", "base_date=20260622", "base_time=0500", "nx=60", "ny=127"},
+		nil,
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"dataset": "15084084"`,
+		`"env_var": "DATAPAN_DATA_GO_KR_KEY"`,
+		`"command": "curl -fsS`,
+		`base_date=20260622`,
+		`serviceKey=${DATAPAN_DATA_GO_KR_KEY}`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in curl export: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "REDACTED") || strings.Contains(stdout, "secret-value") {
+		t.Fatalf("curl export should use env placeholder, not key material: %s", stdout)
+	}
+}
+
+func TestCurlExportUsesExistingEnvVarName(t *testing.T) {
+	code, stdout, stderr := runTest(
+		[]string{"export", "--format", "curl", "15084084", "--param", "base_date=20260622", "--param", "base_time=0500"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "serviceKey=${DATA_PORTAL_API_KEY}") {
+		t.Fatalf("expected selected env var placeholder: %s", stdout)
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("secret leaked in curl export: %s", stdout)
+	}
+}
+
 func TestGetAmbiguousRefJSONReturnsCandidates(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"get", "정보", "--dry-run", "--json"}, nil, nil)
 	if code != exitAmbiguous {

@@ -94,7 +94,9 @@ datapan access 15126469 --open
 datapan access 15126469 --start
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 nx=60 ny=127 --json
 datapan get 15084084 --dry-run --json
+datapan curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan save 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --format csv --output forecast.csv
+datapan export --format curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan export --input response.json --format csv
 ```
 
@@ -218,6 +220,10 @@ can synthesize one from the imported data.go.kr spec.
 provider error fields under `provider_status`, including `resultCode/resultMsg`
 or `OpenAPI_ServiceResponse` fields such as `returnReasonCode`,
 `returnAuthMsg`, and `errMsg` when they appear in the response body.
+Use `datapan curl <ref>` when you want a copyable request without making a
+provider call. It emits a `curl -fsS ...` command with `serviceKey=${ENV_VAR}`
+instead of printing credential values. `datapan export --format curl <ref>` is
+the same planner through the export surface.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider

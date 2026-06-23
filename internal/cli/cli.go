@@ -190,6 +190,8 @@ func (a app) run() int {
 		return a.call(args[1:], jsonOut, false)
 	case "get":
 		return a.call(args[1:], jsonOut, false)
+	case "curl":
+		return a.curl(args[1:], jsonOut)
 	case "export":
 		return a.export(args[1:], jsonOut)
 	case "save":
@@ -2903,6 +2905,29 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	return exitOK
 }
 
+func (a app) curl(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	plan, err := a.curlExportPlan(args)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":           true,
+			"dataset":      plan.Spec.ID,
+			"operation":    plan.Operation.Name,
+			"method":       http.MethodGet,
+			"url":          plan.URL,
+			"command":      plan.Command,
+			"env_var":      plan.EnvVar,
+			"query_params": plan.PublicParams,
+		})
+	}
+	fmt.Fprintln(a.stdout, plan.Command)
+	return exitOK
+}
+
 func (a app) export(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -2913,6 +2938,12 @@ func (a app) export(args []string, jsonOut bool) int {
 	input, args, err := consumeString(args, "--input", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
+	}
+	if format == "curl" {
+		if input != "" {
+			return a.fail(exitUsage, "--format curl cannot be combined with --input")
+		}
+		return a.curl(args, jsonOut)
 	}
 	if input == "" {
 		return a.exportFromCall(args, jsonOut, format)
@@ -3020,6 +3051,120 @@ type requestPlan struct {
 	PublicParams map[string]string
 }
 
+type curlExportPlan struct {
+	Spec         datago.Spec
+	Operation    datago.Operation
+	URL          string
+	Command      string
+	EnvVar       string
+	PublicParams map[string]string
+}
+
+func (a app) curlExportPlan(args []string) (curlExportPlan, error) {
+	operation, args, err := consumeString(args, "--operation", "")
+	if err != nil {
+		return curlExportPlan{}, errUsage{err.Error()}
+	}
+	paramsFile, args, err := consumeString(args, "--params-file", "")
+	if err != nil {
+		return curlExportPlan{}, errUsage{err.Error()}
+	}
+	params, args, err := consumeParams(args)
+	if err != nil {
+		return curlExportPlan{}, errUsage{err.Error()}
+	}
+	if len(args) < 1 {
+		return curlExportPlan{}, errUsage{"usage: datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]"}
+	}
+	positionalParams, err := parseKeyValueArgs(args[1:])
+	if err != nil {
+		return curlExportPlan{}, errUsage{err.Error()}
+	}
+	for k, v := range positionalParams {
+		params[k] = v
+	}
+	fileParams, err := readParamsFile(paramsFile, os.Stdin)
+	if err != nil {
+		return curlExportPlan{}, errUsage{err.Error()}
+	}
+	for k, v := range fileParams {
+		params[k] = v
+	}
+	return a.curlExportPlanForRef(args[0], operation, params)
+}
+
+func (a app) curlExportPlanForRef(ref, operation string, params map[string]string) (curlExportPlan, error) {
+	result := a.reg.Resolve(ref, 10)
+	if result.Status != datago.ResolveFound {
+		if result.Status == datago.ResolveAmbiguous {
+			return curlExportPlan{}, errAmbiguous{ref: ref, candidates: result.Candidates}
+		}
+		return curlExportPlan{}, errNotFound{ref}
+	}
+	spec := result.Spec
+	op, ok := spec.Operation(operation)
+	if !ok {
+		if operation == "" {
+			return curlExportPlan{}, fmt.Errorf("spec %s has no callable operation endpoint yet", spec.ID)
+		}
+		return curlExportPlan{}, fmt.Errorf("unknown operation %q for %s", operation, spec.ID)
+	}
+	envVar := datago.KeyEnvNames[0]
+	if selected, ok := a.resolveKey(); ok {
+		envVar = selected
+	}
+	urlText, publicParams, err := curlURLForOperation(op, params, envVar)
+	if err != nil {
+		return curlExportPlan{}, err
+	}
+	return curlExportPlan{
+		Spec:         spec,
+		Operation:    op,
+		URL:          urlText,
+		Command:      datago.CommandString([]string{"curl", "-fsS", urlText}),
+		EnvVar:       envVar,
+		PublicParams: publicParams,
+	}, nil
+}
+
+func curlURLForOperation(op datago.Operation, params map[string]string, envVar string) (string, map[string]string, error) {
+	u, err := url.Parse(op.Endpoint)
+	if err != nil {
+		return "", nil, err
+	}
+	q := u.Query()
+	for k, v := range params {
+		if !isAuthParam(k) {
+			q.Set(k, v)
+		}
+	}
+	for k, v := range op.DefaultParams {
+		if !isAuthParam(k) && q.Get(k) == "" {
+			q.Set(k, v)
+		}
+	}
+	for key := range q {
+		if isAuthParam(key) {
+			q.Del(key)
+		}
+	}
+	u.RawQuery = q.Encode()
+	placeholder := "${" + envVar + "}"
+	if u.RawQuery == "" {
+		u.RawQuery = "serviceKey=" + placeholder
+	} else {
+		u.RawQuery += "&serviceKey=" + placeholder
+	}
+	publicParams := map[string]string{}
+	for k, values := range q {
+		if len(values) > 0 {
+			publicParams[k] = values[0]
+		}
+	}
+	publicParams["serviceKey"] = placeholder
+	return u.String(), publicParams, nil
+}
+
 func (a app) requestPlan(ref, operation string, params map[string]string) (requestPlan, string, error) {
 	result := a.reg.Resolve(ref, 10)
 	if result.Status != datago.ResolveFound {
@@ -3119,6 +3264,20 @@ func (a app) resolveKeyValue() (string, string, bool) {
 }
 
 func (a app) mapError(err error, jsonOut bool) int {
+	var usage errUsage
+	if errors.As(err, &usage) {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "usage",
+				"message": usage.message,
+			}); code != exitOK {
+				return code
+			}
+			return exitUsage
+		}
+		return a.fail(exitUsage, "%s", usage.message)
+	}
 	var ambiguous errAmbiguous
 	if errors.As(err, &ambiguous) {
 		if jsonOut {
@@ -3220,9 +3379,11 @@ Usage:
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
   datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
   datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
+  datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
   datapan save <ref> [KEY=VALUE ...] [--format csv|json] [--output PATH|-] [--json]
   datapan call <ref> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
+  datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
   datapan version [--json]
 
 Accepted data.go.kr key env vars:
@@ -3239,6 +3400,10 @@ type errAmbiguous struct {
 }
 
 func (e errAmbiguous) Error() string { return "ambiguous: " + e.ref }
+
+type errUsage struct{ message string }
+
+func (e errUsage) Error() string { return e.message }
 
 type errAuth struct{}
 

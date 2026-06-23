@@ -270,7 +270,9 @@ must fail with exit code 5 and return candidate summaries under `--json`.
 ```bash
 datapan show "국토교통부_아파트 매매 실거래가 자료" --json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 --json
+datapan curl 15084084 base_date=20260622 base_time=0500
 datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
+datapan export --format curl 15084084 base_date=20260622 base_time=0500
 ```
 
 `datapan show <ref> --json` should be the stable handoff from search to use. In
@@ -307,6 +309,11 @@ case where a user or agent has the required parameter names from `show`.
 examples must not ask the user to pass `serviceKey`; Datapan supplies that from
 the accepted environment variables.
 
+`datapan curl <ref>` and `datapan export --format curl <ref>` emit a copyable
+`curl -fsS ...` command without making a provider request. The generated URL
+must include `serviceKey=${ENV_VAR}` using the selected or preferred credential
+environment variable name, and must never include the credential value.
+
 ## Credentials
 
 The preferred key is:
@@ -323,7 +330,8 @@ DATA_GO_KR_SERVICE_KEY
 ```
 
 Credential values must never be printed. Request URLs shown in dry-run and JSON
-output must redact `serviceKey`.
+output must redact `serviceKey`; curl exports must use an environment-variable
+placeholder instead of the raw key.
 
 When using the real OS environment, Datapan may read a local `.env` file from
 the current working directory. Process environment variables take precedence
