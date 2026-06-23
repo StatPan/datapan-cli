@@ -35,6 +35,7 @@ const version = "0.1.0-dev"
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
+const defaultDiffLimit = 20
 
 type Env interface {
 	LookupEnv(string) (string, bool)
@@ -43,6 +44,19 @@ type Env interface {
 type RealEnv struct{}
 
 func (RealEnv) LookupEnv(name string) (string, bool) { return os.LookupEnv(name) }
+
+type dotEnv struct {
+	base   Env
+	values map[string]string
+}
+
+func (d dotEnv) LookupEnv(name string) (string, bool) {
+	if value, ok := d.base.LookupEnv(name); ok {
+		return value, ok
+	}
+	value, ok := d.values[name]
+	return value, ok
+}
 
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
@@ -70,6 +84,7 @@ type app struct {
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
+	env = maybeLoadDotEnv(env)
 	reg := datago.DefaultRegistry()
 	if path, ok := env.LookupEnv("DATAPAN_REGISTRY_PATH"); ok && strings.TrimSpace(path) != "" {
 		loaded, err := datago.LoadRegistry(strings.TrimSpace(path))
@@ -88,6 +103,51 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg:    reg,
 	}
 	return a.run()
+}
+
+func maybeLoadDotEnv(env Env) Env {
+	if _, ok := env.(RealEnv); !ok {
+		return env
+	}
+	values, err := readDotEnv(".env")
+	if err != nil || len(values) == 0 {
+		return env
+	}
+	return dotEnv{base: env, values: values}
+}
+
+func readDotEnv(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		key, value, _ := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		if key == "" || strings.HasPrefix(key, "export ") {
+			key = strings.TrimSpace(strings.TrimPrefix(key, "export "))
+		}
+		if key == "" {
+			continue
+		}
+		values[key] = trimEnvValue(value)
+	}
+	return values, nil
+}
+
+func trimEnvValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+			value = value[1 : len(value)-1]
+		}
+	}
+	return strings.TrimSpace(value)
 }
 
 func (a app) run() int {
@@ -216,13 +276,17 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json]")
 	}
 	switch args[0] {
 	case "import":
 		return a.catalogImport(args[1:], jsonOut)
+	case "update":
+		return a.catalogUpdate(args[1:], jsonOut)
 	case "diff":
 		return a.catalogDiff(args[1:], jsonOut)
+	case "audit":
+		return a.catalogAudit(args[1:], jsonOut)
 	default:
 		return a.fail(exitUsage, "unknown catalog command %q", args[0])
 	}
@@ -230,7 +294,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 
 func (a app) catalogImport(args []string, jsonOut bool) int {
 	if len(args) == 0 || args[0] != "data-go-kr" {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
 	}
 	args = args[1:]
 	all, args := consumeBool(args, "--all")
@@ -254,6 +318,14 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	retries, args, err := consumeInt(args, "--retries", datago.DefaultImportRetries)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	retryDelayMS, args, err := consumeInt(args, "--retry-delay-ms", int(datago.DefaultImportRetryDelay/time.Millisecond))
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	query, args, err := consumeString(args, "--query", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -273,7 +345,7 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the registry JSON to stdout")
@@ -304,6 +376,8 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		Query:      query,
 		Org:        org,
 		Category:   category,
+		Retries:    retries,
+		RetryDelay: time.Duration(retryDelayMS) * time.Millisecond,
 	})
 	if err != nil {
 		if jsonOut {
@@ -320,6 +394,8 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 					"max_pages":     result.MaxPages,
 					"rows_fetched":  result.RowsFetched,
 					"total_count":   result.TotalCount,
+					"retries":       result.Retries,
+					"failed_page":   result.FailedPage,
 				},
 			}); code != exitOK {
 				return code
@@ -364,12 +440,176 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) catalogUpdate(args []string, jsonOut bool) int {
+	if len(args) == 0 || args[0] != "data-go-kr" {
+		return a.fail(exitUsage, "usage: datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--per-page N] [--max-pages N] [--retries N] [--retry-delay-ms N] [--json]")
+	}
+	args = args[1:]
+	apply, args := consumeBool(args, "--apply")
+	backup, args := consumeBool(args, "--backup")
+	registryPath, args, err := consumeString(args, "--registry", defaultRegistryPath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	diffLimit, args, err := consumeInt(args, "--diff-limit", defaultDiffLimit)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	perPage, args, err := consumeInt(args, "--per-page", 100)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	maxPages, args, err := consumeInt(args, "--max-pages", datago.DefaultImportMaxPages)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	retries, args, err := consumeInt(args, "--retries", datago.DefaultImportRetries)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	retryDelayMS, args, err := consumeInt(args, "--retry-delay-ms", int(datago.DefaultImportRetryDelay/time.Millisecond))
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--per-page N] [--max-pages N] [--retries N] [--retry-delay-ms N] [--json]")
+	}
+	keyName, key, ok := a.resolveKeyValue()
+	if !ok {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":                false,
+				"error":             "missing_auth",
+				"accepted_env_vars": datago.KeyEnvNames,
+			}); code != exitOK {
+				return code
+			}
+			return exitAuth
+		}
+		return a.fail(exitAuth, "missing data.go.kr API key; set one of: %s", strings.Join(datago.KeyEnvNames, ", "))
+	}
+	oldReg, oldExists, err := loadRegistryOrEmpty(registryPath)
+	if err != nil {
+		return a.catalogDiffFailure(jsonOut, "existing", registryPath, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	rows, result, err := datago.FetchDataGoKrOpenDataList(ctx, a.http, datago.ImportOptions{
+		ServiceKey: key,
+		Page:       1,
+		PerPage:    perPage,
+		All:        true,
+		MaxPages:   maxPages,
+		Retries:    retries,
+		RetryDelay: time.Duration(retryDelayMS) * time.Millisecond,
+	})
+	if err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "request_failed",
+				"message": err.Error(),
+				"catalog_import": map[string]any{
+					"provider":      result.Provider,
+					"source_url":    result.SourceURL,
+					"per_page":      result.PerPage,
+					"pages_fetched": result.PagesFetched,
+					"max_pages":     result.MaxPages,
+					"rows_fetched":  result.RowsFetched,
+					"total_count":   result.TotalCount,
+					"retries":       result.Retries,
+					"failed_page":   result.FailedPage,
+				},
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
+		return a.fail(exitRequest, "%v", err)
+	}
+	specs, operations := datago.NormalizeOpenDataRows(rows)
+	result.SpecsWritten = len(specs)
+	result.Operations = operations
+	newReg := datago.NewRegistry(specs)
+	diff := datago.DiffRegistries(oldReg, newReg)
+	audit := datago.AuditRegistry(newReg, 5)
+	applied := false
+	backupPath := ""
+	if apply {
+		if oldExists && backup {
+			backupPath = registryPath + ".bak." + time.Now().UTC().Format("20060102T150405Z")
+			if err := copyFile(registryPath, backupPath); err != nil {
+				return a.catalogUpdateWriteFailure(jsonOut, err)
+			}
+		}
+		if err := writeRegistryAtomic(registryPath, specs); err != nil {
+			return a.catalogUpdateWriteFailure(jsonOut, err)
+		}
+		applied = true
+	}
+	payload := map[string]any{
+		"ok":               true,
+		"provider":         "data.go.kr",
+		"selected_env_var": keyName,
+		"registry":         registryPath,
+		"old_exists":       oldExists,
+		"dry_run":          !apply,
+		"applied":          applied,
+		"backup":           backupPath,
+		"catalog_import":   result,
+		"summary":          diff.Summary,
+		"diff_limit":       diffLimit,
+		"diff_truncated":   diffTruncated(diff, diffLimit),
+		"audit":            audit,
+		"added":            specSummaries(limitSpecs(diff.Added, diffLimit)),
+		"removed":          specSummaries(limitSpecs(diff.Removed, diffLimit)),
+		"changed":          limitChanges(diff.Changed, diffLimit),
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	fmt.Fprintf(a.stdout, "Catalog update: %s\n", registryPath)
+	fmt.Fprintf(a.stdout, "  fetched rows: %d\n", result.RowsFetched)
+	fmt.Fprintf(a.stdout, "  specs: %d\n", result.SpecsWritten)
+	fmt.Fprintf(a.stdout, "  added: %d\n", diff.Summary.Added)
+	fmt.Fprintf(a.stdout, "  removed: %d\n", diff.Summary.Removed)
+	fmt.Fprintf(a.stdout, "  changed: %d\n", diff.Summary.Changed)
+	fmt.Fprintf(a.stdout, "  callable operations: %d/%d\n", audit.CallableOperations, audit.OperationsTotal)
+	if applied {
+		fmt.Fprintln(a.stdout, "  applied: true")
+		if backupPath != "" {
+			fmt.Fprintf(a.stdout, "  backup: %s\n", backupPath)
+		}
+	} else {
+		fmt.Fprintln(a.stdout, "  dry-run: true (use --apply to replace the registry)")
+	}
+	return exitOK
+}
+
+func (a app) catalogUpdateWriteFailure(jsonOut bool, err error) int {
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":      false,
+			"error":   "request_failed",
+			"message": err.Error(),
+		}); code != exitOK {
+			return code
+		}
+		return exitRequest
+	}
+	return a.fail(exitRequest, "%v", err)
+}
+
 func (a app) catalogDiff(args []string, jsonOut bool) int {
 	oldPath, args, err := consumeString(args, "--old", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	newPath, args, err := consumeString(args, "--new", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", defaultDiffLimit)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
@@ -395,13 +635,15 @@ func (a app) catalogDiff(args []string, jsonOut bool) int {
 	diff := datago.DiffRegistries(oldReg, newReg)
 	if jsonOut {
 		return a.writeJSON(map[string]any{
-			"ok":      true,
-			"old":     oldPath,
-			"new":     newPath,
-			"summary": diff.Summary,
-			"added":   specSummaries(diff.Added),
-			"removed": specSummaries(diff.Removed),
-			"changed": diff.Changed,
+			"ok":        true,
+			"old":       oldPath,
+			"new":       newPath,
+			"summary":   diff.Summary,
+			"limit":     limit,
+			"truncated": diffTruncated(diff, limit),
+			"added":     specSummaries(limitSpecs(diff.Added, limit)),
+			"removed":   specSummaries(limitSpecs(diff.Removed, limit)),
+			"changed":   limitChanges(diff.Changed, limit),
 			"counts": map[string]int{
 				"old": len(oldReg.Specs()),
 				"new": len(newReg.Specs()),
@@ -413,14 +655,17 @@ func (a app) catalogDiff(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  removed: %d\n", diff.Summary.Removed)
 	fmt.Fprintf(a.stdout, "  changed: %d\n", diff.Summary.Changed)
 	fmt.Fprintf(a.stdout, "  stable: %d\n", diff.Summary.Stable)
-	for _, spec := range diff.Added {
+	for _, spec := range limitSpecs(diff.Added, limit) {
 		fmt.Fprintf(a.stdout, "+ %s  %s\n", spec.ID, spec.Title)
 	}
-	for _, spec := range diff.Removed {
+	for _, spec := range limitSpecs(diff.Removed, limit) {
 		fmt.Fprintf(a.stdout, "- %s  %s\n", spec.ID, spec.Title)
 	}
-	for _, change := range diff.Changed {
+	for _, change := range limitChanges(diff.Changed, limit) {
 		fmt.Fprintf(a.stdout, "~ %s  %s\n", change.ID, strings.Join(change.Fields, ","))
+	}
+	if diffTruncated(diff, limit) {
+		fmt.Fprintf(a.stdout, "  output truncated to %d items per section; use --limit 0 for all\n", limit)
 	}
 	return exitOK
 }
@@ -439,6 +684,52 @@ func (a app) catalogDiffFailure(jsonOut bool, side, path string, err error) int 
 		return exitRequest
 	}
 	return a.fail(exitRequest, "failed to load %s registry %q: %v", side, path, err)
+}
+
+func (a app) catalogAudit(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	sampleLimit, args, err := consumeInt(args, "--sample", 5)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog audit [--registry PATH] [--sample N] [--json]")
+	}
+	reg := a.reg
+	if registryPath != "" {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+	}
+	audit := datago.AuditRegistry(reg, sampleLimit)
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":       true,
+			"registry": registryPath,
+			"audit":    audit,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Catalog audit")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	}
+	fmt.Fprintf(a.stdout, "  specs: %d\n", audit.SpecsTotal)
+	fmt.Fprintf(a.stdout, "  operations: %d\n", audit.OperationsTotal)
+	fmt.Fprintf(a.stdout, "  callable operations: %d\n", audit.CallableOperations)
+	fmt.Fprintf(a.stdout, "  specs without operations: %d\n", audit.SpecsWithoutOperations)
+	fmt.Fprintf(a.stdout, "  specs without callable operation: %d\n", audit.SpecsWithoutCallableOperation)
+	fmt.Fprintf(a.stdout, "  operations without endpoint: %d\n", audit.OperationsWithoutEndpoint)
+	fmt.Fprintf(a.stdout, "  operations without request params: %d\n", audit.OperationsWithoutRequestParams)
+	fmt.Fprintf(a.stdout, "  operations without response params: %d\n", audit.OperationsWithoutResponseParams)
+	fmt.Fprintf(a.stdout, "  specs missing organization: %d\n", audit.SpecsMissingOrganization)
+	fmt.Fprintf(a.stdout, "  specs missing source URL: %d\n", audit.SpecsMissingSourceURL)
+	fmt.Fprintf(a.stdout, "  specs missing updated_at: %d\n", audit.SpecsMissingUpdatedAt)
+	return exitOK
 }
 
 func (a app) info(args []string, jsonOut bool) int {
@@ -724,6 +1015,27 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 		out = append(out, item)
 	}
 	return out
+}
+
+func limitSpecs(specs []datago.Spec, limit int) []datago.Spec {
+	if limit <= 0 || len(specs) <= limit {
+		return specs
+	}
+	return specs[:limit]
+}
+
+func limitChanges(changes []datago.SpecChange, limit int) []datago.SpecChange {
+	if limit <= 0 || len(changes) <= limit {
+		return changes
+	}
+	return changes[:limit]
+}
+
+func diffTruncated(diff datago.CatalogDiff, limit int) bool {
+	if limit <= 0 {
+		return false
+	}
+	return len(diff.Added) > limit || len(diff.Removed) > limit || len(diff.Changed) > limit
 }
 
 func (a app) resolveOne(ref string, jsonOut bool) (datago.Spec, int, bool) {
@@ -1392,8 +1704,10 @@ func (a app) printHelp() {
 
 Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
-  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--query TEXT] [--org NAME] [--category NAME] [--json]
-  datapan catalog diff --old OLD --new NEW [--json]
+  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
+  datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
+  datapan catalog diff --old OLD --new NEW [--limit N] [--json]
+  datapan catalog audit [--registry PATH] [--sample N] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
@@ -1546,6 +1860,17 @@ func readAllInput(path string, stdin io.Reader) ([]byte, error) {
 	return data, nil
 }
 
+func loadRegistryOrEmpty(path string) (datago.Registry, bool, error) {
+	reg, err := datago.LoadRegistry(path)
+	if err == nil {
+		return reg, true, nil
+	}
+	if os.IsNotExist(err) {
+		return datago.NewRegistry(nil), false, nil
+	}
+	return datago.Registry{}, false, err
+}
+
 func writeRegistryOutput(path string, specs []datago.Spec, stdout io.Writer) error {
 	if path == "-" {
 		return datago.EncodeRegistry(stdout, specs)
@@ -1564,6 +1889,54 @@ func writeRegistryOutput(path string, specs []datago.Spec, stdout io.Writer) err
 	}
 	defer f.Close()
 	return datago.EncodeRegistry(f, specs)
+}
+
+func writeRegistryAtomic(path string, specs []datago.Spec) error {
+	if path == "" {
+		path = defaultRegistryPath
+	}
+	dir := filepathDir(path)
+	if strings.TrimSpace(dir) == "" {
+		dir = "."
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".datapan-registry-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := datago.EncodeRegistry(tmp, specs); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			return err
+		}
+		if retryErr := os.Rename(tmpPath, path); retryErr != nil {
+			return retryErr
+		}
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if dir := strings.TrimSpace(filepathDir(dst)); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(dst, data, 0o600)
 }
 
 func writeOutput(path string, data []byte, stdout io.Writer) error {

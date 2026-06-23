@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 )
@@ -35,6 +36,26 @@ func TestSearchJSON(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"id": "15126469"`) {
 		t.Fatalf("expected apartment trade spec in output: %s", stdout)
+	}
+}
+
+func TestReadDotEnvTrimsShellQuotes(t *testing.T) {
+	path := t.TempDir() + "/.env"
+	if err := osWriteFile(path, []byte("DATA_PORTAL_API_KEY='encoded-key'\nexport DATA_GO_KR_USER_ID=user\nPLAIN=value\n")); err != nil {
+		t.Fatal(err)
+	}
+	values, err := readDotEnv(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["DATA_PORTAL_API_KEY"] != "encoded-key" {
+		t.Fatalf("unexpected quoted value: %#v", values["DATA_PORTAL_API_KEY"])
+	}
+	if values["DATA_GO_KR_USER_ID"] != "user" {
+		t.Fatalf("unexpected export value: %#v", values["DATA_GO_KR_USER_ID"])
+	}
+	if values["PLAIN"] != "value" {
+		t.Fatalf("unexpected plain value: %#v", values["PLAIN"])
 	}
 }
 
@@ -454,7 +475,7 @@ func TestCatalogImportRequestFailureJSON(t *testing.T) {
 		}, nil
 	})
 	code, stdout, stderr := runTest(
-		[]string{"catalog", "import", "data-go-kr", "--output", "registry.json", "--json"},
+		[]string{"catalog", "import", "data-go-kr", "--output", "registry.json", "--retries", "0", "--json"},
 		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
 		client,
 	)
@@ -463,12 +484,55 @@ func TestCatalogImportRequestFailureJSON(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"error": "request_failed"`,
-		`"message": "data.go.kr catalog import failed: HTTP 503 portal unavailable"`,
+		`HTTP 503 portal unavailable`,
+		`"failed_page": 1`,
 		`"pages_fetched": 0`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+}
+
+func TestCatalogImportRetriesTransientFailure(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	attempts := 0
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return &http.Response{
+				StatusCode: 400,
+				Body:       io.NopCloser(strings.NewReader(`{"code":-999,"msg":"UNKNOWN"}`)),
+				Header:     make(http.Header),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(`{
+				"currentCount": 1,
+				"data": [
+					{"list_id": "999", "list_title": "기관_A", "org_nm": "기관", "operation_nm": "목록", "end_point_url": "https://example.test/api"}
+				],
+				"page": 1,
+				"perPage": 1,
+				"totalCount": 1
+			}`)),
+			Header: make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "1", "--pages", "1", "--retries", "1", "--retry-delay-ms", "1", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts=%d", attempts)
+	}
+	if !strings.Contains(stdout, `"retries": 1`) {
+		t.Fatalf("expected retry count in output: %s", stdout)
 	}
 }
 
@@ -530,6 +594,132 @@ func TestCatalogDiffJSON(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+}
+
+func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록"}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://example.test/api","request_params":[{"name":"page"}],"response_params":[{"name":"resultCode"}]}],"source":{"system":"data.go.kr","url":"https://www.data.go.kr/data/300/openapi.do","raw":{"updated_at":"2026-06-23"}}}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "audit", "--registry", tmp, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"specs_total": 3`,
+		`"operations_total": 2`,
+		`"callable_operations": 1`,
+		`"specs_without_operations": 1`,
+		`"specs_without_callable_operation": 2`,
+		`"operations_without_endpoint": 1`,
+		`"specs_missing_organization": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogUpdateDryRunDoesNotReplaceRegistry(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	oldData := []byte(`[{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]}]`)
+	if err := osWriteFile(tmp, oldData); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(`{
+				"currentCount": 1,
+				"data": [
+					{"list_id": "200", "list_title": "기관_B", "org_nm": "기관", "operation_nm": "목록", "end_point_url": "https://example.test/api"}
+				],
+				"page": 1,
+				"perPage": 100,
+				"totalCount": 1
+			}`)),
+			Header: make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "update", "data-go-kr", "--registry", tmp, "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"dry_run": true`, `"applied": false`, `"added": 1`, `"removed": 1`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(oldData) {
+		t.Fatalf("dry-run replaced registry: %s", data)
+	}
+}
+
+func TestCatalogUpdateApplyReplacesRegistryAndCreatesBackup(t *testing.T) {
+	dir := t.TempDir()
+	tmp := dir + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(`{
+				"currentCount": 1,
+				"data": [
+					{"list_id": "200", "list_title": "기관_B", "org_nm": "기관", "operation_nm": "목록", "end_point_url": "https://example.test/api"}
+				],
+				"page": 1,
+				"perPage": 100,
+				"totalCount": 1
+			}`)),
+			Header: make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "update", "data-go-kr", "--registry", tmp, "--apply", "--backup", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"applied": true`) || !strings.Contains(stdout, `"backup":`) {
+		t.Fatalf("expected applied update with backup: %s", stdout)
+	}
+	data, err := osReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"id": "200"`) || strings.Contains(string(data), `"id":"100"`) {
+		t.Fatalf("registry was not replaced with imported spec: %s", data)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundBackup := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "registry.json.bak.") {
+			foundBackup = true
+			break
+		}
+	}
+	if !foundBackup {
+		t.Fatalf("expected backup file in %s", dir)
 	}
 }
 

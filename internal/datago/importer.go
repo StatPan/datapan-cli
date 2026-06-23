@@ -11,11 +11,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const DataGoKrOpenDataListURL = "https://api.odcloud.kr/api/15077093/v1/open-data-list"
 
 const DefaultImportMaxPages = 1000
+const DefaultImportRetries = 3
+const DefaultImportRetryDelay = 500 * time.Millisecond
 
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
@@ -31,6 +34,8 @@ type ImportOptions struct {
 	Query      string
 	Org        string
 	Category   string
+	Retries    int
+	RetryDelay time.Duration
 }
 
 type ImportResult struct {
@@ -44,6 +49,8 @@ type ImportResult struct {
 	TotalCount   int    `json:"total_count"`
 	SpecsWritten int    `json:"specs_written"`
 	Operations   int    `json:"operations"`
+	Retries      int    `json:"retries,omitempty"`
+	FailedPage   int    `json:"failed_page,omitempty"`
 }
 
 type OpenDataListResponse struct {
@@ -114,6 +121,12 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 	if opts.MaxPages <= 0 {
 		opts.MaxPages = DefaultImportMaxPages
 	}
+	if opts.Retries < 0 {
+		opts.Retries = DefaultImportRetries
+	}
+	if opts.RetryDelay <= 0 {
+		opts.RetryDelay = DefaultImportRetryDelay
+	}
 
 	var rows []OpenDataListRow
 	result := ImportResult{
@@ -126,9 +139,11 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		result.MaxPages = opts.MaxPages
 	}
 	for page := opts.Page; ; page++ {
-		resp, err := fetchOpenDataListPage(ctx, client, opts, page)
+		resp, retries, err := fetchOpenDataListPageWithRetry(ctx, client, opts, page)
+		result.Retries += retries
 		if err != nil {
-			return nil, result, err
+			result.FailedPage = page
+			return nil, result, fmt.Errorf("data.go.kr catalog import failed on page %d: %w", page, err)
 		}
 		result.PagesFetched++
 		result.RowsFetched += len(resp.Data)
@@ -145,6 +160,26 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		}
 	}
 	return rows, result, nil
+}
+
+func fetchOpenDataListPageWithRetry(ctx context.Context, client HTTPClient, opts ImportOptions, page int) (OpenDataListResponse, int, error) {
+	var lastErr error
+	for attempt := 0; attempt <= opts.Retries; attempt++ {
+		resp, err := fetchOpenDataListPage(ctx, client, opts, page)
+		if err == nil {
+			return resp, attempt, nil
+		}
+		lastErr = err
+		if attempt >= opts.Retries {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return OpenDataListResponse{}, attempt, ctx.Err()
+		case <-time.After(opts.RetryDelay * time.Duration(attempt+1)):
+		}
+	}
+	return OpenDataListResponse{}, opts.Retries, lastErr
 }
 
 func NormalizeOpenDataRows(rows []OpenDataListRow) ([]Spec, int) {

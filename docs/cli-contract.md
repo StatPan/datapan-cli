@@ -80,6 +80,23 @@ The JSON response includes `summary`, `added`, `removed`, and `changed`.
 `changed` entries include the changed field names and old/new digests so an
 agent can decide whether a registry replacement needs review.
 
+`datapan catalog audit --registry PATH --json` reports catalog quality and
+coverage gaps. The response includes counts for specs, operations, callable
+operations, specs without operations, specs without callable operations,
+operations without endpoints, operations missing request/response parameters,
+and missing source metadata. Samples should be included only as bounded
+summaries.
+
+`datapan catalog update data-go-kr --registry PATH --json` is the safe update
+path. It fetches the full upstream catalog, normalizes it, diffs it against the
+existing registry, audits the new registry, and returns the result without
+modifying files. The command must replace the registry only when `--apply` is
+present. With `--backup`, it should write a timestamped copy of the previous
+registry before replacement. Long catalog fetches should retry bounded provider
+or transport failures and report retry counts and the failed page when the
+import still cannot complete. Diff detail output should be bounded by default;
+`--diff-limit 0` may be used when a caller explicitly wants all diff entries.
+
 ## Dataset Refs
 
 Commands that operate on one dataset accept a `<ref>`. A ref may be a data.go.kr
@@ -145,6 +162,11 @@ DATA_GO_KR_SERVICE_KEY
 
 Credential values must never be printed. Request URLs shown in dry-run and JSON
 output must redact `serviceKey`.
+
+When using the real OS environment, Datapan may read a local `.env` file from
+the current working directory. Process environment variables take precedence
+over `.env` values. Shell-style single or double quotes around values should be
+trimmed during parsing.
 
 ## Application Help
 

@@ -58,6 +58,8 @@ DATA_GO_KR_SERVICE_KEY=...
 are accepted because they already appear in existing public-data workflows.
 Both decoded service keys and URL-encoded keys copied from data.go.kr are
 accepted; Datapan avoids double-encoding the key when building request URLs.
+When running from a project directory, Datapan also reads `.env` automatically
+if the variable is not already present in the process environment.
 
 ## MVP Commands
 
@@ -67,6 +69,8 @@ datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --json
+datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
+datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
 datapan access 15126469 --purpose
@@ -114,6 +118,16 @@ Use `datapan catalog diff` after a fresh import to inspect upstream catalog
 changes before replacing an existing registry. It reports added, removed, and
 changed specs by stable data.go.kr list ID and includes changed field names
 under `--json`.
+
+Use `datapan catalog audit` to make registry gaps visible: total specs,
+operations, callable operations, specs without operations, specs without
+callable endpoints, and missing source metadata. Use `datapan catalog update
+data-go-kr` for the safer update path. It imports the full upstream catalog with
+bounded retries, diffs it against the current registry, audits the new registry,
+and stays in dry-run mode unless `--apply` is present. Add `--backup` with
+`--apply` to keep a timestamped copy of the previous registry. Diff output is
+bounded by default; use `--diff-limit 0` when a full machine-readable diff is
+needed.
 
 `datapan show <ref> --json` is the bridge from discovery to use. It keeps the
 normalized spec, and also returns access metadata, operation parameter names,
