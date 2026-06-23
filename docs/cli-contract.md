@@ -160,9 +160,10 @@ APIs. It copies Datapan schema files, writes `data/data-go-kr.registry.json`,
 generates `reports/provider-backlog.json`, optionally copies a verification
 report with `--verification PATH`, writes
 `reports/latest-verification-summary.json` from that report, and writes
-provenance under `provenance/data-go-kr.md`. Use `--output-dir DIR` to choose
-the release draft directory and `--provider-limit N` to bound provider report
-output.
+provenance under `provenance/data-go-kr.md`. It also writes `manifest.json`
+with relative artifact paths, byte sizes, and SHA-256 checksums. Use
+`--output-dir DIR` to choose the release draft directory and
+`--provider-limit N` to bound provider report output.
 
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the

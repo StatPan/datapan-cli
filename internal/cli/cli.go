@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -1213,6 +1214,10 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
+	manifest, err := writeReleaseManifest(generatedAt, registryPath, verificationCopied, paths)
+	if err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
 	payload := map[string]any{
 		"ok":                           true,
 		"output_dir":                   outputDir,
@@ -1223,6 +1228,8 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 		"verification":                 emptyIfFalse(paths.VerificationPath, verificationCopied),
 		"verification_summary":         emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
 		"provenance":                   paths.ProvenancePath,
+		"manifest":                     paths.ManifestPath,
+		"artifacts":                    manifest.ArtifactCount,
 		"specs":                        len(specs),
 		"providers":                    len(providers),
 		"provider_truncated":           providerReport.Truncated,
@@ -1241,6 +1248,7 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 		fmt.Fprintf(a.stdout, "  verification summary: %s\n", paths.VerificationSummaryPath)
 	}
 	fmt.Fprintf(a.stdout, "  provenance: %s\n", paths.ProvenancePath)
+	fmt.Fprintf(a.stdout, "  manifest: %s\n", paths.ManifestPath)
 	fmt.Fprintf(a.stdout, "  specs: %d\n", len(specs))
 	fmt.Fprintf(a.stdout, "  providers: %d\n", len(providers))
 	return exitOK
@@ -2803,6 +2811,7 @@ type releasePaths struct {
 	VerificationPath        string
 	VerificationSummaryPath string
 	ProvenancePath          string
+	ManifestPath            string
 }
 
 func releaseDraftPaths(outputDir string) releasePaths {
@@ -2817,6 +2826,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		VerificationPath:        joinPath(outputDir, "reports/latest-verification.json"),
 		VerificationSummaryPath: joinPath(outputDir, "reports/latest-verification-summary.json"),
 		ProvenancePath:          joinPath(outputDir, "provenance/data-go-kr.md"),
+		ManifestPath:            joinPath(outputDir, "manifest.json"),
 	}
 }
 
@@ -2826,6 +2836,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
+		"schemas/datapan.release-manifest.v1.schema.json",
 	}
 }
 
@@ -2898,6 +2909,95 @@ func writeJSONFile(path string, payload any) error {
 	}
 	data = append(data, '\n')
 	return writeOutput(path, data, io.Discard)
+}
+
+type releaseManifest struct {
+	SchemaVersion  string                    `json:"schema_version"`
+	GeneratedAt    string                    `json:"generated_at"`
+	DatapanVersion string                    `json:"datapan_version"`
+	Provider       string                    `json:"provider"`
+	SourceRegistry string                    `json:"source_registry"`
+	OutputDir      string                    `json:"output_dir"`
+	ArtifactCount  int                       `json:"artifact_count"`
+	Artifacts      []releaseManifestArtifact `json:"artifacts"`
+}
+
+type releaseManifestArtifact struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Schema string `json:"schema,omitempty"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
+}
+
+func writeReleaseManifest(generatedAt, sourceRegistry string, includeVerification bool, paths releasePaths) (releaseManifest, error) {
+	artifacts := releaseManifestArtifacts(paths, includeVerification)
+	manifest := releaseManifest{
+		SchemaVersion:  "datapan.release-manifest.v1",
+		GeneratedAt:    generatedAt,
+		DatapanVersion: version,
+		Provider:       "data.go.kr",
+		SourceRegistry: sourceRegistry,
+		OutputDir:      paths.OutputDir,
+		ArtifactCount:  len(artifacts),
+		Artifacts:      artifacts,
+	}
+	for idx := range manifest.Artifacts {
+		metadata, err := releaseArtifactMetadata(paths.OutputDir, manifest.Artifacts[idx])
+		if err != nil {
+			return releaseManifest{}, err
+		}
+		manifest.Artifacts[idx] = metadata
+	}
+	if err := writeJSONFile(paths.ManifestPath, manifest); err != nil {
+		return releaseManifest{}, err
+	}
+	return manifest, nil
+}
+
+func releaseManifestArtifacts(paths releasePaths, includeVerification bool) []releaseManifestArtifact {
+	artifacts := make([]releaseManifestArtifact, 0, len(datapanSchemaFiles())+5)
+	for _, schema := range datapanSchemaFiles() {
+		artifacts = append(artifacts, releaseManifestArtifact{
+			Path: "schemas/" + schemaFileName(schema),
+			Kind: "schema",
+		})
+	}
+	artifacts = append(artifacts,
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.RegistryPath), Kind: "registry", Schema: "https://schemas.datapan.dev/datapan.specs.v1.schema.json"},
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
+	)
+	if includeVerification {
+		artifacts = append(artifacts,
+			releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.VerificationPath), Kind: "verification", Schema: "https://schemas.datapan.dev/datapan.verification.v1.schema.json"},
+			releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.VerificationSummaryPath), Kind: "verification_summary", Schema: "https://schemas.datapan.dev/datapan.verification-summary.v1.schema.json"},
+		)
+	}
+	artifacts = append(artifacts, releaseManifestArtifact{
+		Path: releaseRelativePath(paths.OutputDir, paths.ProvenancePath),
+		Kind: "provenance",
+	})
+	return artifacts
+}
+
+func releaseArtifactMetadata(outputDir string, artifact releaseManifestArtifact) (releaseManifestArtifact, error) {
+	path := joinPath(outputDir, artifact.Path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return releaseManifestArtifact{}, err
+	}
+	sum := sha256.Sum256(data)
+	artifact.Bytes = int64(len(data))
+	artifact.SHA256 = fmt.Sprintf("%x", sum)
+	return artifact, nil
+}
+
+func releaseRelativePath(outputDir, path string) string {
+	rel, err := filepath.Rel(filepath.Clean(outputDir), filepath.Clean(path))
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func readVerificationReport(path string) (datago.VerificationReport, error) {

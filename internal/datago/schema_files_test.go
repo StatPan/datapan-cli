@@ -37,6 +37,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.providers.v1.schema.json",
 		"datapan.verification.v1.schema.json",
 		"datapan.verification-summary.v1.schema.json",
+		"datapan.release-manifest.v1.schema.json",
 	} {
 		if !found[name] {
 			t.Fatalf("missing schema file %s", name)
@@ -56,10 +57,12 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
+		"schemas/datapan.release-manifest.v1.schema.json",
 		"data/data-go-kr.registry.json",
 		"reports/provider-backlog.json",
 		"reports/latest-verification.json",
 		"reports/latest-verification-summary.json",
+		"manifest.json",
 		"datapan catalog release draft",
 		"datapan catalog update data-go-kr",
 		"datapan catalog providers",
@@ -91,6 +94,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"`datapan-studio`",
 		"`datapan-cloud`",
 		"schemas/datapan.verification-summary.v1.schema.json",
+		"schemas/datapan.release-manifest.v1.schema.json",
 		"reports/latest-verification-summary.json",
 	} {
 		if !strings.Contains(text, want) {

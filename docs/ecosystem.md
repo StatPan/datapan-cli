@@ -134,11 +134,13 @@ Likely artifacts:
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
+- `schemas/datapan.release-manifest.v1.schema.json`;
 - `data/data-go-kr.registry.json`;
 - `data/provider-index.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
-- `reports/catalog-audit.json`.
+- `reports/catalog-audit.json`;
+- `manifest.json`.
 
 Creation trigger:
 
@@ -473,6 +475,7 @@ Required:
 - publish schemas and registry snapshots;
 - publish verification reports;
 - publish verification summaries;
+- publish release manifests with artifact checksums;
 - document provenance and update cadence.
 
 Completion bar:

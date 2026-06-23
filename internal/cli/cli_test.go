@@ -1229,6 +1229,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"providers": 1`,
 		`"provider_backlog":`,
 		`"verification_summary":`,
+		`"manifest":`,
+		`"artifacts": 10`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1240,11 +1242,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.providers.v1.schema.json",
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
+		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
 		outputDir + "/provenance/data-go-kr.md",
+		outputDir + "/manifest.json",
 	} {
 		if _, err := osReadFile(path); err != nil {
 			t.Fatalf("expected release artifact %s: %v", path, err)
@@ -1263,6 +1267,21 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(summary), `"source": "`+jsonEscaped(paths.VerificationPath)+`"`) || !strings.Contains(string(summary), `"external_provider_adapter_missing"`) {
 		t.Fatalf("unexpected verification summary: %s", summary)
+	}
+	manifest, err := osReadFile(outputDir + "/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"schema_version": "datapan.release-manifest.v1"`,
+		`"artifact_count": 10`,
+		`"path": "reports/latest-verification-summary.json"`,
+		`"kind": "verification_summary"`,
+		`"sha256":`,
+	} {
+		if !strings.Contains(string(manifest), want) {
+			t.Fatalf("expected %q in manifest: %s", want, manifest)
+		}
 	}
 }
 

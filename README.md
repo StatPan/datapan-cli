@@ -45,7 +45,8 @@ See `.env.example` for local key names, `docs/cli-contract.md` for the
 agent-facing command contract, `docs/ecosystem.md` for the spec-first Datapan
 repository map, `docs/registry-release.md` for registry artifact release
 planning, `docs/provider-adapters.md` for external-provider adapter boundaries,
-and `schemas/` for the first registry/provider/verification artifact schemas.
+and `schemas/` for the first registry/provider/verification/release artifact
+schemas.
 
 ## API Key
 
@@ -159,7 +160,7 @@ Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, provider backlog, schema, verification, verification
-summary, and provenance artifacts without calling upstream APIs.
+summary, provenance, and manifest artifacts without calling upstream APIs.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`
@@ -228,7 +229,8 @@ The first schema drafts live in `schemas/`:
 - `datapan.specs.v1.schema.json` for normalized registry files;
 - `datapan.providers.v1.schema.json` for provider backlog reports;
 - `datapan.verification.v1.schema.json` for runtime evidence reports;
-- `datapan.verification-summary.v1.schema.json` for verification rollups.
+- `datapan.verification-summary.v1.schema.json` for verification rollups;
+- `datapan.release-manifest.v1.schema.json` for release artifact manifests.
 
 See `docs/registry-release.md` for the local draft layout and release gates for
 a future `datapan-registry` repository.
