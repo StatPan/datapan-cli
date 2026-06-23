@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -635,6 +636,217 @@ func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
 	}
 }
 
+func TestCatalogProvidersJSONReportsAdapterBacklog(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/123/service/list","source":{"system":"data.go.kr","raw":{"guide_url":"https://external.example.test/docs"}}}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list","source":{"system":"data.go.kr","raw":{"is_confirmed_for_prod_nm":"심의승인"}}}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","source":{"system":"data.go.kr","raw":{"end_point_url":"http://openapi.tour.go.kr/openapi/service","api_type":"SOAP","data_format":"WMS"}}}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "providers", "--registry", tmp, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"external_endpoint_hosts": 1`,
+		`"external_guide_hosts": 1`,
+		`"missing_adapter_hosts": 2`,
+		`"needs_adapter_operations": 1`,
+		`"unsupported_protocol_operations": 1`,
+		`"host": "openapi.q-net.or.kr"`,
+		`"provider": "q-net"`,
+		`"adapter_status": "missing"`,
+		`"external_endpoint_operations": 1`,
+		`"sample_ids":`,
+		`"200"`,
+		`"host": "apis.data.go.kr"`,
+		`"adapter_status": "builtin"`,
+		`"host": "external.example.test"`,
+		`"adapter_status": "guide_only"`,
+		`"report":`,
+		`"generated_at":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogProvidersWritesReportOutput(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := dir + "/registry.json"
+	outputPath := dir + "/providers.json"
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "providers", "--registry", registryPath, "--output", outputPath, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"output": "`+jsonEscaped(outputPath)+`"`) || !strings.Contains(stdout, `"report":`) {
+		t.Fatalf("expected output path and report in stdout: %s", stdout)
+	}
+	data, err := osReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"generated_at":`,
+		`"provider": "data.go.kr"`,
+		`"registry": "` + jsonEscaped(registryPath) + `"`,
+		`"host": "openapi.q-net.or.kr"`,
+		`"adapter_status": "missing"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in report file: %s", want, data)
+		}
+	}
+}
+
+func TestCatalogProvidersFiltersAdapterBacklog(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/123/service/list","source":{"system":"data.go.kr","raw":{"guide_url":"https://external.example.test/docs"}}}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "providers", "--registry", tmp, "--status", "missing", "--kind", "external_endpoint", "--provider", "q-net", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"filtered_count": 1`,
+		`"filters":`,
+		`"status": "missing"`,
+		`"kind": "external_endpoint"`,
+		`"provider": "q-net"`,
+		`"host": "openapi.q-net.or.kr"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"host": "apis.data.go.kr"`) || strings.Contains(stdout, `"host": "external.example.test"`) {
+		t.Fatalf("filtered provider output included non-matching host: %s", stdout)
+	}
+}
+
+func TestCatalogVerifyJSONSkipsUnsafeCandidates(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"base_date"}]}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "--registry", tmp, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"total": 2`,
+		`"skipped": 2`,
+		`"reason": "missing_required_params"`,
+		`"missing_params":`,
+		`"base_date"`,
+		`"reason": "external_provider_adapter_missing"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogVerifyCallsEligibleSmokeCandidate(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"100",
+			"title":"기관_A",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"base_date"},{"name":"numOfRows"}]}],
+			"smoke":{"operation":"목록","params":{"base_date":"20260624"}}
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("base_date"); got != "20260624" {
+			t.Fatalf("base_date=%q", got)
+		}
+		if got := req.URL.Query().Get("numOfRows"); got != "1" {
+			t.Fatalf("numOfRows=%q", got)
+		}
+		if got := req.URL.Query().Get("serviceKey"); got != "secret-value" {
+			t.Fatalf("serviceKey=%q", got)
+		}
+		header := make(http.Header)
+		header.Set("Content-Type", "application/json")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"00","resultMsg":"OK"},"body":{"items":{"item":[{"name":"alpha"}]}}}}`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "--registry", tmp, "--ref", "100", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"verified": 1`,
+		`"status": "verified"`,
+		`"semantic_status": "provider_ok"`,
+		`"body_shape": "rows:1"`,
+		`serviceKey=REDACTED`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("secret leaked in output: %s", stdout)
+	}
+}
+
+func TestCatalogVerifyMissingAuthKeepsExitAuth(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"100",
+			"title":"기관_A",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","default_params":{"base_date":"20260624"}}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "--registry", tmp, "--json"}, nil, nil)
+	if code != exitAuth {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"skipped": 1`,
+		`"reason": "missing_auth"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogUpdateDryRunDoesNotReplaceRegistry(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	oldData := []byte(`[{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]}]`)
@@ -730,6 +942,96 @@ func TestCatalogUpdateApplyReplacesRegistryAndCreatesBackup(t *testing.T) {
 	}
 	if !foundBackup {
 		t.Fatalf("expected backup file in %s", dir)
+	}
+}
+
+func TestCatalogVerifyInputFiltersReport(t *testing.T) {
+	tmp := t.TempDir() + "/verification.json"
+	if err := osWriteFile(tmp, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"limit": 0,
+		"truncated": false,
+		"summary": {"total": 3, "verified": 1, "failed": 1, "skipped": 1, "unknown": 0},
+		"results": [
+			{"dataset_id": "100", "title": "성공", "operation": "목록", "provider": "data.go.kr", "dependency_class": "data_go_kr_gateway", "status": "verified"},
+			{"dataset_id": "200", "title": "실패", "operation": "목록", "provider": "data.go.kr", "dependency_class": "data_go_kr_gateway", "status": "failed", "reason": "provider_error"},
+			{"dataset_id": "300", "title": "스킵", "operation": "목록", "provider": "data.go.kr", "dependency_class": "external_endpoint", "status": "skipped", "reason": "external_provider_adapter_missing"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "--input", tmp, "--status", "failed", "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"status": "failed"`,
+		`"filtered_count": 1`,
+		`"filters":`,
+		`"total": 1`,
+		`"failed": 1`,
+		`"dataset_id": "200"`,
+		`"reason": "provider_error"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"dataset_id": "100"`) || strings.Contains(stdout, `"dataset_id": "300"`) {
+		t.Fatalf("filtered report included non-failed results: %s", stdout)
+	}
+}
+
+func TestCatalogVerifyInputWritesFilteredReport(t *testing.T) {
+	dir := t.TempDir()
+	input := dir + "/verification.json"
+	output := dir + "/failed.json"
+	if err := osWriteFile(input, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"limit": 0,
+		"truncated": false,
+		"filtered_count": 2,
+		"summary": {"total": 2, "verified": 1, "failed": 1, "skipped": 0, "unknown": 0},
+		"results": [
+			{"dataset_id": "100", "title": "성공", "operation": "목록", "provider": "data.go.kr", "dependency_class": "data_go_kr_gateway", "status": "verified"},
+			{"dataset_id": "200", "title": "실패", "operation": "목록", "provider": "data.go.kr", "dependency_class": "data_go_kr_gateway", "status": "failed", "reason": "provider_error"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "--input", input, "--status", "failed", "--output", output, "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"filters":`,
+		`"status": "failed"`,
+		`"filtered_count": 1`,
+		`"dataset_id": "200"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in filtered report: %s", want, data)
+		}
+	}
+	if strings.Contains(string(data), `"dataset_id": "100"`) {
+		t.Fatalf("filtered report included non-failed result: %s", data)
+	}
+}
+
+func TestCatalogVerifyInputRejectsRegistryArgs(t *testing.T) {
+	code, _, stderr := runTest([]string{"catalog", "verify", "--input", "report.json", "--registry", "registry.json"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--input cannot be combined") {
+		t.Fatalf("expected input conflict message: %s", stderr)
 	}
 }
 
@@ -1248,4 +1550,9 @@ func TestExportInputCSV(t *testing.T) {
 	if !strings.Contains(stdout, "count,name") || !strings.Contains(stdout, "2,alpha") {
 		t.Fatalf("unexpected CSV: %s", stdout)
 	}
+}
+
+func jsonEscaped(value string) string {
+	data, _ := json.Marshal(value)
+	return string(data[1 : len(data)-1])
 }

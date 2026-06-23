@@ -1,0 +1,50 @@
+package provider
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestRegistryMatchesAdaptersByHost(t *testing.T) {
+	registry, err := NewRegistry(
+		fakeAdapter{StaticHostMatcher{Hosts: []string{"api.example.test"}}},
+		namedFakeAdapter{name: "second", hosts: []string{"second.example.test"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, ok := registry.MatchHost("API.EXAMPLE.TEST")
+	if !ok {
+		t.Fatal("expected adapter match")
+	}
+	if adapter.Name() != "fake" {
+		t.Fatalf("adapter=%s", adapter.Name())
+	}
+	if _, ok := registry.MatchHost("missing.example.test"); ok {
+		t.Fatal("unexpected adapter match")
+	}
+	hosts := strings.Join(registry.Hosts(), ",")
+	if hosts != "api.example.test,second.example.test" {
+		t.Fatalf("hosts=%s", hosts)
+	}
+}
+
+func TestRegistryRejectsDuplicateHostAcrossAdapters(t *testing.T) {
+	_, err := NewRegistry(
+		fakeAdapter{StaticHostMatcher{Hosts: []string{"api.example.test"}}},
+		namedFakeAdapter{name: "duplicate", hosts: []string{"API.EXAMPLE.TEST"}},
+	)
+	if err == nil {
+		t.Fatal("expected duplicate host error")
+	}
+	if !strings.Contains(err.Error(), "already registered") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRegistryRejectsEmptyAdapterName(t *testing.T) {
+	_, err := NewRegistry(namedFakeAdapter{name: "", hosts: []string{"api.example.test"}})
+	if err == nil {
+		t.Fatal("expected empty adapter name error")
+	}
+}

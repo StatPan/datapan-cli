@@ -41,8 +41,11 @@ go run ./cmd/datapan search "아파트" --json
 go test ./...
 ```
 
-See `.env.example` for local key names and `docs/cli-contract.md` for the
-agent-facing command contract.
+See `.env.example` for local key names, `docs/cli-contract.md` for the
+agent-facing command contract, `docs/ecosystem.md` for the planned Datapan
+repository map, `docs/registry-release.md` for registry artifact release
+planning, `docs/provider-adapters.md` for external-provider adapter boundaries,
+and `schemas/` for the first registry/provider/verification artifact schemas.
 
 ## API Key
 
@@ -70,6 +73,9 @@ datapan search --org 기상청 --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
+datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
@@ -125,6 +131,21 @@ callable endpoints, dependency classes, and missing source metadata. Dependency
 classes distinguish data.go.kr gateway operations, external endpoint operations,
 gateway operations with external guide documents, service-root-only operations,
 SOAP/WMS operations, approval-required operations, and malformed source URLs.
+Use `datapan catalog providers` to turn those dependency classes into a
+provider backlog by host. It reports gateway hosts, external endpoint hosts,
+external guide hosts, missing adapter hosts, operations that need adapters, and
+sample dataset IDs for each host. This is the command to run before deciding
+which external provider adapter should be built next. With `--output`, it writes
+a `datapan.providers.v1` report that can later be published by
+`datapan-registry`. Use `--status`, `--kind`, and `--provider` to narrow the
+adapter backlog.
+Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
+only operations Datapan can call conservatively with known smoke/default/safe
+paging parameters, then records `verified`, `failed`, or `skipped` with
+provider status, HTTP status, dependency class, redacted URL, and skip reasons.
+It does not blindly call the whole catalog.
+Use `datapan catalog verify --input REPORT` to reread an existing verification
+artifact and filter results by status without making new provider calls.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`
@@ -182,6 +203,20 @@ Exit codes are intentionally small and stable:
 The embedded seed catalog is intentionally small. For broader coverage, import
 the data.go.kr open-data list into a local normalized registry and point
 `DATAPAN_REGISTRY_PATH` at that file.
+
+Datapan CLI is the first repository, not the whole planned ecosystem. The
+longer-term shape is a public-data layer made of the CLI runtime, normalized
+registry releases, provider adapters, verification evidence, developer exports,
+and eventually a Studio UI. See `docs/ecosystem.md`.
+
+The first schema drafts live in `schemas/`:
+
+- `datapan.specs.v1.schema.json` for normalized registry files;
+- `datapan.providers.v1.schema.json` for provider backlog reports;
+- `datapan.verification.v1.schema.json` for runtime evidence reports.
+
+See `docs/registry-release.md` for the local draft layout and release gates for
+a future `datapan-registry` repository.
 
 ## Non-Goals For The MVP
 

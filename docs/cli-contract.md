@@ -90,6 +90,55 @@ with external guide documents, service-root-only operations, SOAP/WMS
 operations, approval-required operations, and malformed endpoint or guide URLs.
 Samples should be included only as bounded summaries.
 
+`datapan catalog providers --registry PATH --json` converts dependency
+classification into a host/provider backlog. The response includes summary
+counts for data.go.kr gateway hosts, external endpoint hosts, external guide
+hosts, missing adapter hosts, operations that need adapters, approval-required
+operations, unsupported protocol operations, service-root operations, and
+malformed source URLs. Each provider item includes `host`, optional inferred
+`provider`, `kinds`, `adapter_status`, spec and operation counts, and bounded
+sample dataset IDs. `adapter_status` must stay conservative: `builtin` for
+hosts Datapan can route through core logic, `missing` for external endpoint or
+service-root hosts that need provider work, and `guide_only` for hosts that
+appear only as external documentation. With `--output PATH|-`, the command
+writes a pure `datapan.providers.v1` report containing `generated_at`,
+`provider`, `registry`, `limit`, `truncated`, `filters`, `filtered_count`,
+`summary`, and `providers`. `--status`, `--kind`, and `--provider` narrow the
+provider list for adapter planning; the report must preserve those filters so
+the artifact remains explainable. `--json` may wrap that report in a command
+envelope for agent use.
+
+`datapan catalog verify --registry PATH --json` collects bounded runtime
+evidence. It must not blindly call the whole catalog. By default it should
+consider a small bounded set of operations; callers may pass `--ref REF`,
+`--operation NAME`, `--limit N`, and `--output PATH|-`. The command should call
+only conservative candidates: data.go.kr gateway operations with concrete
+endpoints and enough known parameters from smoke metadata, operation defaults,
+or safe paging/format defaults. External endpoints, service-root-only entries,
+unsupported protocols, malformed endpoints, approval-gated entries, and
+operations missing required parameters should be returned as `skipped` with a
+clear reason.
+
+Verification JSON includes a `report` with `generated_at`, `provider`,
+`registry`, `ref`, `operation`, `limit`, `truncated`, `filters`,
+`filtered_count`, `summary`, and `results`. Each result includes dataset ID,
+operation, dependency class, status,
+timestamp when a call was attempted, HTTP status, semantic status, provider
+status, redacted URL, public parameters, missing parameters, and body shape
+where available. Status values are conservative: `verified`, `failed`,
+`skipped`, or `unknown`. Failed provider responses must preserve
+`provider_status` rather than remapping upstream errors into Datapan-only
+types. If eligible calls cannot run because credentials are absent, the command
+returns exit code 3 while still emitting a machine-readable report under
+`--json`.
+
+`datapan catalog verify --input REPORT --json` reads an existing verification
+report without making new provider calls. It may be combined with `--status`
+to filter results to `verified`, `failed`, `skipped`, or `unknown`, with
+`--limit N` to bound the returned result list, and with `--output PATH|-` to
+write the filtered report. Input mode must not be combined with `--registry`,
+`--ref`, or `--operation`.
+
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the
 existing registry, audits the new registry, and returns the result without

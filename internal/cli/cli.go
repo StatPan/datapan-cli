@@ -276,7 +276,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -287,6 +287,10 @@ func (a app) catalog(args []string, jsonOut bool) int {
 		return a.catalogDiff(args[1:], jsonOut)
 	case "audit":
 		return a.catalogAudit(args[1:], jsonOut)
+	case "providers":
+		return a.catalogProviders(args[1:], jsonOut)
+	case "verify":
+		return a.catalogVerify(args[1:], jsonOut)
 	default:
 		return a.fail(exitUsage, "unknown catalog command %q", args[0])
 	}
@@ -740,6 +744,415 @@ func (a app) catalogAudit(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) catalogProviders(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 20)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	sampleLimit, args, err := consumeInt(args, "--sample", 3)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	statusFilter, args, err := consumeString(args, "--status", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	kindFilter, args, err := consumeString(args, "--kind", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	providerFilter, args, err := consumeString(args, "--provider", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the provider backlog report JSON to stdout")
+	}
+	filters, err := providerFilters(statusFilter, kindFilter, providerFilter)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	reg := a.reg
+	if registryPath != "" {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+	}
+	backlog := datago.ProviderBacklogForRegistry(reg, sampleLimit)
+	filteredProviders := filterProviders(backlog.Providers, filters)
+	truncated := limit > 0 && len(filteredProviders) > limit
+	providers := limitProviders(filteredProviders, limit)
+	report := datago.ProviderBacklogReport{
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+		Provider:      "data.go.kr",
+		Registry:      registryPath,
+		Limit:         limit,
+		Truncated:     truncated,
+		Filters:       filters,
+		FilteredCount: len(filteredProviders),
+		Summary:       backlog.Summary,
+		Providers:     providers,
+	}
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return exitOK
+		}
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":             true,
+			"output":         output,
+			"registry":       registryPath,
+			"limit":          limit,
+			"truncated":      truncated,
+			"filters":        filters,
+			"filtered_count": len(filteredProviders),
+			"summary":        backlog.Summary,
+			"providers":      providers,
+			"report":         report,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Catalog providers")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	}
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	if filters != nil {
+		fmt.Fprintf(a.stdout, "  filtered providers: %d\n", len(filteredProviders))
+	}
+	fmt.Fprintf(a.stdout, "  hosts: %d\n", backlog.Summary.Hosts)
+	fmt.Fprintf(a.stdout, "  data.go.kr gateway hosts: %d\n", backlog.Summary.DataGoKrGatewayHosts)
+	fmt.Fprintf(a.stdout, "  external endpoint hosts: %d\n", backlog.Summary.ExternalEndpointHosts)
+	fmt.Fprintf(a.stdout, "  external guide hosts: %d\n", backlog.Summary.ExternalGuideHosts)
+	fmt.Fprintf(a.stdout, "  missing adapter hosts: %d\n", backlog.Summary.MissingAdapterHosts)
+	fmt.Fprintf(a.stdout, "  needs adapter operations: %d\n", backlog.Summary.NeedsAdapterOperations)
+	for _, provider := range providers {
+		fmt.Fprintf(a.stdout, "- %s", provider.Host)
+		if provider.Provider != "" {
+			fmt.Fprintf(a.stdout, " [%s]", provider.Provider)
+		}
+		fmt.Fprintf(a.stdout, "  status=%s specs=%d ops=%d kinds=%s\n", provider.AdapterStatus, provider.Specs, provider.Operations, strings.Join(provider.Kinds, ","))
+		if provider.ExternalEndpointOperations > 0 {
+			fmt.Fprintf(a.stdout, "  external endpoint operations: %d\n", provider.ExternalEndpointOperations)
+		}
+		if provider.ExternalGuideSpecs > 0 {
+			fmt.Fprintf(a.stdout, "  external guide specs: %d\n", provider.ExternalGuideSpecs)
+		}
+		if len(provider.SampleIDs) > 0 {
+			fmt.Fprintf(a.stdout, "  sample ids: %s\n", strings.Join(provider.SampleIDs, ", "))
+		}
+	}
+	if truncated {
+		fmt.Fprintf(a.stdout, "  output truncated to %d providers; use --limit 0 for all\n", limit)
+	}
+	return exitOK
+}
+
+func (a app) catalogVerify(args []string, jsonOut bool) int {
+	input, args, err := consumeString(args, "--input", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	ref, args, err := consumeString(args, "--ref", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	operation, args, err := consumeString(args, "--operation", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limitRaw, args, err := consumeString(args, "--limit", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit := 10
+	if input != "" {
+		limit = 0
+	}
+	if limitRaw != "" {
+		parsed, err := strconv.Atoi(limitRaw)
+		if err != nil || parsed < 0 {
+			return a.fail(exitUsage, "--limit requires a non-negative integer")
+		}
+		limit = parsed
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	statusFilter, args, err := consumeString(args, "--status", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if ref == "" && len(args) > 0 {
+		ref = args[0]
+		args = args[1:]
+	}
+	if operation != "" && ref == "" {
+		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
+	}
+	if statusFilter != "" && !validVerificationStatus(statusFilter) {
+		return a.fail(exitUsage, "--status must be one of: verified, failed, skipped, unknown")
+	}
+	if input != "" {
+		if registryPath != "" || ref != "" || operation != "" {
+			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, or --operation")
+		}
+		return a.catalogVerifyInput(input, output, statusFilter, limit, jsonOut)
+	}
+	reg := a.reg
+	if registryPath != "" {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+	}
+	candidates, truncated, err := datago.VerificationCandidates(reg, ref, operation, limit)
+	if err != nil {
+		var resolveErr datago.VerificationResolveError
+		if errors.As(err, &resolveErr) {
+			if resolveErr.Status() == datago.ResolveAmbiguous {
+				return a.mapError(errAmbiguous{ref: resolveErr.Ref(), candidates: resolveErr.Candidates()}, jsonOut)
+			}
+			return a.mapError(errNotFound{resolveErr.Ref()}, jsonOut)
+		}
+		return a.fail(exitUsage, "%v", err)
+	}
+	generatedAt := time.Now().UTC().Format(time.RFC3339)
+	results := make([]datago.VerificationResult, 0, len(candidates))
+	authMissing := false
+	for _, candidate := range candidates {
+		if candidate.SkipReason != "" {
+			results = append(results, datago.NewSkippedVerificationResult(candidate, ""))
+			continue
+		}
+		if _, _, ok := a.resolveKeyValue(); !ok {
+			authMissing = true
+			results = append(results, datago.NewSkippedVerificationResult(candidate, "missing_auth"))
+			continue
+		}
+		plan, _, err := a.requestPlanForOperation(candidate.Spec, candidate.Operation, candidate.Params)
+		if err != nil {
+			results = append(results, datago.VerificationResult{
+				DatasetID:       candidate.Spec.ID,
+				Title:           candidate.Spec.Title,
+				Operation:       candidate.Operation.Name,
+				Provider:        candidate.Spec.Provider,
+				EndpointHost:    candidate.EndpointHost,
+				DependencyClass: candidate.DependencyClass,
+				Status:          "failed",
+				Reason:          err.Error(),
+				VerifiedAt:      generatedAt,
+				Params:          candidate.Params,
+			})
+			continue
+		}
+		envelope, err := a.execute(plan)
+		if err != nil {
+			results = append(results, datago.VerificationResult{
+				DatasetID:       candidate.Spec.ID,
+				Title:           candidate.Spec.Title,
+				Operation:       candidate.Operation.Name,
+				Provider:        candidate.Spec.Provider,
+				EndpointHost:    candidate.EndpointHost,
+				DependencyClass: candidate.DependencyClass,
+				Status:          "failed",
+				Reason:          err.Error(),
+				VerifiedAt:      generatedAt,
+				URL:             plan.RedactedURL,
+				Params:          candidate.Params,
+			})
+			continue
+		}
+		status := "verified"
+		reason := ""
+		if !envelope.OK {
+			status = "failed"
+			reason = envelope.Message
+		}
+		results = append(results, datago.VerificationResult{
+			DatasetID:       candidate.Spec.ID,
+			Title:           candidate.Spec.Title,
+			Operation:       candidate.Operation.Name,
+			Provider:        candidate.Spec.Provider,
+			EndpointHost:    candidate.EndpointHost,
+			DependencyClass: candidate.DependencyClass,
+			Status:          status,
+			Reason:          reason,
+			VerifiedAt:      generatedAt,
+			HTTPStatus:      envelope.StatusCode,
+			SemanticStatus:  envelope.SemanticStatus,
+			ProviderStatus:  envelope.ProviderStatus,
+			URL:             envelope.URL,
+			Params:          candidate.Params,
+			BodyShape:       verificationBodyShape(envelope),
+		})
+	}
+	report := datago.VerificationReport{
+		GeneratedAt:   generatedAt,
+		Provider:      "data.go.kr",
+		Registry:      registryPath,
+		Ref:           ref,
+		Operation:     operation,
+		Limit:         limit,
+		Truncated:     truncated,
+		FilteredCount: len(results),
+		Results:       results,
+	}
+	report.Summary = datago.SummarizeVerification(results)
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return verificationExitCode(report.Summary, authMissing)
+		}
+	}
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":     !authMissing && report.Summary.Failed == 0,
+			"output": output,
+			"report": report,
+		}); code != exitOK {
+			return code
+		}
+		return verificationExitCode(report.Summary, authMissing)
+	}
+	fmt.Fprintln(a.stdout, "Catalog verification")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	}
+	if ref != "" {
+		fmt.Fprintf(a.stdout, "  ref: %s\n", ref)
+	}
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	fmt.Fprintf(a.stdout, "  verified: %d\n", report.Summary.Verified)
+	fmt.Fprintf(a.stdout, "  failed: %d\n", report.Summary.Failed)
+	fmt.Fprintf(a.stdout, "  skipped: %d\n", report.Summary.Skipped)
+	if truncated {
+		fmt.Fprintf(a.stdout, "  output truncated to %d operations; use --limit 0 for all\n", limit)
+	}
+	for _, result := range results {
+		fmt.Fprintf(a.stdout, "- %s %s %s", result.Status, result.DatasetID, result.Operation)
+		if result.Reason != "" {
+			fmt.Fprintf(a.stdout, " (%s)", result.Reason)
+		}
+		fmt.Fprintln(a.stdout)
+	}
+	return verificationExitCode(report.Summary, authMissing)
+}
+
+func (a app) catalogVerifyInput(input, output, statusFilter string, limit int, jsonOut bool) int {
+	data, err := readAllInput(input, os.Stdin)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	var report datago.VerificationReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return a.fail(exitUsage, "verification report must be JSON: %v", err)
+	}
+	filtered := filterVerificationResults(report.Results, statusFilter)
+	truncated := limit > 0 && len(filtered) > limit
+	results := limitVerificationResults(filtered, limit)
+	report.Results = results
+	report.Summary = datago.SummarizeVerification(results)
+	report.Limit = limit
+	report.Truncated = truncated
+	report.Filters = verificationReportFilters(statusFilter)
+	report.FilteredCount = len(filtered)
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return verificationExitCode(report.Summary, false)
+		}
+	}
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":             report.Summary.Failed == 0,
+			"input":          input,
+			"output":         output,
+			"status":         statusFilter,
+			"filtered_count": len(filtered),
+			"truncated":      truncated,
+			"report":         report,
+		}); code != exitOK {
+			return code
+		}
+		return verificationExitCode(report.Summary, false)
+	}
+	fmt.Fprintln(a.stdout, "Verification report")
+	fmt.Fprintf(a.stdout, "  input: %s\n", input)
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	if statusFilter != "" {
+		fmt.Fprintf(a.stdout, "  status: %s\n", statusFilter)
+	}
+	fmt.Fprintf(a.stdout, "  total: %d\n", report.Summary.Total)
+	fmt.Fprintf(a.stdout, "  verified: %d\n", report.Summary.Verified)
+	fmt.Fprintf(a.stdout, "  failed: %d\n", report.Summary.Failed)
+	fmt.Fprintf(a.stdout, "  skipped: %d\n", report.Summary.Skipped)
+	if truncated {
+		fmt.Fprintf(a.stdout, "  output truncated to %d results; use --limit 0 for all\n", limit)
+	}
+	for _, result := range report.Results {
+		fmt.Fprintf(a.stdout, "- %s %s %s", result.Status, result.DatasetID, result.Operation)
+		if result.Reason != "" {
+			fmt.Fprintf(a.stdout, " (%s)", result.Reason)
+		}
+		fmt.Fprintln(a.stdout)
+	}
+	return verificationExitCode(report.Summary, false)
+}
+
 func (a app) info(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -1039,11 +1452,128 @@ func limitChanges(changes []datago.SpecChange, limit int) []datago.SpecChange {
 	return changes[:limit]
 }
 
+func limitProviders(providers []datago.ProviderSummary, limit int) []datago.ProviderSummary {
+	if limit <= 0 || len(providers) <= limit {
+		return providers
+	}
+	return providers[:limit]
+}
+
+func providerFilters(status, kind, provider string) (*datago.ProviderBacklogFilters, error) {
+	status = strings.TrimSpace(status)
+	kind = strings.TrimSpace(kind)
+	provider = strings.TrimSpace(provider)
+	if status == "" && kind == "" && provider == "" {
+		return nil, nil
+	}
+	if status != "" && status != "missing" && status != "builtin" && status != "guide_only" {
+		return nil, fmt.Errorf("--status must be one of: missing, builtin, guide_only")
+	}
+	if kind != "" && kind != "data_go_kr_gateway" && kind != "external_endpoint" && kind != "external_guide" && kind != "service_root" {
+		return nil, fmt.Errorf("--kind must be one of: data_go_kr_gateway, external_endpoint, external_guide, service_root")
+	}
+	return &datago.ProviderBacklogFilters{Status: status, Kind: kind, Provider: provider}, nil
+}
+
+func filterProviders(providers []datago.ProviderSummary, filters *datago.ProviderBacklogFilters) []datago.ProviderSummary {
+	if filters == nil {
+		return providers
+	}
+	out := make([]datago.ProviderSummary, 0, len(providers))
+	for _, provider := range providers {
+		if filters.Status != "" && provider.AdapterStatus != filters.Status {
+			continue
+		}
+		if filters.Kind != "" && !providerHasKind(provider, filters.Kind) {
+			continue
+		}
+		if filters.Provider != "" && !strings.EqualFold(provider.Provider, filters.Provider) {
+			continue
+		}
+		out = append(out, provider)
+	}
+	return out
+}
+
+func providerHasKind(provider datago.ProviderSummary, kind string) bool {
+	for _, candidate := range provider.Kinds {
+		if candidate == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func diffTruncated(diff datago.CatalogDiff, limit int) bool {
 	if limit <= 0 {
 		return false
 	}
 	return len(diff.Added) > limit || len(diff.Removed) > limit || len(diff.Changed) > limit
+}
+
+func verificationExitCode(summary datago.VerificationSummary, authMissing bool) int {
+	if authMissing {
+		return exitAuth
+	}
+	if summary.Failed > 0 {
+		return exitRequest
+	}
+	return exitOK
+}
+
+func validVerificationStatus(status string) bool {
+	switch status {
+	case "verified", "failed", "skipped", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func filterVerificationResults(results []datago.VerificationResult, status string) []datago.VerificationResult {
+	if status == "" {
+		return results
+	}
+	filtered := make([]datago.VerificationResult, 0, len(results))
+	for _, result := range results {
+		if result.Status == status {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
+}
+
+func verificationReportFilters(status string) *datago.VerificationReportFilters {
+	if status == "" {
+		return nil
+	}
+	return &datago.VerificationReportFilters{Status: status}
+}
+
+func limitVerificationResults(results []datago.VerificationResult, limit int) []datago.VerificationResult {
+	if limit <= 0 || len(results) <= limit {
+		return results
+	}
+	return results[:limit]
+}
+
+func verificationBodyShape(envelope datago.ResponseEnvelope) string {
+	if rows, err := datago.RowsFromJSON([]byte(envelope.Body)); err == nil {
+		return fmt.Sprintf("rows:%d", len(rows))
+	}
+	if strings.Contains(strings.ToLower(envelope.ContentType), "json") {
+		return "json"
+	}
+	if strings.Contains(strings.ToLower(envelope.ContentType), "xml") {
+		return "xml"
+	}
+	if strings.Contains(strings.ToLower(envelope.ContentType), "html") {
+		return "html"
+	}
+	if envelope.Body == "" {
+		return "empty"
+	}
+	return "raw"
 }
 
 func (a app) resolveOne(ref string, jsonOut bool) (datago.Spec, int, bool) {
@@ -1552,6 +2082,10 @@ func (a app) requestPlan(ref, operation string, params map[string]string) (reque
 		}
 		return requestPlan{}, "", fmt.Errorf("unknown operation %q for %s", operation, spec.ID)
 	}
+	return a.requestPlanForOperation(spec, op, params)
+}
+
+func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, params map[string]string) (requestPlan, string, error) {
 	keyName, key, ok := a.resolveKeyValue()
 	if !ok {
 		return requestPlan{}, "", errAuth{}
@@ -1716,6 +2250,9 @@ Usage:
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
   datapan catalog diff --old OLD --new NEW [--limit N] [--json]
   datapan catalog audit [--registry PATH] [--sample N] [--json]
+  datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
