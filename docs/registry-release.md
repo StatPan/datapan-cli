@@ -1,9 +1,8 @@
 # Registry Release Artifacts
 
 This document defines the first Datapan registry release surface. The goal is
-to make a future `datapan-registry` repository boring to create: it should
-publish known artifacts produced by the CLI, not invent a second source of
-truth.
+to keep the `datapan-registry` repository boring to operate: it should publish
+known artifacts produced by the CLI, not invent a second source of truth.
 Schema naming and compatibility rules are defined in `docs/spec-governance.md`.
 
 The release surface starts small:
@@ -25,7 +24,7 @@ locally.
 
 ## Layout
 
-A future `datapan-registry` release should be able to use this layout:
+`datapan-registry` releases use this layout:
 
 ```text
 schemas/
@@ -62,8 +61,8 @@ provenance/
 manifest.json
 ```
 
-The same layout can be generated locally under `.datapan/release/` while the
-registry repository does not exist yet.
+The same layout can be generated locally under `.datapan/release/` before it is
+copied into the registry repository.
 
 ## Artifact Contracts
 
@@ -370,8 +369,8 @@ recommended gates that remain visible as warnings.
 
 ## Local Release Draft
 
-Until `datapan-registry` exists, a local draft can be prepared under
-`.datapan/release/`:
+A local draft can be prepared under `.datapan/release/` before publishing to
+`datapan-registry`:
 
 ```bash
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --output-dir .datapan/release --provider-limit 0 --json
@@ -397,8 +396,9 @@ SHA-256 checksums. When `--previous-registry` is provided, it also writes and
 manifests `reports/catalog-diff.json`.
 
 The local draft directory is ignored by git in this repository. Published
-registry artifacts should live in a dedicated registry repository once release
-cadence and provenance are stable.
+registry artifacts now live in `https://github.com/StatPan/datapan-registry`.
+The initial release is `v2026.06.24`, with the large registry JSON stored by
+Git LFS and also attached as a zip release asset for non-LFS consumers.
 
 `catalog release draft` does not fetch the upstream catalog and does not call
 provider APIs. It assembles release artifacts from existing local inputs:
@@ -439,7 +439,7 @@ Before publishing a registry snapshot:
 
 ## Split Trigger
 
-Create `datapan-registry` only when all of these are true:
+Keep publishing to `datapan-registry` only when all of these remain true:
 
 - schemas are stable enough to publish;
 - provider backlog can be generated repeatedly;
@@ -448,5 +448,6 @@ Create `datapan-registry` only when all of these are true:
 - consumers can benefit from downloading artifacts without re-importing the
   upstream catalog themselves.
 
-Until then, keep these contracts in `datapan-cli` and treat local `.datapan`
-files as draft artifacts.
+If those conditions stop holding, keep iterating in `datapan-cli` and treat
+local `.datapan` files as draft artifacts until the release is trustworthy
+again.

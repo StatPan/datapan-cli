@@ -21,7 +21,7 @@ that claim those schemas:
 - schema indexes.
 
 Until `datapan-spec` exists, `datapan-cli` owns the source schemas and their
-tests. When `datapan-registry` begins publishing releases, it should copy schema
+tests. When `datapan-registry` publishes releases, it should copy schema
 files from this repository, generate `schemas/index.json`, and record both the
 schemas and the index in `manifest.json`.
 

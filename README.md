@@ -175,7 +175,7 @@ external guide hosts, registered adapter hosts, missing adapter hosts,
 operations that still need adapters, and sample dataset IDs for each host. This
 is the command to run before deciding which external provider adapter should be
 built next. With `--output`, it writes a `datapan.providers.v1` report that can
-later be published by `datapan-registry`. Use `--status`, `--kind`, and
+be published by `datapan-registry`. Use `--status`, `--kind`, and
 `--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
 registered external adapters such as q-net.
 Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
@@ -294,7 +294,8 @@ The first schema drafts live in `schemas/`:
   `schemas/index.json`.
 
 See `docs/registry-release.md` for the local draft layout and release gates for
-a future `datapan-registry` repository.
+the published `datapan-registry` repository:
+`https://github.com/StatPan/datapan-registry`.
 
 ## Non-Goals For The MVP
 

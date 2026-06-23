@@ -38,7 +38,7 @@ more reliable.
 | --- | --- | --- | --- |
 | `datapan-cli` | Active now | CLI runtime, command contract, local auth, import/update/diff/audit, verification, first provider adapters | hosted service responsibilities or broad claims about unverified APIs |
 | `datapan-data` | Existing research/server-side reference | prior data.go.kr application research, browser/application workflow evidence, server-side experiments worth mining | the canonical user-facing contract or released registry artifacts |
-| `datapan-registry` | Create after repeatable registry releases are boring | versioned registry snapshots, provider backlog, verification reports, provenance, release notes | CLI behavior or provider call logic |
+| `datapan-registry` | Active first release | versioned registry snapshots, provider backlog, verification reports, provenance, release notes | CLI behavior or provider call logic |
 | `datapan-providers` | Create after multiple external adapters prove the boundary | reusable provider adapters, provider auth/error/approval semantics | catalog release policy or UI state |
 | `datapan-spec` | Optional after schemas have consumers outside the CLI | canonical JSON Schemas and codegen inputs | implementation-specific Go internals |
 | `datapan-sdk-*` | Deferred until specs and verification are stable | generated or registry-driven clients for application developers | hand-written wrappers for thousands of APIs |
@@ -113,7 +113,8 @@ Non-goals for this repository:
 
 ### datapan-registry
 
-Status: planned when registry data becomes a released artifact.
+Status: active initial release at
+`https://github.com/StatPan/datapan-registry/releases/tag/v2026.06.24`.
 
 Purpose:
 
@@ -126,8 +127,11 @@ Purpose:
 - make Datapan's evidence usable without requiring every user to re-import the
   full catalog locally.
 
-This repository should not be just a large JSON dump. It should have a schema,
-release policy, provenance, verification timestamp, and change log.
+This repository is not just a large JSON dump. It has schemas, release policy,
+provenance, verification reports, readiness gates, and downloadable release
+assets. The full `data/data-go-kr.registry.json` is stored with Git LFS, and
+the first release also publishes a zip asset for consumers that do not want to
+depend on LFS.
 
 Likely artifacts:
 
