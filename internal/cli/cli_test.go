@@ -1872,6 +1872,49 @@ func TestCurlExportUsesExistingEnvVarName(t *testing.T) {
 	}
 }
 
+func TestPostmanExportWritesCollection(t *testing.T) {
+	dir := t.TempDir()
+	output := dir + "/collection.json"
+	code, stdout, stderr := runTest(
+		[]string{"export", "--format", "postman", "15084084", "--output", output, "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"format": "postman"`,
+		`"output": "` + jsonEscaped(output) + `"`,
+		`"dataset": "15084084"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in postman summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"`,
+		`"key": "DATA_PORTAL_API_KEY"`,
+		`"value": "{{DATA_PORTAL_API_KEY}}"`,
+		`"key": "serviceKey"`,
+		`"key": "base_date"`,
+		`"value": "20260622"`,
+		`"method": "GET"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in Postman collection: %s", want, data)
+		}
+	}
+	if strings.Contains(text, "secret-value") || strings.Contains(text, "${DATA_PORTAL_API_KEY}") {
+		t.Fatalf("Postman collection should use Postman variable placeholder only: %s", data)
+	}
+}
+
 func TestGetAmbiguousRefJSONReturnsCandidates(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"get", "정보", "--dry-run", "--json"}, nil, nil)
 	if code != exitAmbiguous {

@@ -273,6 +273,7 @@ datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_tim
 datapan curl 15084084 base_date=20260622 base_time=0500
 datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
 datapan export --format curl 15084084 base_date=20260622 base_time=0500
+datapan export --format postman 15084084 base_date=20260622 base_time=0500 --output forecast.postman_collection.json
 ```
 
 `datapan show <ref> --json` should be the stable handoff from search to use. In
@@ -313,6 +314,10 @@ the accepted environment variables.
 `curl -fsS ...` command without making a provider request. The generated URL
 must include `serviceKey=${ENV_VAR}` using the selected or preferred credential
 environment variable name, and must never include the credential value.
+`datapan export --format postman <ref>` writes a Postman Collection v2.1 JSON
+document for the same request plan. The generated collection must represent the
+service key as a Postman variable such as `{{DATAPAN_DATA_GO_KR_KEY}}` or
+`{{DATA_PORTAL_API_KEY}}`, never as the credential value.
 
 ## Credentials
 

@@ -2928,6 +2928,43 @@ func (a app) curl(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) postman(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the Postman collection JSON to stdout")
+	}
+	plan, err := a.curlExportPlan(args)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	collection := postmanCollectionForPlan(plan)
+	var data bytes.Buffer
+	enc := json.NewEncoder(&data)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(collection); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeOutput(output, data.Bytes(), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":        true,
+			"format":    "postman",
+			"output":    output,
+			"dataset":   plan.Spec.ID,
+			"operation": plan.Operation.Name,
+		})
+	}
+	return exitOK
+}
+
 func (a app) export(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -2944,6 +2981,12 @@ func (a app) export(args []string, jsonOut bool) int {
 			return a.fail(exitUsage, "--format curl cannot be combined with --input")
 		}
 		return a.curl(args, jsonOut)
+	}
+	if format == "postman" {
+		if input != "" {
+			return a.fail(exitUsage, "--format postman cannot be combined with --input")
+		}
+		return a.postman(args, jsonOut)
 	}
 	if input == "" {
 		return a.exportFromCall(args, jsonOut, format)
@@ -3165,6 +3208,66 @@ func curlURLForOperation(op datago.Operation, params map[string]string, envVar s
 	return u.String(), publicParams, nil
 }
 
+func postmanCollectionForPlan(plan curlExportPlan) map[string]any {
+	endpoint, _ := url.Parse(plan.Operation.Endpoint)
+	host := []string{}
+	if endpoint.Host != "" {
+		host = strings.Split(endpoint.Host, ".")
+	}
+	path := []string{}
+	for _, part := range strings.Split(strings.Trim(endpoint.EscapedPath(), "/"), "/") {
+		if part != "" {
+			path = append(path, part)
+		}
+	}
+	query := make([]map[string]string, 0, len(plan.PublicParams))
+	keys := make([]string, 0, len(plan.PublicParams))
+	for key := range plan.PublicParams {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := plan.PublicParams[key]
+		if key == "serviceKey" {
+			value = "{{" + plan.EnvVar + "}}"
+		}
+		query = append(query, map[string]string{"key": key, "value": value})
+	}
+	return map[string]any{
+		"info": map[string]any{
+			"name":   plan.Spec.Title,
+			"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		},
+		"variable": []map[string]string{
+			{
+				"key":   plan.EnvVar,
+				"value": "",
+				"type":  "string",
+			},
+		},
+		"item": []map[string]any{
+			{
+				"name": plan.Operation.Name,
+				"request": map[string]any{
+					"method": http.MethodGet,
+					"url": map[string]any{
+						"raw":      postmanRawURL(plan),
+						"protocol": endpoint.Scheme,
+						"host":     host,
+						"path":     path,
+						"query":    query,
+					},
+				},
+			},
+		},
+	}
+}
+
+func postmanRawURL(plan curlExportPlan) string {
+	raw := plan.URL
+	return strings.ReplaceAll(raw, "${"+plan.EnvVar+"}", "{{"+plan.EnvVar+"}}")
+}
+
 func (a app) requestPlan(ref, operation string, params map[string]string) (requestPlan, string, error) {
 	result := a.reg.Resolve(ref, 10)
 	if result.Status != datago.ResolveFound {
@@ -3384,6 +3487,7 @@ Usage:
   datapan call <ref> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
+  datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan version [--json]
 
 Accepted data.go.kr key env vars:
