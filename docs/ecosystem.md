@@ -197,6 +197,8 @@ Purpose:
 
 This repository should exist only if schema consumers appear outside the CLI.
 Until then, schemas can live in `datapan-cli` or `datapan-registry`.
+Schema versioning and compatibility rules currently live in
+`docs/spec-governance.md`.
 
 ### datapan-sdk
 

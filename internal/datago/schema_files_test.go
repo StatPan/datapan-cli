@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,13 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		if payload["$schema"] == "" || payload["$id"] == "" || payload["title"] == "" {
 			t.Fatalf("%s is missing schema metadata: %#v", entry.Name(), payload)
 		}
+		if !schemaFilePattern.MatchString(entry.Name()) {
+			t.Fatalf("%s does not follow datapan.<contract>.vN.schema.json", entry.Name())
+		}
+		wantID := "https://schemas.datapan.dev/" + entry.Name()
+		if payload["$id"] != wantID {
+			t.Fatalf("%s has $id %q, want %q", entry.Name(), payload["$id"], wantID)
+		}
 	}
 	for _, name := range []string{
 		"datapan.specs.v1.schema.json",
@@ -45,6 +53,8 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		}
 	}
 }
+
+var schemaFilePattern = regexp.MustCompile(`^datapan\.[a-z0-9-]+\.v[0-9]+\.schema\.json$`)
 
 func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 	path := filepath.Clean(filepath.Join("..", "..", "docs", "registry-release.md"))
@@ -81,6 +91,27 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 	}
 }
 
+func TestSpecGovernanceDocReferencesVersionRules(t *testing.T) {
+	path := filepath.Clean(filepath.Join("..", "..", "docs", "spec-governance.md"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"datapan.<contract>.vN.schema.json",
+		"https://schemas.datapan.dev/datapan.<contract>.vN.schema.json",
+		"schema_version",
+		"breaking changes as `v2`",
+		"catalog release verify --manifest manifest.json --output reports/latest-release-verification.json",
+		"datapan.release-verification.v1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("spec governance doc should reference %q", want)
+		}
+	}
+}
+
 func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 	path := filepath.Clean(filepath.Join("..", "..", "docs", "ecosystem.md"))
 	data, err := os.ReadFile(path)
@@ -101,6 +132,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
+		"docs/spec-governance.md",
 		"reports/latest-verification-summary.json",
 	} {
 		if !strings.Contains(text, want) {

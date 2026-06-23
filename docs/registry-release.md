@@ -4,6 +4,7 @@ This document defines the first Datapan registry release surface. The goal is
 to make a future `datapan-registry` repository boring to create: it should
 publish known artifacts produced by the CLI, not invent a second source of
 truth.
+Schema naming and compatibility rules are defined in `docs/spec-governance.md`.
 
 The release surface starts small:
 
