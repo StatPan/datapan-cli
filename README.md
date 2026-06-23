@@ -73,7 +73,7 @@ datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
-datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --json
+datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --output .datapan/catalog-diff.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
@@ -129,7 +129,8 @@ instead of guessing.
 Use `datapan catalog diff` after a fresh import to inspect upstream catalog
 changes before replacing an existing registry. It reports added, removed, and
 changed specs by stable data.go.kr list ID and includes changed field names
-under `--json`.
+under `--json`. With `--output`, it writes a `datapan.catalog-diff.v1`
+report for update review, CI, or release-note generation.
 
 Use `datapan catalog audit` to make registry gaps visible: total specs,
 operations, callable operations, specs without operations, specs without
@@ -236,6 +237,7 @@ The first schema drafts live in `schemas/`:
 
 - `datapan.specs.v1.schema.json` for normalized registry files;
 - `datapan.provider-index.v1.schema.json` for registered provider adapter indexes;
+- `datapan.catalog-diff.v1.schema.json` for registry update diff reports;
 - `datapan.catalog-audit.v1.schema.json` for registry gap audit reports;
 - `datapan.providers.v1.schema.json` for provider backlog reports;
 - `datapan.verification.v1.schema.json` for runtime evidence reports;

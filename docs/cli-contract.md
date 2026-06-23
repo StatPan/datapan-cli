@@ -76,9 +76,14 @@ presented as upstream metadata.
 
 `datapan catalog diff --old OLD --new NEW --json` compares two normalized
 registry files by stable data.go.kr list ID. It must not guess renamed datasets.
-The JSON response includes `summary`, `added`, `removed`, and `changed`.
-`changed` entries include the changed field names and old/new digests so an
-agent can decide whether a registry replacement needs review.
+The JSON response includes `summary`, `added`, `removed`, `changed`, and a
+`report` object. `changed` entries include the changed field names and old/new
+digests so an agent can decide whether a registry replacement needs review.
+With `--output PATH|-`, the command writes a pure `datapan.catalog-diff.v1`
+report containing `generated_at`, `provider`, `old`, `new`, `limit`,
+`truncated`, `counts`, `summary`, `added`, `removed`, and `changed`. `--json`
+may wrap that report in a command envelope for agent use and must not be
+combined with `--output -`.
 
 `datapan catalog audit --registry PATH --json` reports catalog quality and
 coverage gaps. The response includes counts for specs, operations, callable

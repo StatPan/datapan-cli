@@ -18,11 +18,43 @@ type CatalogDiff struct {
 	Summary  CatalogSummary `json:"summary"`
 }
 
+type CatalogDiffReport struct {
+	GeneratedAt string                   `json:"generated_at"`
+	Provider    string                   `json:"provider"`
+	Old         string                   `json:"old"`
+	New         string                   `json:"new"`
+	Limit       int                      `json:"limit"`
+	Truncated   bool                     `json:"truncated"`
+	Counts      CatalogDiffCounts        `json:"counts"`
+	Summary     CatalogSummary           `json:"summary"`
+	Added       []CatalogDiffSpecSummary `json:"added"`
+	Removed     []CatalogDiffSpecSummary `json:"removed"`
+	Changed     []SpecChange             `json:"changed"`
+}
+
+type CatalogDiffCounts struct {
+	Old int `json:"old"`
+	New int `json:"new"`
+}
+
 type CatalogSummary struct {
 	Added   int `json:"added"`
 	Removed int `json:"removed"`
 	Changed int `json:"changed"`
 	Stable  int `json:"stable"`
+}
+
+type CatalogDiffSpecSummary struct {
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Provider        string   `json:"provider"`
+	Organization    string   `json:"organization,omitempty"`
+	SourceCategory  string   `json:"source_category,omitempty"`
+	Priority        string   `json:"priority,omitempty"`
+	OperationsCount int      `json:"operations_count"`
+	SourceKeywords  []string `json:"source_keywords,omitempty"`
+	SearchTerms     []string `json:"search_terms,omitempty"`
+	Description     string   `json:"description,omitempty"`
 }
 
 type SpecChange struct {
@@ -73,6 +105,71 @@ func DiffRegistries(oldReg, newReg Registry) CatalogDiff {
 		Stable:  diff.Stable,
 	}
 	return diff
+}
+
+func NewCatalogDiffReport(generatedAt, provider, oldPath, newPath string, limit int, diff CatalogDiff) CatalogDiffReport {
+	return CatalogDiffReport{
+		GeneratedAt: generatedAt,
+		Provider:    provider,
+		Old:         oldPath,
+		New:         newPath,
+		Limit:       limit,
+		Truncated:   DiffTruncated(diff, limit),
+		Counts: CatalogDiffCounts{
+			Old: diff.OldCount,
+			New: diff.NewCount,
+		},
+		Summary: diff.Summary,
+		Added:   CatalogDiffSpecSummaries(LimitCatalogDiffSpecs(diff.Added, limit)),
+		Removed: CatalogDiffSpecSummaries(LimitCatalogDiffSpecs(diff.Removed, limit)),
+		Changed: LimitCatalogDiffChanges(diff.Changed, limit),
+	}
+}
+
+func CatalogDiffSpecSummaries(specs []Spec) []CatalogDiffSpecSummary {
+	out := make([]CatalogDiffSpecSummary, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, CatalogDiffSpecSummary{
+			ID:              spec.ID,
+			Title:           spec.Title,
+			Provider:        spec.Provider,
+			Organization:    spec.Organization,
+			SourceCategory:  spec.SourceCategory,
+			Priority:        spec.Priority,
+			OperationsCount: len(spec.Operations),
+			SourceKeywords:  spec.SourceKeywords,
+			SearchTerms:     spec.SearchTerms,
+			Description:     spec.Description,
+		})
+	}
+	return out
+}
+
+func LimitCatalogDiffSpecs(specs []Spec, limit int) []Spec {
+	if specs == nil {
+		return []Spec{}
+	}
+	if limit <= 0 || len(specs) <= limit {
+		return specs
+	}
+	return specs[:limit]
+}
+
+func LimitCatalogDiffChanges(changes []SpecChange, limit int) []SpecChange {
+	if changes == nil {
+		return []SpecChange{}
+	}
+	if limit <= 0 || len(changes) <= limit {
+		return changes
+	}
+	return changes[:limit]
+}
+
+func DiffTruncated(diff CatalogDiff, limit int) bool {
+	if limit <= 0 {
+		return false
+	}
+	return len(diff.Added) > limit || len(diff.Removed) > limit || len(diff.Changed) > limit
 }
 
 func specMap(specs []Spec) map[string]Spec {

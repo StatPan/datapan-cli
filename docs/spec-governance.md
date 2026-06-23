@@ -11,6 +11,7 @@ that claim those schemas:
 
 - registry specs;
 - provider index reports;
+- catalog diff reports;
 - catalog audit reports;
 - provider backlog reports;
 - verification reports and summaries;

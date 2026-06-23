@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -568,6 +569,7 @@ func TestCatalogDiffJSON(t *testing.T) {
 	dir := t.TempDir()
 	oldPath := dir + "/old.json"
 	newPath := dir + "/new.json"
+	outputPath := dir + "/catalog-diff.json"
 	if err := osWriteFile(oldPath, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]},
 		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://old.test"}]}
@@ -580,11 +582,17 @@ func TestCatalogDiffJSON(t *testing.T) {
 	]`)); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runTest([]string{"catalog", "diff", "--old", oldPath, "--new", newPath, "--json"}, nil, nil)
+	code, stdout, stderr := runTest([]string{"catalog", "diff", "--old", oldPath, "--new", newPath, "--output", outputPath, "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	for _, want := range []string{
+		`"output": "` + jsonEscaped(outputPath) + `"`,
+		`"report":`,
+		`"generated_at":`,
+		`"provider": "data.go.kr"`,
+		`"old": "` + jsonEscaped(oldPath) + `"`,
+		`"new": "` + jsonEscaped(newPath) + `"`,
 		`"added": 1`,
 		`"removed": 1`,
 		`"changed": 1`,
@@ -597,6 +605,35 @@ func TestCatalogDiffJSON(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+	data, err := osReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"generated_at":`,
+		`"provider": "data.go.kr"`,
+		`"old": "` + jsonEscaped(oldPath) + `"`,
+		`"new": "` + jsonEscaped(newPath) + `"`,
+		`"truncated": false`,
+		`"counts":`,
+		`"old": 2`,
+		`"new": 2`,
+		`"id": "300"`,
+		`"id": "100"`,
+		`"fields":`,
+		`"operations"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in report: %s", want, data)
+		}
+	}
+	validator, available, err := loadReleaseSchemaValidator(filepath.Clean(filepath.Join("..", "..")))
+	if err != nil || !available {
+		t.Fatalf("expected schema validator: available=%v err=%v", available, err)
+	}
+	if err := validator.validate("https://schemas.datapan.dev/datapan.catalog-diff.v1.schema.json", data); err != nil {
+		t.Fatalf("expected catalog diff report to match schema: %v\n%s", err, data)
 	}
 }
 
@@ -1253,7 +1290,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 17`,
+		`"artifacts": 18`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1268,6 +1305,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
 		outputDir + "/schemas/datapan.schema-index.v1.schema.json",
+		outputDir + "/schemas/datapan.catalog-diff.v1.schema.json",
 		outputDir + "/schemas/datapan.catalog-audit.v1.schema.json",
 		outputDir + "/schemas/datapan.provider-index.v1.schema.json",
 		outputDir + "/schemas/index.json",
@@ -1304,11 +1342,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 9`,
+		`"count": 10`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
+		`"path": "schemas/datapan.catalog-diff.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-audit.v1.schema.json"`,
 		`"path": "schemas/datapan.provider-index.v1.schema.json"`,
 		`"contract": "schema-index"`,
+		`"contract": "catalog-diff"`,
 		`"contract": "catalog-audit"`,
 		`"contract": "provider-index"`,
 		`"version": "v1"`,
@@ -1323,7 +1363,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 17`,
+		`"artifact_count": 18`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -1348,7 +1388,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 17`,
+		`"checked": 18`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

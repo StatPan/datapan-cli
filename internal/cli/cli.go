@@ -280,7 +280,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -623,6 +623,10 @@ func (a app) catalogDiff(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if oldPath == "" && len(args) > 0 {
 		oldPath = args[0]
 		args = args[1:]
@@ -632,7 +636,10 @@ func (a app) catalogDiff(args []string, jsonOut bool) int {
 		args = args[1:]
 	}
 	if oldPath == "" || newPath == "" || len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog diff --old OLD --new NEW [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the catalog diff report JSON to stdout")
 	}
 	oldReg, err := datago.LoadRegistry(oldPath)
 	if err != nil {
@@ -643,38 +650,54 @@ func (a app) catalogDiff(args []string, jsonOut bool) int {
 		return a.catalogDiffFailure(jsonOut, "new", newPath, err)
 	}
 	diff := datago.DiffRegistries(oldReg, newReg)
+	report := datago.NewCatalogDiffReport(time.Now().UTC().Format(time.RFC3339), "data.go.kr", oldPath, newPath, limit, diff)
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return exitOK
+		}
+	}
 	if jsonOut {
 		return a.writeJSON(map[string]any{
 			"ok":        true,
+			"output":    output,
 			"old":       oldPath,
 			"new":       newPath,
+			"report":    report,
 			"summary":   diff.Summary,
 			"limit":     limit,
-			"truncated": diffTruncated(diff, limit),
-			"added":     specSummaries(limitSpecs(diff.Added, limit)),
-			"removed":   specSummaries(limitSpecs(diff.Removed, limit)),
-			"changed":   limitChanges(diff.Changed, limit),
-			"counts": map[string]int{
-				"old": len(oldReg.Specs()),
-				"new": len(newReg.Specs()),
-			},
+			"truncated": report.Truncated,
+			"added":     report.Added,
+			"removed":   report.Removed,
+			"changed":   report.Changed,
+			"counts":    report.Counts,
 		})
 	}
 	fmt.Fprintf(a.stdout, "Catalog diff: %s -> %s\n", oldPath, newPath)
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
 	fmt.Fprintf(a.stdout, "  added: %d\n", diff.Summary.Added)
 	fmt.Fprintf(a.stdout, "  removed: %d\n", diff.Summary.Removed)
 	fmt.Fprintf(a.stdout, "  changed: %d\n", diff.Summary.Changed)
 	fmt.Fprintf(a.stdout, "  stable: %d\n", diff.Summary.Stable)
-	for _, spec := range limitSpecs(diff.Added, limit) {
+	for _, spec := range datago.LimitCatalogDiffSpecs(diff.Added, limit) {
 		fmt.Fprintf(a.stdout, "+ %s  %s\n", spec.ID, spec.Title)
 	}
-	for _, spec := range limitSpecs(diff.Removed, limit) {
+	for _, spec := range datago.LimitCatalogDiffSpecs(diff.Removed, limit) {
 		fmt.Fprintf(a.stdout, "- %s  %s\n", spec.ID, spec.Title)
 	}
-	for _, change := range limitChanges(diff.Changed, limit) {
+	for _, change := range datago.LimitCatalogDiffChanges(diff.Changed, limit) {
 		fmt.Fprintf(a.stdout, "~ %s  %s\n", change.ID, strings.Join(change.Fields, ","))
 	}
-	if diffTruncated(diff, limit) {
+	if report.Truncated {
 		fmt.Fprintf(a.stdout, "  output truncated to %d items per section; use --limit 0 for all\n", limit)
 	}
 	return exitOK
@@ -2691,7 +2714,7 @@ Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
-  datapan catalog diff --old OLD --new NEW [--limit N] [--json]
+  datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json]
   datapan catalog audit [--registry PATH] [--sample N] [--output PATH|-] [--json]
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
@@ -2988,6 +3011,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
+		"schemas/datapan.catalog-diff.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
 		"schemas/datapan.provider-index.v1.schema.json",
 	}

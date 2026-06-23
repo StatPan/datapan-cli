@@ -132,6 +132,7 @@ Likely artifacts:
 
 - `schemas/datapan.specs.v1.schema.json`;
 - `schemas/datapan.provider-index.v1.schema.json`;
+- `schemas/datapan.catalog-diff.v1.schema.json`;
 - `schemas/datapan.catalog-audit.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
@@ -431,6 +432,7 @@ Required:
 - `catalog providers`;
 - dependency backlog by host, protocol, and approval state;
 - stable audit JSON;
+- stable diff report schema;
 - stable audit report schema;
 - stable registry schema draft;
 - update workflow that can be repeated locally and in CI.
