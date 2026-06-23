@@ -90,7 +90,11 @@ with external guide documents, service-root-only operations, SOAP/WMS
 operations, approval-required operations, and malformed endpoint or guide URLs.
 Samples should be included only as bounded summaries and should not repeat the
 same dataset ID within a sample bucket, even when multiple operations from that
-dataset contribute to the same audit count.
+dataset contribute to the same audit count. With `--output PATH|-`, the
+command writes a pure `datapan.catalog-audit.v1` report containing
+`generated_at`, `provider`, `registry`, `sample_limit`, and `audit`. `--json`
+may wrap that report in a command envelope for agent use and must not be
+combined with `--output -`.
 
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary
@@ -157,8 +161,9 @@ artifact for release or CI use.
 `datapan catalog release draft --registry PATH --json` assembles a local
 registry release layout without fetching upstream data or calling provider
 APIs. It copies Datapan schema files, writes `schemas/index.json`, writes
-`data/data-go-kr.registry.json`, generates `reports/provider-backlog.json`,
-optionally copies a verification report with `--verification PATH`, writes
+`data/data-go-kr.registry.json`, generates `reports/catalog-audit.json`,
+generates `reports/provider-backlog.json`, optionally copies a verification
+report with `--verification PATH`, writes
 `reports/latest-verification-summary.json` from that report, and writes
 provenance under `provenance/data-go-kr.md`. It also writes `manifest.json`
 with relative artifact paths, byte sizes, and SHA-256 checksums. Use

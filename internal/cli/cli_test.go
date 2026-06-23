@@ -599,7 +599,9 @@ func TestCatalogDiffJSON(t *testing.T) {
 }
 
 func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
-	tmp := t.TempDir() + "/registry.json"
+	dir := t.TempDir()
+	tmp := dir + "/registry.json"
+	outputPath := dir + "/catalog-audit.json"
 	if err := osWriteFile(tmp, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]},
 		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","source":{"system":"data.go.kr","raw":{"end_point_url":"http://openapi.tour.go.kr/openapi/service","api_type":"SOAP","data_format":"WMS","is_confirmed_for_dev_nm":"심의승인","is_confirmed_for_prod_nm":"심의승인"}}}]},
@@ -608,11 +610,15 @@ func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
 	]`)); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runTest([]string{"catalog", "audit", "--registry", tmp, "--json"}, nil, nil)
+	code, stdout, stderr := runTest([]string{"catalog", "audit", "--registry", tmp, "--output", outputPath, "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	for _, want := range []string{
+		`"output": "` + jsonEscaped(outputPath) + `"`,
+		`"report":`,
+		`"generated_at":`,
+		`"sample_limit": 5`,
 		`"specs_total": 4`,
 		`"operations_total": 3`,
 		`"callable_operations": 2`,
@@ -632,6 +638,21 @@ func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"provider": "data.go.kr"`,
+		`"registry": "` + jsonEscaped(tmp) + `"`,
+		`"audit":`,
+		`"samples":`,
+		`"top_endpoint_hosts":`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in audit report: %s", want, data)
 		}
 	}
 }
@@ -1230,7 +1251,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 13`,
+		`"artifacts": 15`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1245,8 +1266,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
 		outputDir + "/schemas/datapan.schema-index.v1.schema.json",
+		outputDir + "/schemas/datapan.catalog-audit.v1.schema.json",
 		outputDir + "/schemas/index.json",
 		outputDir + "/data/data-go-kr.registry.json",
+		outputDir + "/reports/catalog-audit.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
@@ -1277,9 +1300,11 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 7`,
+		`"count": 8`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
+		`"path": "schemas/datapan.catalog-audit.v1.schema.json"`,
 		`"contract": "schema-index"`,
+		`"contract": "catalog-audit"`,
 		`"version": "v1"`,
 	} {
 		if !strings.Contains(string(schemaIndex), want) {
@@ -1292,9 +1317,11 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 13`,
+		`"artifact_count": 15`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
+		`"path": "reports/catalog-audit.json"`,
+		`"kind": "catalog_audit"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
 		`"sha256":`,
@@ -1313,7 +1340,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 13`,
+		`"checked": 15`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

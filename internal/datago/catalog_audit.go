@@ -22,6 +22,14 @@ type CatalogAudit struct {
 	Samples                         AuditSamples    `json:"samples"`
 }
 
+type CatalogAuditReport struct {
+	GeneratedAt string       `json:"generated_at"`
+	Provider    string       `json:"provider"`
+	Registry    string       `json:"registry,omitempty"`
+	SampleLimit int          `json:"sample_limit"`
+	Audit       CatalogAudit `json:"audit"`
+}
+
 type AuditSamples struct {
 	WithoutOperations        []AuditSample `json:"without_operations,omitempty"`
 	WithoutCallableOperation []AuditSample `json:"without_callable_operation,omitempty"`

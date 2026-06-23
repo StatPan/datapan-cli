@@ -131,6 +131,7 @@ release policy, provenance, verification timestamp, and change log.
 Likely artifacts:
 
 - `schemas/datapan.specs.v1.schema.json`;
+- `schemas/datapan.catalog-audit.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
@@ -406,9 +407,9 @@ Done or in progress:
 - data.go.kr import/update/diff/audit;
 - provider backlog classification with `catalog providers`;
 - bounded runtime evidence collection with `catalog verify`;
-- schema drafts for registry, provider backlog, verification reports,
-  verification summaries, release manifests, release verification, and schema
-  indexes;
+- schema drafts for registry, catalog audits, provider backlog, verification
+  reports, verification summaries, release manifests, release verification, and
+  schema indexes;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -429,6 +430,7 @@ Required:
 - `catalog providers`;
 - dependency backlog by host, protocol, and approval state;
 - stable audit JSON;
+- stable audit report schema;
 - stable registry schema draft;
 - update workflow that can be repeated locally and in CI.
 
@@ -481,6 +483,7 @@ Required:
 - publish schemas and registry snapshots;
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
+- publish catalog audit reports;
 - publish verification reports;
 - publish verification summaries;
 - publish release manifests with artifact checksums;

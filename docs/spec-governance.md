@@ -10,6 +10,7 @@ This document governs JSON Schemas under `schemas/` and the command outputs
 that claim those schemas:
 
 - registry specs;
+- catalog audit reports;
 - provider backlog reports;
 - verification reports and summaries;
 - release manifests;

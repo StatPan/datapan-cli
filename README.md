@@ -139,7 +139,8 @@ gateway operations with external guide documents, service-root-only operations,
 SOAP/WMS operations, approval-required operations, and malformed source URLs.
 Audit counts remain operation/spec scoped, while sample buckets are bounded and
 dataset-deduplicated so one multi-operation dataset does not hide other
-examples.
+examples. With `--output`, it writes a `datapan.catalog-audit.v1` report for
+release or CI use.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, registered adapter hosts, missing adapter hosts,
@@ -161,9 +162,9 @@ artifact and filter results by status without making new provider calls.
 Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
-from existing registry, provider backlog, schema, schema index, verification,
-verification summary, provenance, and manifest artifacts without calling
-upstream APIs.
+from existing registry, catalog audit, provider backlog, schema, schema index,
+verification, verification summary, provenance, and manifest artifacts without
+calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, and SHA-256 checksums before
 publishing and preserve a `datapan.release-verification.v1` report.
@@ -233,6 +234,7 @@ and eventually a Studio UI. See `docs/ecosystem.md`.
 The first schema drafts live in `schemas/`:
 
 - `datapan.specs.v1.schema.json` for normalized registry files;
+- `datapan.catalog-audit.v1.schema.json` for registry gap audit reports;
 - `datapan.providers.v1.schema.json` for provider backlog reports;
 - `datapan.verification.v1.schema.json` for runtime evidence reports;
 - `datapan.verification-summary.v1.schema.json` for verification rollups;
