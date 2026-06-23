@@ -156,9 +156,9 @@ artifact for release or CI use.
 
 `datapan catalog release draft --registry PATH --json` assembles a local
 registry release layout without fetching upstream data or calling provider
-APIs. It copies Datapan schema files, writes `data/data-go-kr.registry.json`,
-generates `reports/provider-backlog.json`, optionally copies a verification
-report with `--verification PATH`, writes
+APIs. It copies Datapan schema files, writes `schemas/index.json`, writes
+`data/data-go-kr.registry.json`, generates `reports/provider-backlog.json`,
+optionally copies a verification report with `--verification PATH`, writes
 `reports/latest-verification-summary.json` from that report, and writes
 provenance under `provenance/data-go-kr.md`. It also writes `manifest.json`
 with relative artifact paths, byte sizes, and SHA-256 checksums. Use

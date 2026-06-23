@@ -136,6 +136,8 @@ Likely artifacts:
 - `schemas/datapan.verification-summary.v1.schema.json`;
 - `schemas/datapan.release-manifest.v1.schema.json`;
 - `schemas/datapan.release-verification.v1.schema.json`;
+- `schemas/datapan.schema-index.v1.schema.json`;
+- `schemas/index.json`;
 - `data/data-go-kr.registry.json`;
 - `data/provider-index.json`;
 - `reports/latest-verification.json`;
@@ -404,8 +406,9 @@ Done or in progress:
 - data.go.kr import/update/diff/audit;
 - provider backlog classification with `catalog providers`;
 - bounded runtime evidence collection with `catalog verify`;
-- schema drafts for registry, provider backlog, verification reports, and
-  verification summaries;
+- schema drafts for registry, provider backlog, verification reports,
+  verification summaries, release manifests, release verification, and schema
+  indexes;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -476,6 +479,8 @@ Required:
 
 - create `datapan-registry`;
 - publish schemas and registry snapshots;
+- publish `schemas/index.json` so consumers can discover release schema
+  contracts without hard-coded filenames;
 - publish verification reports;
 - publish verification summaries;
 - publish release manifests with artifact checksums;

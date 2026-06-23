@@ -65,6 +65,7 @@
         "kind": {
           "enum": [
             "schema",
+            "schema_index",
             "registry",
             "provider_backlog",
             "verification",

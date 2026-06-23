@@ -1251,6 +1251,13 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 			return a.releaseFailure(jsonOut, err)
 		}
 	}
+	schemaIndex, err := buildSchemaIndex(generatedAt, paths)
+	if err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
+	if err := writeJSONFile(paths.SchemaIndexPath, schemaIndex); err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
 	specs := reg.Specs()
 	if err := writeRegistryAtomic(paths.RegistryPath, specs); err != nil {
 		return a.releaseFailure(jsonOut, err)
@@ -2884,6 +2891,7 @@ func writeOutput(path string, data []byte, stdout io.Writer) error {
 type releasePaths struct {
 	OutputDir               string
 	SchemaDir               string
+	SchemaIndexPath         string
 	DataDir                 string
 	ReportsDir              string
 	ProvenanceDir           string
@@ -2899,6 +2907,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 	return releasePaths{
 		OutputDir:               outputDir,
 		SchemaDir:               joinPath(outputDir, "schemas"),
+		SchemaIndexPath:         joinPath(outputDir, "schemas/index.json"),
 		DataDir:                 joinPath(outputDir, "data"),
 		ReportsDir:              joinPath(outputDir, "reports"),
 		ProvenanceDir:           joinPath(outputDir, "provenance"),
@@ -2919,6 +2928,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
+		"schemas/datapan.schema-index.v1.schema.json",
 	}
 }
 
@@ -3012,6 +3022,24 @@ type releaseManifestArtifact struct {
 	SHA256 string `json:"sha256"`
 }
 
+type schemaIndex struct {
+	SchemaVersion  string             `json:"schema_version"`
+	GeneratedAt    string             `json:"generated_at"`
+	DatapanVersion string             `json:"datapan_version"`
+	Count          int                `json:"count"`
+	Schemas        []schemaIndexEntry `json:"schemas"`
+}
+
+type schemaIndexEntry struct {
+	Path     string `json:"path"`
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Contract string `json:"contract"`
+	Version  string `json:"version"`
+	Bytes    int64  `json:"bytes"`
+	SHA256   string `json:"sha256"`
+}
+
 type releaseManifestVerificationReport struct {
 	Manifest              string                              `json:"manifest"`
 	Root                  string                              `json:"root"`
@@ -3033,6 +3061,53 @@ type releaseManifestVerificationResult struct {
 	ActualBytes    int64  `json:"actual_bytes,omitempty"`
 	ExpectedSHA256 string `json:"expected_sha256,omitempty"`
 	ActualSHA256   string `json:"actual_sha256,omitempty"`
+}
+
+func buildSchemaIndex(generatedAt string, paths releasePaths) (schemaIndex, error) {
+	entries := make([]schemaIndexEntry, 0, len(datapanSchemaFiles()))
+	for _, schema := range datapanSchemaFiles() {
+		name := schemaFileName(schema)
+		path := joinPath(paths.SchemaDir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return schemaIndex{}, err
+		}
+		var payload struct {
+			ID    string `json:"$id"`
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return schemaIndex{}, err
+		}
+		contract, schemaVersion := schemaContractVersion(name)
+		sum := sha256.Sum256(data)
+		entries = append(entries, schemaIndexEntry{
+			Path:     "schemas/" + name,
+			ID:       payload.ID,
+			Title:    payload.Title,
+			Contract: contract,
+			Version:  schemaVersion,
+			Bytes:    int64(len(data)),
+			SHA256:   fmt.Sprintf("%x", sum),
+		})
+	}
+	return schemaIndex{
+		SchemaVersion:  "datapan.schema-index.v1",
+		GeneratedAt:    generatedAt,
+		DatapanVersion: version,
+		Count:          len(entries),
+		Schemas:        entries,
+	}, nil
+}
+
+func schemaContractVersion(name string) (string, string) {
+	name = strings.TrimPrefix(name, "datapan.")
+	name = strings.TrimSuffix(name, ".schema.json")
+	parts := strings.Split(name, ".")
+	if len(parts) < 2 {
+		return name, ""
+	}
+	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
 }
 
 func writeReleaseManifest(generatedAt, sourceRegistry string, includeVerification bool, paths releasePaths) (releaseManifest, error) {
@@ -3206,6 +3281,7 @@ func releaseManifestArtifacts(paths releasePaths, includeVerification bool) []re
 		})
 	}
 	artifacts = append(artifacts,
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.SchemaIndexPath), Kind: "schema_index", Schema: "https://schemas.datapan.dev/datapan.schema-index.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.RegistryPath), Kind: "registry", Schema: "https://schemas.datapan.dev/datapan.specs.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
 	)

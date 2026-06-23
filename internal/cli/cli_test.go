@@ -1230,7 +1230,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 11`,
+		`"artifacts": 13`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1244,6 +1244,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
+		outputDir + "/schemas/datapan.schema-index.v1.schema.json",
+		outputDir + "/schemas/index.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
@@ -1269,13 +1271,30 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	if !strings.Contains(string(summary), `"source": "`+jsonEscaped(paths.VerificationPath)+`"`) || !strings.Contains(string(summary), `"external_provider_adapter_missing"`) {
 		t.Fatalf("unexpected verification summary: %s", summary)
 	}
+	schemaIndex, err := osReadFile(outputDir + "/schemas/index.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"schema_version": "datapan.schema-index.v1"`,
+		`"count": 7`,
+		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
+		`"contract": "schema-index"`,
+		`"version": "v1"`,
+	} {
+		if !strings.Contains(string(schemaIndex), want) {
+			t.Fatalf("expected %q in schema index: %s", want, schemaIndex)
+		}
+	}
 	manifest, err := osReadFile(outputDir + "/manifest.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 11`,
+		`"artifact_count": 13`,
+		`"path": "schemas/index.json"`,
+		`"kind": "schema_index"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
 		`"sha256":`,
@@ -1294,7 +1313,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 11`,
+		`"checked": 13`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

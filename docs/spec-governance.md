@@ -13,11 +13,13 @@ that claim those schemas:
 - provider backlog reports;
 - verification reports and summaries;
 - release manifests;
-- release verification reports.
+- release verification reports;
+- schema indexes.
 
 Until `datapan-spec` exists, `datapan-cli` owns the source schemas and their
 tests. When `datapan-registry` begins publishing releases, it should copy schema
-files from this repository and record them in `manifest.json`.
+files from this repository, generate `schemas/index.json`, and record both the
+schemas and the index in `manifest.json`.
 
 ## Naming
 
@@ -81,6 +83,7 @@ Schemas should not move to `datapan-spec` until at least one consumer outside
 Before a registry snapshot is published:
 
 - schema files must be copied from the current source repository;
+- `schemas/index.json` must be generated from the copied schema files;
 - `manifest.json` must list every release artifact except itself;
 - `catalog release verify --manifest manifest.json --output reports/latest-release-verification.json`
   must pass;
