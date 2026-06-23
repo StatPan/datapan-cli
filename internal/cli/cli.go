@@ -280,7 +280,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -1250,7 +1250,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 
 func (a app) catalogRelease(args []string, jsonOut bool) int {
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "draft":
@@ -1258,7 +1258,7 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 	case "verify":
 		return a.catalogReleaseVerify(args[1:], jsonOut)
 	default:
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 }
 
@@ -1266,6 +1266,10 @@ func (a app) catalogReleaseDraft(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	previousRegistryPath, args, err := consumeString(args, "--previous-registry", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
@@ -1282,13 +1286,13 @@ func (a app) catalogReleaseDraft(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if registryPath == "" || len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]")
 	}
 	reg, err := datago.LoadRegistry(registryPath)
 	if err != nil {
 		return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
 	}
-	return a.writeReleaseDraft(reg, registryPath, outputDir, verificationPath, providerLimit, jsonOut)
+	return a.writeReleaseDraft(reg, registryPath, previousRegistryPath, outputDir, verificationPath, providerLimit, jsonOut)
 }
 
 func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
@@ -1355,7 +1359,7 @@ func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
 	return exitOK
 }
 
-func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, verificationPath string, providerLimit int, jsonOut bool) int {
+func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegistryPath, outputDir, verificationPath string, providerLimit int, jsonOut bool) int {
 	generatedAt := time.Now().UTC().Format(time.RFC3339)
 	paths := releaseDraftPaths(outputDir)
 	for _, dir := range []string{paths.SchemaDir, paths.DataDir, paths.ReportsDir, paths.ProvenanceDir} {
@@ -1390,6 +1394,19 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 	providerIndex := providerRegistry.IndexReport(generatedAt, version)
 	if err := writeJSONFile(paths.ProviderIndexPath, providerIndex); err != nil {
 		return a.releaseFailure(jsonOut, err)
+	}
+	diffWritten := false
+	if previousRegistryPath != "" {
+		previousReg, err := datago.LoadRegistry(previousRegistryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "previous_registry", previousRegistryPath, err)
+		}
+		diff := datago.DiffRegistries(previousReg, reg)
+		diffReport := datago.NewCatalogDiffReport(generatedAt, "data.go.kr", previousRegistryPath, paths.RegistryPath, 0, diff)
+		if err := writeJSONFile(paths.CatalogDiffPath, diffReport); err != nil {
+			return a.releaseFailure(jsonOut, err)
+		}
+		diffWritten = true
 	}
 	auditReport := datago.CatalogAuditReport{
 		GeneratedAt: generatedAt,
@@ -1442,11 +1459,11 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 		verificationCopied = true
 		verificationSummaryWritten = true
 	}
-	provenance := releaseProvenance(generatedAt, registryPath, verificationPath, providerLimit, paths)
+	provenance := releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath, providerLimit, paths)
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	manifest, err := writeReleaseManifest(generatedAt, registryPath, verificationCopied, paths)
+	manifest, err := writeReleaseManifest(generatedAt, registryPath, diffWritten, verificationCopied, paths)
 	if err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
@@ -1455,8 +1472,10 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 		"output_dir":                   outputDir,
 		"generated_at":                 generatedAt,
 		"registry":                     paths.RegistryPath,
+		"previous_registry":            previousRegistryPath,
 		"provider_index":               paths.ProviderIndexPath,
 		"schemas":                      datapanSchemaFileNames(),
+		"catalog_diff":                 emptyIfFalse(paths.CatalogDiffPath, diffWritten),
 		"catalog_audit":                paths.CatalogAuditPath,
 		"error_catalog":                paths.ErrorCatalogPath,
 		"provider_backlog":             paths.ProviderBacklogPath,
@@ -1477,6 +1496,9 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 	fmt.Fprintln(a.stdout, "Catalog release draft")
 	fmt.Fprintf(a.stdout, "  output: %s\n", outputDir)
 	fmt.Fprintf(a.stdout, "  registry: %s\n", paths.RegistryPath)
+	if diffWritten {
+		fmt.Fprintf(a.stdout, "  catalog diff: %s\n", paths.CatalogDiffPath)
+	}
 	fmt.Fprintf(a.stdout, "  provider index: %s\n", paths.ProviderIndexPath)
 	fmt.Fprintf(a.stdout, "  catalog audit: %s\n", paths.CatalogAuditPath)
 	fmt.Fprintf(a.stdout, "  error catalog: %s\n", paths.ErrorCatalogPath)
@@ -2801,7 +2823,7 @@ Usage:
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
-  datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
+  datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
@@ -3056,6 +3078,7 @@ type releasePaths struct {
 	ProvenanceDir           string
 	RegistryPath            string
 	ProviderIndexPath       string
+	CatalogDiffPath         string
 	ProviderBacklogPath     string
 	CatalogAuditPath        string
 	ErrorCatalogPath        string
@@ -3075,6 +3098,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		ProvenanceDir:           joinPath(outputDir, "provenance"),
 		RegistryPath:            joinPath(outputDir, "data/data-go-kr.registry.json"),
 		ProviderIndexPath:       joinPath(outputDir, "data/provider-index.json"),
+		CatalogDiffPath:         joinPath(outputDir, "reports/catalog-diff.json"),
 		ProviderBacklogPath:     joinPath(outputDir, "reports/provider-backlog.json"),
 		CatalogAuditPath:        joinPath(outputDir, "reports/catalog-audit.json"),
 		ErrorCatalogPath:        joinPath(outputDir, "reports/error-catalog.json"),
@@ -3283,8 +3307,8 @@ func schemaContractVersion(name string) (string, string) {
 	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
 }
 
-func writeReleaseManifest(generatedAt, sourceRegistry string, includeVerification bool, paths releasePaths) (releaseManifest, error) {
-	artifacts := releaseManifestArtifacts(paths, includeVerification)
+func writeReleaseManifest(generatedAt, sourceRegistry string, includeCatalogDiff, includeVerification bool, paths releasePaths) (releaseManifest, error) {
+	artifacts := releaseManifestArtifacts(paths, includeCatalogDiff, includeVerification)
 	manifest := releaseManifest{
 		SchemaVersion:  "datapan.release-manifest.v1",
 		GeneratedAt:    generatedAt,
@@ -3529,7 +3553,7 @@ func releaseArtifactPath(root, artifactPath string) (string, bool) {
 	return full, true
 }
 
-func releaseManifestArtifacts(paths releasePaths, includeVerification bool) []releaseManifestArtifact {
+func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVerification bool) []releaseManifestArtifact {
 	artifacts := make([]releaseManifestArtifact, 0, len(datapanSchemaFiles())+5)
 	for _, schema := range datapanSchemaFiles() {
 		artifacts = append(artifacts, releaseManifestArtifact{
@@ -3541,6 +3565,13 @@ func releaseManifestArtifacts(paths releasePaths, includeVerification bool) []re
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.SchemaIndexPath), Kind: "schema_index", Schema: "https://schemas.datapan.dev/datapan.schema-index.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.RegistryPath), Kind: "registry", Schema: "https://schemas.datapan.dev/datapan.specs.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderIndexPath), Kind: "provider_index", Schema: "https://schemas.datapan.dev/datapan.provider-index.v1.schema.json"},
+	)
+	if includeCatalogDiff {
+		artifacts = append(artifacts,
+			releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.CatalogDiffPath), Kind: "catalog_diff", Schema: "https://schemas.datapan.dev/datapan.catalog-diff.v1.schema.json"},
+		)
+	}
+	artifacts = append(artifacts,
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.CatalogAuditPath), Kind: "catalog_audit", Schema: "https://schemas.datapan.dev/datapan.catalog-audit.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ErrorCatalogPath), Kind: "error_catalog", Schema: "https://schemas.datapan.dev/datapan.error-catalog.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
@@ -3597,7 +3628,7 @@ func emptyIfFalse(value string, ok bool) string {
 	return value
 }
 
-func releaseProvenance(generatedAt, registryPath, verificationPath string, providerLimit int, paths releasePaths) string {
+func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath string, providerLimit int, paths releasePaths) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# data.go.kr Release Provenance")
 	fmt.Fprintln(&b)
@@ -3605,6 +3636,9 @@ func releaseProvenance(generatedAt, registryPath, verificationPath string, provi
 	fmt.Fprintf(&b, "- datapan_version: %s\n", version)
 	fmt.Fprintf(&b, "- source_provider: data.go.kr\n")
 	fmt.Fprintf(&b, "- source_registry: %s\n", registryPath)
+	if previousRegistryPath != "" {
+		fmt.Fprintf(&b, "- previous_registry: %s\n", previousRegistryPath)
+	}
 	fmt.Fprintf(&b, "- release_registry: %s\n", paths.RegistryPath)
 	fmt.Fprintf(&b, "- provider_limit: %d\n", providerLimit)
 	if verificationPath != "" {
@@ -3615,11 +3649,17 @@ func releaseProvenance(generatedAt, registryPath, verificationPath string, provi
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "```bash\n")
 	fmt.Fprintf(&b, "datapan catalog release draft --registry %s --output-dir %s --provider-limit %d", registryPath, paths.OutputDir, providerLimit)
+	if previousRegistryPath != "" {
+		fmt.Fprintf(&b, " --previous-registry %s", previousRegistryPath)
+	}
 	if verificationPath != "" {
 		fmt.Fprintf(&b, " --verification %s", verificationPath)
 	}
 	fmt.Fprintf(&b, " --json\n")
 	fmt.Fprintf(&b, "# provider index: %s\n", paths.ProviderIndexPath)
+	if previousRegistryPath != "" {
+		fmt.Fprintf(&b, "datapan catalog diff --old %s --new %s --limit 0 --output %s --json\n", previousRegistryPath, paths.RegistryPath, paths.CatalogDiffPath)
+	}
 	fmt.Fprintf(&b, "datapan catalog audit --registry %s --output %s --json\n", paths.RegistryPath, paths.CatalogAuditPath)
 	fmt.Fprintf(&b, "datapan catalog errors --registry %s --output %s --json\n", paths.RegistryPath, paths.ErrorCatalogPath)
 	fmt.Fprintf(&b, "datapan catalog providers --registry %s --limit %d --output %s --json\n", paths.RegistryPath, providerLimit, paths.ProviderBacklogPath)

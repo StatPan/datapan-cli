@@ -144,6 +144,7 @@ Likely artifacts:
 - `schemas/index.json`;
 - `data/data-go-kr.registry.json`;
 - `data/provider-index.json`;
+- `reports/catalog-diff.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
 - `reports/error-catalog.json`;
@@ -491,6 +492,7 @@ Required:
 - publish provider indexes;
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
+- publish catalog diff reports when a previous registry exists;
 - publish catalog audit reports;
 - publish error catalog reports;
 - publish verification reports;

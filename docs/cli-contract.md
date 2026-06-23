@@ -177,8 +177,9 @@ artifact for release or CI use.
 registry release layout without fetching upstream data or calling provider
 APIs. It copies Datapan schema files, writes `schemas/index.json`, writes
 `data/data-go-kr.registry.json`, generates `reports/catalog-audit.json`,
-generates `reports/provider-backlog.json`, optionally copies a verification
-report with `--verification PATH`, writes
+`reports/error-catalog.json`, and `reports/provider-backlog.json`, optionally
+writes `reports/catalog-diff.json` when `--previous-registry PATH` is provided,
+optionally copies a verification report with `--verification PATH`, writes
 `reports/latest-verification-summary.json` from that report, and writes
 provenance under `provenance/data-go-kr.md`. It also writes `manifest.json`
 with relative artifact paths, byte sizes, and SHA-256 checksums. Use

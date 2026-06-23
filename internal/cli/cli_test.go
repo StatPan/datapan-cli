@@ -1311,10 +1311,16 @@ func TestCatalogVerifyInputRejectsRegistryArgs(t *testing.T) {
 
 func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	dir := t.TempDir()
+	previousRegistryPath := dir + "/previous-registry.json"
 	registryPath := dir + "/registry.json"
 	verificationPath := dir + "/verification.json"
 	outputDir := dir + "/release"
 	paths := releaseDraftPaths(outputDir)
+	if err := osWriteFile(previousRegistryPath, []byte(`[
+		{"id":"090","title":"이전기관","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
 	if err := osWriteFile(registryPath, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
 	]`)); err != nil {
@@ -1333,7 +1339,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}`)); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--verification", verificationPath, "--output-dir", outputDir, "--json"}, nil, nil)
+	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--previous-registry", previousRegistryPath, "--verification", verificationPath, "--output-dir", outputDir, "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -1343,10 +1349,12 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"verification_summary_written": true`,
 		`"specs": 1`,
 		`"providers": 1`,
+		`"previous_registry": "` + jsonEscaped(previousRegistryPath) + `"`,
+		`"catalog_diff":`,
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 20`,
+		`"artifacts": 21`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1368,6 +1376,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/index.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/data/provider-index.json",
+		outputDir + "/reports/catalog-diff.json",
 		outputDir + "/reports/catalog-audit.json",
 		outputDir + "/reports/error-catalog.json",
 		outputDir + "/reports/provider-backlog.json",
@@ -1384,8 +1393,27 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "datapan catalog audit") {
+	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "--previous-registry") || !strings.Contains(string(provenance), "datapan catalog diff") || !strings.Contains(string(provenance), "datapan catalog audit") {
 		t.Fatalf("unexpected provenance: %s", provenance)
+	}
+	diffReport, err := osReadFile(outputDir + "/reports/catalog-diff.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"provider": "data.go.kr"`,
+		`"old": "` + jsonEscaped(previousRegistryPath) + `"`,
+		`"new": "` + jsonEscaped(paths.RegistryPath) + `"`,
+		`"limit": 0`,
+		`"truncated": false`,
+		`"added": 1`,
+		`"removed": 1`,
+		`"id": "100"`,
+		`"id": "090"`,
+	} {
+		if !strings.Contains(string(diffReport), want) {
+			t.Fatalf("expected %q in catalog diff report: %s", want, diffReport)
+		}
 	}
 	summary, err := osReadFile(outputDir + "/reports/latest-verification-summary.json")
 	if err != nil {
@@ -1423,11 +1451,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 20`,
+		`"artifact_count": 21`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
 		`"kind": "provider_index"`,
+		`"path": "reports/catalog-diff.json"`,
+		`"kind": "catalog_diff"`,
 		`"path": "reports/catalog-audit.json"`,
 		`"kind": "catalog_audit"`,
 		`"path": "reports/error-catalog.json"`,
@@ -1450,7 +1480,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 20`,
+		`"checked": 21`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

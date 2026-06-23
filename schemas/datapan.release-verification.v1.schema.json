@@ -68,6 +68,7 @@
             "schema_index",
             "registry",
             "provider_index",
+            "catalog_diff",
             "catalog_audit",
             "error_catalog",
             "provider_backlog",

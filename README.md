@@ -81,7 +81,7 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 150840
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
-datapan catalog release draft --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
+datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
@@ -170,9 +170,10 @@ artifact and filter results by status without making new provider calls.
 Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
-from existing registry, provider index, catalog audit, provider backlog, schema,
-schema index, verification, verification summary, provenance, and manifest
-artifacts without calling upstream APIs.
+from existing registry, optional previous-registry diff, provider index,
+catalog audit, error catalog, provider backlog, schema, schema index,
+verification, verification summary, provenance, and manifest artifacts without
+calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`
