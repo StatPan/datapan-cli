@@ -1035,6 +1035,67 @@ func TestCatalogVerifyInputRejectsRegistryArgs(t *testing.T) {
 	}
 }
 
+func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := dir + "/registry.json"
+	verificationPath := dir + "/verification.json"
+	outputDir := dir + "/release"
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(verificationPath, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"limit": 1,
+		"truncated": false,
+		"filtered_count": 1,
+		"summary": {"total": 1, "verified": 0, "failed": 0, "skipped": 1, "unknown": 0},
+		"results": [
+			{"dataset_id": "100", "title": "기관_A", "operation": "목록", "provider": "data.go.kr", "dependency_class": "external_endpoint", "status": "skipped", "reason": "external_provider_adapter_missing"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--verification", verificationPath, "--output-dir", outputDir, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"verification_copied": true`,
+		`"specs": 1`,
+		`"providers": 1`,
+		`"provider_backlog":`,
+		`"provenance":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	for _, path := range []string{
+		outputDir + "/schemas/datapan.specs.v1.schema.json",
+		outputDir + "/schemas/datapan.providers.v1.schema.json",
+		outputDir + "/schemas/datapan.verification.v1.schema.json",
+		outputDir + "/data/data-go-kr.registry.json",
+		outputDir + "/reports/provider-backlog.json",
+		outputDir + "/reports/latest-verification.json",
+		outputDir + "/provenance/data-go-kr.md",
+	} {
+		if _, err := osReadFile(path); err != nil {
+			t.Fatalf("expected release artifact %s: %v", path, err)
+		}
+	}
+	provenance, err := osReadFile(outputDir + "/provenance/data-go-kr.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "datapan catalog audit") {
+		t.Fatalf("unexpected provenance: %s", provenance)
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {

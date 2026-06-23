@@ -116,18 +116,19 @@ Until `datapan-registry` exists, a local draft can be prepared under
 `.datapan/release/`:
 
 ```bash
-mkdir -p .datapan/release/schemas .datapan/release/data .datapan/release/reports .datapan/release/provenance
-cp schemas/datapan.*.v1.schema.json .datapan/release/schemas/
-datapan catalog update data-go-kr --registry .datapan/release/data/data-go-kr.registry.json --apply --backup --diff-limit 0 --json
+datapan catalog release draft --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --output-dir .datapan/release --provider-limit 0 --json
 datapan catalog audit --registry .datapan/release/data/data-go-kr.registry.json --json
-datapan catalog providers --registry .datapan/release/data/data-go-kr.registry.json --limit 0 --output .datapan/release/reports/provider-backlog.json --json
-datapan catalog verify --registry .datapan/release/data/data-go-kr.registry.json --limit 100 --output .datapan/release/reports/latest-verification.json --json
 datapan catalog verify --input .datapan/release/reports/latest-verification.json --status failed --json
 ```
 
 The local draft directory is ignored by git in this repository. Published
 registry artifacts should live in a dedicated registry repository once release
 cadence and provenance are stable.
+
+`catalog release draft` does not fetch the upstream catalog and does not call
+provider APIs. It assembles release artifacts from existing local inputs:
+registry JSON, schema files, provider backlog generated from that registry,
+optional verification evidence, and provenance notes.
 
 ## Release Gates
 

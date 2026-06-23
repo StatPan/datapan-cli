@@ -139,6 +139,14 @@ to filter results to `verified`, `failed`, `skipped`, or `unknown`, with
 write the filtered report. Input mode must not be combined with `--registry`,
 `--ref`, or `--operation`.
 
+`datapan catalog release draft --registry PATH --json` assembles a local
+registry release layout without fetching upstream data or calling provider
+APIs. It copies Datapan schema files, writes `data/data-go-kr.registry.json`,
+generates `reports/provider-backlog.json`, optionally copies a verification
+report with `--verification PATH`, and writes provenance under
+`provenance/data-go-kr.md`. Use `--output-dir DIR` to choose the release draft
+directory and `--provider-limit N` to bound provider report output.
+
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the
 existing registry, audits the new registry, and returns the result without

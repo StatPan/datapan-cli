@@ -57,6 +57,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"data/data-go-kr.registry.json",
 		"reports/provider-backlog.json",
 		"reports/latest-verification.json",
+		"datapan catalog release draft",
 		"datapan catalog update data-go-kr",
 		"datapan catalog providers",
 		"datapan catalog verify",

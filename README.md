@@ -76,6 +76,7 @@ datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
+datapan catalog release draft --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
@@ -146,6 +147,9 @@ provider status, HTTP status, dependency class, redacted URL, and skip reasons.
 It does not blindly call the whole catalog.
 Use `datapan catalog verify --input REPORT` to reread an existing verification
 artifact and filter results by status without making new provider calls.
+Use `datapan catalog release draft` to assemble a local registry release layout
+from existing registry, provider backlog, schema, verification, and provenance
+artifacts without calling upstream APIs.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`
