@@ -256,7 +256,8 @@ Purpose:
 - call APIs through the same Datapan Core contracts;
 - preview results as table, JSON, and CSV;
 - save, transform, filter, join, and export datasets;
-- export calls to CLI commands, curl, Postman collections, or SDK snippets.
+- export calls to CLI commands, curl, Postman collections, OpenAPI documents,
+  or SDK snippets.
 
 Datapan Studio should not duplicate the CLI's logic. It should sit on top of
 the same registry, provider adapters, verification reports, and call engine.
@@ -540,7 +541,8 @@ Goal: let Datapan generate useful integration surfaces.
 Required:
 
 - Postman collection export;
-- OpenAPI or Datapan schema export;
+- OpenAPI export as the first SDK/codegen bridge;
+- Datapan schema export;
 - Go client prototype;
 - Node/Python clients only after schema stability.
 

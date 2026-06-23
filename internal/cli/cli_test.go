@@ -1915,6 +1915,51 @@ func TestPostmanExportWritesCollection(t *testing.T) {
 	}
 }
 
+func TestOpenAPIExportWritesDocument(t *testing.T) {
+	dir := t.TempDir()
+	output := dir + "/openapi.json"
+	code, stdout, stderr := runTest(
+		[]string{"export", "--format", "openapi", "15084084", "--output", output, "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"format": "openapi"`,
+		`"output": "` + jsonEscaped(output) + `"`,
+		`"dataset": "15084084"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in openapi summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`"openapi": "3.1.0"`,
+		`"url": "https://apis.data.go.kr"`,
+		`"/1360000/VilageFcstInfoService_2.0/getVilageFcst"`,
+		`"name": "serviceKey"`,
+		`"type": "apiKey"`,
+		`"default": "${DATA_PORTAL_API_KEY}"`,
+		`"name": "base_date"`,
+		`"default": "20260622"`,
+		`"operationId": "datapan_15084084_getVilageFcst"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in OpenAPI document: %s", want, data)
+		}
+	}
+	if strings.Contains(text, "secret-value") || strings.Contains(text, "{{DATA_PORTAL_API_KEY}}") {
+		t.Fatalf("OpenAPI document should use env placeholder only: %s", data)
+	}
+}
+
 func TestGetAmbiguousRefJSONReturnsCandidates(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"get", "정보", "--dry-run", "--json"}, nil, nil)
 	if code != exitAmbiguous {

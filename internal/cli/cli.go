@@ -2965,6 +2965,43 @@ func (a app) postman(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) openAPI(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the OpenAPI document JSON to stdout")
+	}
+	plan, err := a.curlExportPlan(args)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	doc := openAPIDocumentForPlan(plan)
+	var data bytes.Buffer
+	enc := json.NewEncoder(&data)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeOutput(output, data.Bytes(), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":        true,
+			"format":    "openapi",
+			"output":    output,
+			"dataset":   plan.Spec.ID,
+			"operation": plan.Operation.Name,
+		})
+	}
+	return exitOK
+}
+
 func (a app) export(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -2987,6 +3024,12 @@ func (a app) export(args []string, jsonOut bool) int {
 			return a.fail(exitUsage, "--format postman cannot be combined with --input")
 		}
 		return a.postman(args, jsonOut)
+	}
+	if format == "openapi" {
+		if input != "" {
+			return a.fail(exitUsage, "--format openapi cannot be combined with --input")
+		}
+		return a.openAPI(args, jsonOut)
 	}
 	if input == "" {
 		return a.exportFromCall(args, jsonOut, format)
@@ -3268,6 +3311,185 @@ func postmanRawURL(plan curlExportPlan) string {
 	return strings.ReplaceAll(raw, "${"+plan.EnvVar+"}", "{{"+plan.EnvVar+"}}")
 }
 
+func openAPIDocumentForPlan(plan curlExportPlan) map[string]any {
+	endpoint, _ := url.Parse(plan.Operation.Endpoint)
+	serverURL := endpoint.Scheme + "://" + endpoint.Host
+	path := endpoint.EscapedPath()
+	if strings.TrimSpace(path) == "" {
+		path = "/"
+	}
+	parameters := openAPIParameters(plan)
+	responseSchema := openAPIResponseSchema(plan.Operation.ResponseParams)
+	operationID := openAPIOperationID(plan.Spec.ID, plan.Operation.Name)
+	return map[string]any{
+		"openapi": "3.1.0",
+		"info": map[string]any{
+			"title":       plan.Spec.Title,
+			"version":     "0.1.0",
+			"description": strings.TrimSpace(plan.Spec.Description),
+		},
+		"servers": []map[string]string{{"url": serverURL}},
+		"paths": map[string]any{
+			path: map[string]any{
+				"get": map[string]any{
+					"operationId": operationID,
+					"summary":     plan.Operation.Name,
+					"tags":        []string{openAPITag(plan.Spec)},
+					"parameters":  parameters,
+					"security":    []map[string][]string{{"serviceKey": []string{}}},
+					"responses": map[string]any{
+						"200": map[string]any{
+							"description": "Upstream provider response",
+							"content": map[string]any{
+								"application/json": map[string]any{
+									"schema": responseSchema,
+								},
+								"application/xml": map[string]any{
+									"schema": responseSchema,
+								},
+							},
+						},
+					},
+					"x-datapan": map[string]any{
+						"dataset_id": plan.Spec.ID,
+						"provider":   plan.Spec.Provider,
+						"env_var":    plan.EnvVar,
+						"curl":       plan.Command,
+					},
+				},
+			},
+		},
+		"components": map[string]any{
+			"securitySchemes": map[string]any{
+				"serviceKey": map[string]any{
+					"type":        "apiKey",
+					"in":          "query",
+					"name":        "serviceKey",
+					"description": "data.go.kr service key. Datapan plans this from the " + plan.EnvVar + " environment variable.",
+				},
+			},
+		},
+		"x-datapan": map[string]any{
+			"dataset_id":      plan.Spec.ID,
+			"title":           plan.Spec.Title,
+			"organization":    plan.Spec.Organization,
+			"source_category": plan.Spec.SourceCategory,
+			"operation":       plan.Operation.Name,
+			"env_var":         plan.EnvVar,
+		},
+	}
+}
+
+func openAPIParameters(plan curlExportPlan) []map[string]any {
+	byName := map[string]datago.Param{}
+	for _, param := range plan.Operation.RequestParams {
+		name := strings.TrimSpace(param.Name)
+		if name == "" || isAuthParam(name) {
+			continue
+		}
+		byName[name] = param
+	}
+	for name := range plan.PublicParams {
+		if strings.TrimSpace(name) == "" || isAuthParam(name) {
+			continue
+		}
+		if _, ok := byName[name]; !ok {
+			byName[name] = datago.Param{Name: name}
+		}
+	}
+	keys := make([]string, 0, len(byName))
+	for name := range byName {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	out := make([]map[string]any, 0, len(keys)+1)
+	for _, name := range keys {
+		param := byName[name]
+		schema := map[string]any{"type": "string"}
+		if value := strings.TrimSpace(plan.PublicParams[name]); value != "" {
+			schema["default"] = value
+		}
+		entry := map[string]any{
+			"name":     name,
+			"in":       "query",
+			"required": false,
+			"schema":   schema,
+		}
+		if strings.TrimSpace(param.Label) != "" {
+			entry["description"] = param.Label
+		}
+		out = append(out, entry)
+	}
+	out = append(out, map[string]any{
+		"name":        "serviceKey",
+		"in":          "query",
+		"required":    true,
+		"description": "Supplied from the " + plan.EnvVar + " environment variable.",
+		"schema": map[string]any{
+			"type":    "string",
+			"default": "${" + plan.EnvVar + "}",
+		},
+	})
+	return out
+}
+
+func openAPIResponseSchema(params []datago.Param) map[string]any {
+	properties := map[string]any{}
+	for _, param := range params {
+		name := strings.TrimSpace(param.Name)
+		if name == "" {
+			continue
+		}
+		prop := map[string]any{"type": "string"}
+		if strings.TrimSpace(param.Label) != "" {
+			prop["description"] = param.Label
+		}
+		properties[name] = prop
+	}
+	if len(properties) == 0 {
+		return map[string]any{"type": "object", "additionalProperties": true}
+	}
+	return map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": true,
+	}
+}
+
+func openAPIOperationID(datasetID, operation string) string {
+	parts := []string{"datapan", datasetID, operation}
+	raw := strings.Join(parts, "_")
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range raw {
+		allowed := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if allowed {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "datapan_operation"
+	}
+	return out
+}
+
+func openAPITag(spec datago.Spec) string {
+	if strings.TrimSpace(spec.Organization) != "" {
+		return spec.Organization
+	}
+	if strings.TrimSpace(spec.SourceCategory) != "" {
+		return spec.SourceCategory
+	}
+	return "data.go.kr"
+}
+
 func (a app) requestPlan(ref, operation string, params map[string]string) (requestPlan, string, error) {
 	result := a.reg.Resolve(ref, 10)
 	if result.Status != datago.ResolveFound {
@@ -3488,6 +3710,7 @@ Usage:
   datapan export --input PATH|- [--format csv|json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan version [--json]
 
 Accepted data.go.kr key env vars:

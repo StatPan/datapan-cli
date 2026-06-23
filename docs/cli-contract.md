@@ -274,6 +274,7 @@ datapan curl 15084084 base_date=20260622 base_time=0500
 datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
 datapan export --format curl 15084084 base_date=20260622 base_time=0500
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 --output forecast.postman_collection.json
+datapan export --format openapi 15084084 base_date=20260622 base_time=0500 --output forecast.openapi.json
 ```
 
 `datapan show <ref> --json` should be the stable handoff from search to use. In
@@ -318,6 +319,12 @@ environment variable name, and must never include the credential value.
 document for the same request plan. The generated collection must represent the
 service key as a Postman variable such as `{{DATAPAN_DATA_GO_KR_KEY}}` or
 `{{DATA_PORTAL_API_KEY}}`, never as the credential value.
+`datapan export --format openapi <ref>` writes an OpenAPI 3.1 JSON document for
+the same request plan. The generated document must include server, path, query
+parameter, response-field, and `serviceKey` apiKey security-scheme metadata. It
+must represent the service key as an environment-variable placeholder such as
+`${DATAPAN_DATA_GO_KR_KEY}` or `${DATA_PORTAL_API_KEY}`, never as the
+credential value.
 
 ## Credentials
 

@@ -98,6 +98,7 @@ datapan curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan save 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --format csv --output forecast.csv
 datapan export --format curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.postman_collection.json
+datapan export --format openapi 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.openapi.json
 datapan export --input response.json --format csv
 ```
 
@@ -229,6 +230,12 @@ Use `datapan export --format postman <ref> --output collection.json` to write a
 Postman Collection v2.1 file for the same planned request. It stores
 `serviceKey` as a Postman variable such as `{{DATA_PORTAL_API_KEY}}`, not as a
 credential value.
+Use `datapan export --format openapi <ref> --output openapi.json` to write an
+OpenAPI 3.1 document for the same planned request. It exposes the provider
+endpoint, query parameters, response fields, and a `serviceKey` apiKey security
+scheme with an environment-variable placeholder such as
+`${DATA_PORTAL_API_KEY}`. This is the first bridge toward SDK generation and
+Studio-style tooling without hand-writing one wrapper per API.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
