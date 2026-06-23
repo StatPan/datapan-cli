@@ -959,7 +959,26 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	generatedAt := time.Now().UTC().Format(time.RFC3339)
 	results := make([]datago.VerificationResult, 0, len(candidates))
 	authMissing := false
+	providerRegistry, _ := providers.DefaultRegistry()
 	for _, candidate := range candidates {
+		if adapter, ok := providerRegistry.MatchHost(candidate.EndpointHost); ok && candidate.DependencyClass == "external_endpoint" {
+			keyName, key, ok := a.resolveKeyValue()
+			if !ok {
+				authMissing = true
+				results = append(results, datago.NewSkippedVerificationResult(candidate, "missing_auth"))
+				continue
+			}
+			results = append(results, adapter.Verify(context.Background(), providers.VerificationRequest{
+				Spec:          candidate.Spec,
+				Operation:     candidate.Operation,
+				Params:        candidate.Params,
+				MissingParams: candidate.MissingParams,
+				Credential:    providers.Credential{Name: keyName, Value: key},
+				HTTP:          a.http,
+				VerifiedAt:    generatedAt,
+			}))
+			continue
+		}
 		if candidate.SkipReason != "" {
 			results = append(results, datago.NewSkippedVerificationResult(candidate, ""))
 			continue

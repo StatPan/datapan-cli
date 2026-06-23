@@ -3,8 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
 )
@@ -34,17 +37,195 @@ func (a QNetAdapter) DependencyClass(spec datago.Spec, op datago.Operation) stri
 }
 
 func (a QNetAdapter) Verify(ctx context.Context, req VerificationRequest) datago.VerificationResult {
-	return datago.VerificationResult{
+	params, missing := qnetVerificationParams(req.Params, req.MissingParams)
+	result := datago.VerificationResult{
 		DatasetID:       req.Spec.ID,
 		Title:           req.Spec.Title,
 		Operation:       req.Operation.Name,
 		Provider:        "q-net",
 		EndpointHost:    endpointHost(req.Operation.Endpoint),
 		DependencyClass: a.DependencyClass(req.Spec, req.Operation),
-		Status:          "skipped",
-		Reason:          "qnet_adapter_observation_required",
-		Params:          publicParams(req.Params),
+		VerifiedAt:      verifiedAt(req.VerifiedAt),
+		Params:          publicParams(params),
+		MissingParams:   missing,
 	}
+	if qnetApprovalRequired(req.Spec, req.Operation) {
+		result.Status = "skipped"
+		result.Reason = "approval_required"
+		return result
+	}
+	if len(missing) > 0 {
+		result.Status = "skipped"
+		result.Reason = "qnet_missing_required_params"
+		return result
+	}
+	if strings.TrimSpace(req.Credential.Value) == "" {
+		result.Status = "skipped"
+		result.Reason = "missing_auth"
+		return result
+	}
+	plan, err := qnetRequestURL(req.Operation.Endpoint, params, req.Credential.Value)
+	if err != nil {
+		result.Status = "failed"
+		result.Reason = err.Error()
+		return result
+	}
+	result.URL = plan.redacted
+	client := req.HTTP
+	if client == nil {
+		client = http.DefaultClient
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.url, nil)
+	if err != nil {
+		result.Status = "failed"
+		result.Reason = err.Error()
+		return result
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		result.Status = "failed"
+		result.Reason = err.Error()
+		return result
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		result.Status = "failed"
+		result.Reason = err.Error()
+		return result
+	}
+	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	result.HTTPStatus = resp.StatusCode
+	result.SemanticStatus = semanticStatus
+	result.ProviderStatus = providerStatus
+	result.BodyShape = qnetBodyShape(body)
+	if ok {
+		result.Status = "verified"
+		return result
+	}
+	result.Status = "failed"
+	result.Reason = message
+	return result
+}
+
+type qnetPlan struct {
+	url      string
+	redacted string
+}
+
+func qnetRequestURL(endpoint string, params map[string]string, key string) (qnetPlan, error) {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return qnetPlan{}, err
+	}
+	q := u.Query()
+	for k, v := range params {
+		if strings.TrimSpace(k) == "" || isAuthParam(k) {
+			continue
+		}
+		q.Set(k, v)
+	}
+	u.RawQuery = datago.QueryWithServiceKey(q, key)
+	redacted := *u
+	rq := redacted.Query()
+	rq.Set("serviceKey", "REDACTED")
+	redacted.RawQuery = rq.Encode()
+	return qnetPlan{url: u.String(), redacted: redacted.String()}, nil
+}
+
+func qnetVerificationParams(params map[string]string, missing []string) (map[string]string, []string) {
+	out := map[string]string{}
+	for k, v := range params {
+		if strings.TrimSpace(k) != "" {
+			out[k] = v
+		}
+	}
+	remaining := make([]string, 0)
+	for _, name := range missing {
+		if value, ok := qnetSafeDefault(name); ok {
+			out[name] = value
+			continue
+		}
+		remaining = append(remaining, name)
+	}
+	return out, remaining
+}
+
+func qnetSafeDefault(name string) (string, bool) {
+	switch normalizeParamName(name) {
+	case "baseyy":
+		return "2023", true
+	case "pageno", "page_no", "page", "pageindex", "page_index":
+		return "1", true
+	case "numofrows", "num_of_rows", "rows", "perpage", "per_page", "pagesize", "page_size", "limit":
+		return "1", true
+	case "type", "_type", "datatype", "data_type", "returntype", "return_type", "resulttype", "result_type":
+		return "json", true
+	default:
+		return "", false
+	}
+}
+
+func qnetBodyShape(body []byte) string {
+	text := strings.ToLower(string(body))
+	switch {
+	case strings.Contains(text, "<item>"):
+		return "xml_items"
+	case strings.Contains(text, `"message"`):
+		return "json_message"
+	case strings.TrimSpace(text) == "":
+		return "empty"
+	case strings.HasPrefix(strings.TrimSpace(text), "<"):
+		return "xml"
+	case strings.HasPrefix(strings.TrimSpace(text), "{") || strings.HasPrefix(strings.TrimSpace(text), "["):
+		return "json"
+	default:
+		return "text"
+	}
+}
+
+func verifiedAt(value string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func normalizeParamName(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	replacer := strings.NewReplacer("-", "_", " ", "_")
+	return replacer.Replace(name)
+}
+
+func isAuthParam(name string) bool {
+	normalized := normalizeParamName(name)
+	return normalized == "servicekey" || normalized == "service_key" || normalized == "apikey" || normalized == "api_key"
+}
+
+func qnetApprovalRequired(spec datago.Spec, op datago.Operation) bool {
+	return approvalValue(rawString(spec.Source, "is_confirmed_for_dev_nm")) ||
+		approvalValue(rawString(spec.Source, "is_confirmed_for_prod_nm")) ||
+		approvalValue(rawString(op.Source, "is_confirmed_for_dev_nm")) ||
+		approvalValue(rawString(op.Source, "is_confirmed_for_prod_nm"))
+}
+
+func approvalValue(value string) bool {
+	return strings.Contains(value, "심의") || strings.Contains(value, "승인대기")
+}
+
+func rawString(source *datago.Source, key string) string {
+	if source == nil || source.Raw == nil {
+		return ""
+	}
+	value, ok := source.Raw[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func (a QNetAdapter) Call(ctx context.Context, req CallRequest) (datago.ResponseEnvelope, error) {

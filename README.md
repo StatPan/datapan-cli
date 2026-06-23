@@ -146,9 +146,10 @@ later be published by `datapan-registry`. Use `--status`, `--kind`, and
 registered external adapters such as q-net.
 Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
 only operations Datapan can call conservatively with known smoke/default/safe
-paging parameters, then records `verified`, `failed`, or `skipped` with
-provider status, HTTP status, dependency class, redacted URL, and skip reasons.
-It does not blindly call the whole catalog.
+paging parameters or a registered provider adapter, then records `verified`,
+`failed`, or `skipped` with provider status, HTTP status, dependency class,
+redacted URL, and skip reasons. Q-Net has a narrow verification path for proven
+XML endpoints, but Datapan still does not blindly call the whole catalog.
 Use `datapan catalog verify --input REPORT` to reread an existing verification
 artifact and filter results by status without making new provider calls.
 Use `datapan catalog release draft` to assemble a local registry release layout

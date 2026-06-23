@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
@@ -20,10 +21,17 @@ type CallRequest struct {
 }
 
 type VerificationRequest struct {
-	Spec       datago.Spec
-	Operation  datago.Operation
-	Params     map[string]string
-	Credential Credential
+	Spec          datago.Spec
+	Operation     datago.Operation
+	Params        map[string]string
+	MissingParams []string
+	Credential    Credential
+	HTTP          HTTPDoer
+	VerifiedAt    string
+}
+
+type HTTPDoer interface {
+	Do(*http.Request) (*http.Response, error)
 }
 
 type Adapter interface {

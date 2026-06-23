@@ -100,26 +100,40 @@ Datapan now registers q-net host ownership so `catalog providers --status
 adapter --provider q-net` can separate q-net from hosts that still have no
 adapter at all.
 
-## First Adapter: q-net Observation Layer
+## First Adapter: q-net
 
-The q-net adapter starts with observation, not blind implementation:
+The q-net adapter starts narrow, not broad:
 
 1. Pull q-net hosts from `catalog providers`.
 2. Inspect sample dataset IDs from the provider backlog report.
 3. Identify credential requirements and approval behavior.
 4. Identify response success and error envelopes.
 5. Add safe verification for a narrow operation subset.
-6. Only then add call support.
+6. Expand coverage only when each endpoint family has evidence.
+7. Only then add call support.
 
 The adapter must not bypass provider security gates or pretend approval is
 present when it is not. If a human login, CAPTCHA, manual approval, or separate
 key is required, the adapter should return a conservative skipped or failed
 status with provider-specific evidence.
 
-The initial q-net adapter owns `openapi.q-net.or.kr`, `c.q-net.or.kr`, and
-`open.api.q-net.or.kr`, but its verification result is intentionally skipped
-with `qnet_adapter_observation_required` until credential and response-envelope
-evidence is captured.
+The q-net adapter owns `openapi.q-net.or.kr`, `c.q-net.or.kr`, and
+`open.api.q-net.or.kr`. It can verify a narrow XML `openapi.q-net.or.kr`
+subset when required parameters are either supplied or have conservative
+provider-specific defaults such as `baseYY=2023`, `pageNo=1`, and
+`numOfRows=1`. It still skips operations with unknown required parameters such
+as `jmCd` using `qnet_missing_required_params`, and it does not claim call
+support yet.
+
+Observed smoke evidence:
+
+```bash
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15025329 --operation "연도별 등급별 실기 합격률 조회" --json
+```
+
+Expected evidence shape: `provider=q-net`, `dependency_class=external_endpoint`,
+`status=verified`, `semantic_status=provider_ok`, `provider_status.code=00`,
+and `body_shape=xml_items`.
 
 ## Adapter Readiness Bar
 

@@ -2,10 +2,19 @@ package provider
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
 )
+
+type providerRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f providerRoundTripFunc) Do(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 type fakeAdapter struct {
 	StaticHostMatcher
@@ -108,11 +117,60 @@ func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	}
 	spec := datago.Spec{ID: "200", Title: "Q-Net 샘플", Provider: "data.go.kr"}
 	op := datago.Operation{Name: "목록", Endpoint: "https://openapi.q-net.or.kr/api/list"}
-	result := adapter.Verify(context.Background(), VerificationRequest{Spec: spec, Operation: op, Params: map[string]string{"serviceKey": "secret", "pageNo": "1"}})
-	if result.Provider != "q-net" || result.Status != "skipped" || result.Reason != "qnet_adapter_observation_required" {
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in provider request")
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><name>ok</name></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       spec,
+		Operation:  op,
+		Params:     map[string]string{"serviceKey": "secret", "pageNo": "1"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       httpClient,
+		VerifiedAt: "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "q-net" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
 		t.Fatalf("unexpected q-net verification result: %#v", result)
 	}
-	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" {
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted q-net URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.BodyShape != "xml_items" {
 		t.Fatalf("unexpected q-net public params: %#v", result.Params)
+	}
+}
+
+func TestQNetAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewQNetAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "201", Title: "Q-Net 상세", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "상세", Endpoint: "https://openapi.q-net.or.kr/api/detail"},
+		MissingParams: []string{"jmCd"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "qnet_missing_required_params" || len(result.MissingParams) != 1 {
+		t.Fatalf("unexpected q-net skip result: %#v", result)
+	}
+}
+
+func TestQNetAdapterSkipsApprovalRequiredOperations(t *testing.T) {
+	adapter := NewQNetAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "202", Title: "Q-Net 승인", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "승인 필요",
+			Endpoint: "https://openapi.q-net.or.kr/api/list",
+			Source:   &datago.Source{Raw: map[string]any{"is_confirmed_for_prod_nm": "심의승인"}},
+		},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "approval_required" {
+		t.Fatalf("unexpected approval skip result: %#v", result)
 	}
 }

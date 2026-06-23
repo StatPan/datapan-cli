@@ -741,7 +741,7 @@ func TestCatalogVerifyJSONSkipsUnsafeCandidates(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"base_date"}]}]},
-		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://external.example.test/api/list"}]}
 	]`)); err != nil {
 		t.Fatal(err)
 	}
@@ -761,6 +761,60 @@ func TestCatalogVerifyJSONSkipsUnsafeCandidates(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+}
+
+func TestCatalogVerifyUsesQNetAdapter(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"15025329",
+			"title":"한국산업인력공단_산업인력 국가기술자격 통계 정보",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"연도별 등급별 실기 합격률 조회","endpoint":"http://openapi.q-net.or.kr/api/service/rest/InquiryStatSVC/getGradSiPassList","request_params":[{"name":"serviceKey"},{"name":"baseYY"}]}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("baseYY"); got != "2023" {
+			t.Fatalf("baseYY=%q", got)
+		}
+		if got := req.URL.Query().Get("serviceKey"); got != "secret-value" {
+			t.Fatalf("serviceKey=%q", got)
+		}
+		header := make(http.Header)
+		header.Set("Content-Type", "application/xml")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><gradename>기술사</gradename></item></items></body></response>`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "--registry", tmp, "--ref", "15025329", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"provider": "q-net"`,
+		`"verified": 1`,
+		`"status": "verified"`,
+		`"semantic_status": "provider_ok"`,
+		`"body_shape": "xml_items"`,
+		`serviceKey=REDACTED`,
+		`"baseYY": "2023"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("secret leaked in output: %s", stdout)
 	}
 }
 

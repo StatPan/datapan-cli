@@ -118,7 +118,9 @@ consider a small bounded set of operations; callers may pass `--ref REF`,
 `--operation NAME`, `--limit N`, and `--output PATH|-`. The command should call
 only conservative candidates: data.go.kr gateway operations with concrete
 endpoints and enough known parameters from smoke metadata, operation defaults,
-or safe paging/format defaults. External endpoints, service-root-only entries,
+or safe paging/format defaults, plus external endpoints owned by registered
+provider adapters when the adapter can supply conservative provider-specific
+defaults. External endpoints without adapters, service-root-only entries,
 unsupported protocols, malformed endpoints, approval-gated entries, and
 operations missing required parameters should be returned as `skipped` with a
 clear reason.
