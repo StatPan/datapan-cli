@@ -1284,7 +1284,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 			t.Fatalf("expected %q in manifest: %s", want, manifest)
 		}
 	}
-	code, stdout, stderr = runTest([]string{"catalog", "release", "verify", "--manifest", outputDir + "/manifest.json", "--json"}, nil, nil)
+	verifyOutput := outputDir + "/reports/latest-release-verification.json"
+	code, stdout, stderr = runTest([]string{"catalog", "release", "verify", "--manifest", outputDir + "/manifest.json", "--output", verifyOutput, "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -1292,6 +1293,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"ok": true`,
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
+		`"output": "` + jsonEscaped(verifyOutput) + `"`,
 		`"checked": 11`,
 		`"failed": 0`,
 		`"status": "verified"`,
@@ -1299,6 +1301,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in verification output: %s", want, stdout)
 		}
+	}
+	verifyReport, err := osReadFile(verifyOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(verifyReport), `"schema_version": "datapan.release-verification.v1"`) || strings.Contains(string(verifyReport), `"report":`) {
+		t.Fatalf("unexpected release verification report file: %s", verifyReport)
 	}
 	if err := osWriteFile(outputDir+"/reports/provider-backlog.json", []byte(`{"tampered":true}`)); err != nil {
 		t.Fatal(err)

@@ -167,7 +167,9 @@ with relative artifact paths, byte sizes, and SHA-256 checksums. Use
 
 `datapan catalog release verify --manifest PATH --json` rereads a release
 manifest without fetching upstream data or calling provider APIs and emits a
-`datapan.release-verification.v1` report. It treats the manifest directory as
+`datapan.release-verification.v1` report. Use `--output PATH|-` to write the
+pure report artifact; `--json` wraps that report with command metadata and must
+not be combined with `--output -`. The command treats the manifest directory as
 the release root, verifies each listed relative artifact path, byte size, and
 SHA-256 checksum, and returns exit code 4 when any artifact is missing, outside
 the release root, size-mismatched, checksum-mismatched, has an invalid checksum

@@ -80,7 +80,7 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
-datapan catalog release verify --manifest .datapan/release/manifest.json --json
+datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
@@ -162,8 +162,9 @@ evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, provider backlog, schema, verification, verification
 summary, provenance, and manifest artifacts without calling upstream APIs.
-Use `datapan catalog release verify --manifest PATH` to recheck the manifest's
-artifact paths, byte sizes, and SHA-256 checksums before publishing.
+Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
+the manifest's artifact paths, byte sizes, and SHA-256 checksums before
+publishing and preserve a `datapan.release-verification.v1` report.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`

@@ -34,6 +34,7 @@ reports/
   provider-backlog.json
   latest-verification.json
   latest-verification-summary.json
+  latest-release-verification.json
 provenance/
   data-go-kr.md
 manifest.json
@@ -147,9 +148,9 @@ sizes, SHA-256 checksums, artifact kinds, and schema IDs when an artifact has a
 Datapan schema. The manifest does not include itself, so its own checksum does
 not make the release unstable.
 
-`catalog release verify --manifest PATH --json` emits a
-`datapan.release-verification.v1` report that records the checked artifact
-count, failure count, and per-artifact verification status.
+`catalog release verify --manifest PATH --output REPORT --json` emits and
+stores a `datapan.release-verification.v1` report that records the checked
+artifact count, failure count, and per-artifact verification status.
 
 ## Local Release Draft
 
@@ -161,7 +162,7 @@ datapan catalog release draft --registry .datapan/data-go-kr.registry.json --ver
 datapan catalog audit --registry .datapan/release/data/data-go-kr.registry.json --json
 datapan catalog verify --input .datapan/release/reports/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/release/reports/latest-verification.json --json
-datapan catalog release verify --manifest .datapan/release/manifest.json --json
+datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 ```
 
 When `--verification` is provided, `catalog release draft` writes both
@@ -191,8 +192,8 @@ Before publishing a registry snapshot:
 - verification summaries should be generated for provider/reason review;
 - `manifest.json` must list every release artifact except itself with size and
   SHA-256 checksum;
-- `catalog release verify --manifest manifest.json` must pass before
-  publishing;
+- `catalog release verify --manifest manifest.json --output reports/latest-release-verification.json`
+  must pass before publishing;
 - credentials must never appear in artifacts;
 - schema files must be copied from this repository, not rewritten by hand;
 - provenance must record CLI version, source provider, generation time, and

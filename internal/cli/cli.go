@@ -279,7 +279,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json] | datapan catalog release verify --manifest PATH [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -1129,7 +1129,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 
 func (a app) catalogRelease(args []string, jsonOut bool) int {
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "draft":
@@ -1137,7 +1137,7 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 	case "verify":
 		return a.catalogReleaseVerify(args[1:], jsonOut)
 	default:
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 }
 
@@ -1177,12 +1177,30 @@ func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if manifestPath == "" || len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog release verify --manifest PATH [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the release verification report JSON to stdout")
 	}
 	report, err := verifyReleaseManifest(manifestPath)
 	if err != nil {
 		return a.fail(exitRequest, "%v", err)
+	}
+	if output != "" {
+		if err := writeJSONFile(output, report); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			if !report.OK {
+				return exitRequest
+			}
+			return exitOK
+		}
 	}
 	if jsonOut {
 		code := exitOK
@@ -1191,6 +1209,7 @@ func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
 		}
 		if writeCode := a.writeJSON(map[string]any{
 			"ok":     report.OK,
+			"output": output,
 			"report": report,
 		}); writeCode != exitOK {
 			return writeCode
@@ -1199,6 +1218,9 @@ func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
 	}
 	fmt.Fprintln(a.stdout, "Release manifest verification")
 	fmt.Fprintf(a.stdout, "  manifest: %s\n", report.Manifest)
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
 	fmt.Fprintf(a.stdout, "  checked: %d\n", report.Checked)
 	fmt.Fprintf(a.stdout, "  failed: %d\n", report.Failed)
 	for _, result := range report.Results {
@@ -2614,7 +2636,7 @@ Usage:
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
-  datapan catalog release verify --manifest PATH [--json]
+  datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
