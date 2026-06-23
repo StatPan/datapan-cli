@@ -125,6 +125,15 @@ provider-specific defaults such as `baseYY=2023`, `pageNo=1`, and
 as `jmCd` using `qnet_missing_required_params`, and it does not claim call
 support yet.
 
+Q-Net endpoint families are intentionally separated:
+
+- `_wadl` endpoints are metadata-only and return `qnet_wadl_metadata_only`
+  instead of being counted as data verification.
+- `c.q-net.or.kr` is skipped with `qnet_separate_service_key_required` until
+  separate credential or registration evidence exists.
+- JSON `{message: "...ERROR"}` responses are provider errors, not successful
+  JSON data responses.
+
 Observed smoke evidence:
 
 ```bash

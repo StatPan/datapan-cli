@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,6 +55,16 @@ func (a QNetAdapter) Verify(ctx context.Context, req VerificationRequest) datago
 		result.Reason = "approval_required"
 		return result
 	}
+	if qnetWADLMetadataEndpoint(req.Operation.Endpoint) {
+		result.Status = "skipped"
+		result.Reason = "qnet_wadl_metadata_only"
+		return result
+	}
+	if result.EndpointHost == "c.q-net.or.kr" {
+		result.Status = "skipped"
+		result.Reason = "qnet_separate_service_key_required"
+		return result
+	}
 	if len(missing) > 0 {
 		result.Status = "skipped"
 		result.Reason = "qnet_missing_required_params"
@@ -96,9 +107,22 @@ func (a QNetAdapter) Verify(ctx context.Context, req VerificationRequest) datago
 	}
 	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 	result.HTTPStatus = resp.StatusCode
+	result.BodyShape = qnetBodyShape(body)
+	if qnetWADLMetadataBody(body) {
+		result.Status = "failed"
+		result.Reason = "qnet_wadl_metadata_response"
+		result.SemanticStatus = "metadata_response"
+		return result
+	}
+	if status, ok := qnetJSONMessageStatus(body); ok && !status.OK {
+		result.Status = "failed"
+		result.Reason = status.Message
+		result.SemanticStatus = "provider_error"
+		result.ProviderStatus = &status
+		return result
+	}
 	result.SemanticStatus = semanticStatus
 	result.ProviderStatus = providerStatus
-	result.BodyShape = qnetBodyShape(body)
 	if ok {
 		result.Status = "verified"
 		return result
@@ -169,6 +193,8 @@ func qnetSafeDefault(name string) (string, bool) {
 func qnetBodyShape(body []byte) string {
 	text := strings.ToLower(string(body))
 	switch {
+	case qnetWADLMetadataBody(body):
+		return "wadl_metadata"
 	case strings.Contains(text, "<item>"):
 		return "xml_items"
 	case strings.Contains(text, `"message"`):
@@ -182,6 +208,47 @@ func qnetBodyShape(body []byte) string {
 	default:
 		return "text"
 	}
+}
+
+func qnetWADLMetadataEndpoint(endpoint string) bool {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return false
+	}
+	_, hasWADL := u.Query()["_wadl"]
+	return hasWADL
+}
+
+func qnetWADLMetadataBody(body []byte) bool {
+	text := strings.ToLower(string(body))
+	return strings.Contains(text, "<application") && strings.Contains(text, "wadl")
+}
+
+func qnetJSONMessageStatus(body []byte) (datago.ProviderStatus, bool) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return datago.ProviderStatus{}, false
+	}
+	value, ok := payload["message"].(string)
+	if !ok {
+		return datago.ProviderStatus{}, false
+	}
+	message := strings.TrimSpace(value)
+	if message == "" {
+		return datago.ProviderStatus{}, false
+	}
+	upper := strings.ToUpper(message)
+	status := datago.ProviderStatus{
+		Source:  "message",
+		Message: message,
+	}
+	if strings.Contains(upper, "ERROR") || strings.Contains(upper, "NOT REGISTERED") {
+		status.OK = false
+		status.Code = "MESSAGE_ERROR"
+		return status, true
+	}
+	status.OK = true
+	return status, true
 }
 
 func verifiedAt(value string) string {

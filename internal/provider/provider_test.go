@@ -174,3 +174,58 @@ func TestQNetAdapterSkipsApprovalRequiredOperations(t *testing.T) {
 		t.Fatalf("unexpected approval skip result: %#v", result)
 	}
 }
+
+func TestQNetAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
+	adapter := NewQNetAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "203", Title: "Q-Net WADL", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "메타데이터", Endpoint: "http://openapi.q-net.or.kr/api/service/rest/InquiryListNationalQualifcationSVC?_wadl&_type=xml"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "qnet_wadl_metadata_only" {
+		t.Fatalf("unexpected WADL skip result: %#v", result)
+	}
+}
+
+func TestQNetAdapterSkipsCNetUntilSeparateKeyEvidence(t *testing.T) {
+	adapter := NewQNetAdapter()
+	called := false
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "204", Title: "Q-Net C", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "C계열", Endpoint: "https://c.q-net.or.kr/openapi/cwyearlcslist.do"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP: providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			called = true
+			return nil, nil
+		}),
+	})
+	if called {
+		t.Fatal("c.q-net verification should skip before HTTP until credential evidence exists")
+	}
+	if result.Status != "skipped" || result.Reason != "qnet_separate_service_key_required" {
+		t.Fatalf("unexpected c.q-net skip result: %#v", result)
+	}
+}
+
+func TestQNetAdapterFailsJSONMessageErrors(t *testing.T) {
+	adapter := NewQNetAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"message":"SERVICE KEY IS NOT REGISTERED ERROR."}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "205", Title: "Q-Net JSON", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "JSON", Endpoint: "https://open.api.q-net.or.kr/api/list"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" {
+		t.Fatalf("unexpected JSON message result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.Source != "message" || result.ProviderStatus.OK {
+		t.Fatalf("unexpected provider status: %#v", result.ProviderStatus)
+	}
+}
