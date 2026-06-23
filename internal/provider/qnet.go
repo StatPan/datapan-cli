@@ -116,7 +116,7 @@ func (a QNetAdapter) Verify(ctx context.Context, req VerificationRequest) datago
 	}
 	if status, ok := qnetJSONMessageStatus(body); ok && !status.OK {
 		result.Status = "failed"
-		result.Reason = status.Message
+		result.Reason = qnetFailureReason(&status, status.Message)
 		result.SemanticStatus = "provider_error"
 		result.ProviderStatus = &status
 		return result
@@ -128,7 +128,7 @@ func (a QNetAdapter) Verify(ctx context.Context, req VerificationRequest) datago
 		return result
 	}
 	result.Status = "failed"
-	result.Reason = message
+	result.Reason = qnetFailureReason(providerStatus, message)
 	return result
 }
 
@@ -245,10 +245,41 @@ func qnetJSONMessageStatus(body []byte) (datago.ProviderStatus, bool) {
 	if strings.Contains(upper, "ERROR") || strings.Contains(upper, "NOT REGISTERED") {
 		status.OK = false
 		status.Code = "MESSAGE_ERROR"
+		status.ReasonCode = qnetReasonCode(message, status.Code)
 		return status, true
 	}
 	status.OK = true
 	return status, true
+}
+
+func qnetFailureReason(status *datago.ProviderStatus, message string) string {
+	if status != nil {
+		if status.ReasonCode == "" {
+			status.ReasonCode = qnetReasonCode(status.Message, status.Code)
+		}
+		if status.ReasonCode != "" {
+			return status.ReasonCode
+		}
+	}
+	if code := qnetReasonCode(message, ""); code != "" {
+		return code
+	}
+	return message
+}
+
+func qnetReasonCode(message, code string) string {
+	upperMessage := strings.ToUpper(strings.TrimSpace(message))
+	upperCode := strings.ToUpper(strings.TrimSpace(code))
+	switch {
+	case strings.Contains(upperMessage, "SERVICE KEY IS NOT REGISTERED"):
+		return "qnet_service_key_not_registered"
+	case upperCode == "99" && strings.Contains(upperMessage, "FAILED TO VALIDATE"):
+		return "qnet_connection_validation_failed"
+	case upperCode == "MESSAGE_ERROR":
+		return "qnet_message_error"
+	default:
+		return ""
+	}
 }
 
 func verifiedAt(value string) string {

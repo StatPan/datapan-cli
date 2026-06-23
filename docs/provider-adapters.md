@@ -133,6 +133,9 @@ Q-Net endpoint families are intentionally separated:
   separate credential or registration evidence exists.
 - JSON `{message: "...ERROR"}` responses are provider errors, not successful
   JSON data responses.
+- Known provider failures use stable Datapan reasons such as
+  `qnet_connection_validation_failed` and `qnet_service_key_not_registered`,
+  while preserving the original upstream message under `provider_status`.
 
 Observed smoke evidence:
 

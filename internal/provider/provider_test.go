@@ -222,10 +222,33 @@ func TestQNetAdapterFailsJSONMessageErrors(t *testing.T) {
 		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
 		HTTP:       client,
 	})
-	if result.Status != "failed" || result.SemanticStatus != "provider_error" {
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "qnet_service_key_not_registered" {
 		t.Fatalf("unexpected JSON message result: %#v", result)
 	}
-	if result.ProviderStatus == nil || result.ProviderStatus.Source != "message" || result.ProviderStatus.OK {
+	if result.ProviderStatus == nil || result.ProviderStatus.Source != "message" || result.ProviderStatus.OK || result.ProviderStatus.ReasonCode != "qnet_service_key_not_registered" {
+		t.Fatalf("unexpected provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestQNetAdapterClassifiesConnectionValidationFailures(t *testing.T) {
+	adapter := NewQNetAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>99</resultCode><resultMsg>Failed to validate a newly established connection.</resultMsg></header><body/></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "206", Title: "Q-Net 99", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "99", Endpoint: "https://openapi.q-net.or.kr/api/list"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if result.Status != "failed" || result.Reason != "qnet_connection_validation_failed" {
+		t.Fatalf("unexpected connection validation result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.Code != "99" || result.ProviderStatus.ReasonCode != "qnet_connection_validation_failed" {
 		t.Fatalf("unexpected provider status: %#v", result.ProviderStatus)
 	}
 }
