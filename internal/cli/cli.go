@@ -915,6 +915,18 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	providerFilter, args, err := consumeString(args, "--provider", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	hostFilter, args, err := consumeString(args, "--host", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	kindFilter, args, err := consumeString(args, "--kind", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if ref == "" && len(args) > 0 {
 		ref = args[0]
 		args = args[1:]
@@ -923,7 +935,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
@@ -932,10 +944,14 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--status must be one of: verified, failed, skipped, unknown")
 	}
 	if input != "" {
-		if registryPath != "" || ref != "" || operation != "" {
-			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, or --operation")
+		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || hostFilter != "" || kindFilter != "" {
+			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --host, or --kind")
 		}
 		return a.catalogVerifyInput(input, output, statusFilter, limit, jsonOut)
+	}
+	candidateFilters, reportFilters, err := a.verificationFilters(providerFilter, hostFilter, kindFilter)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
 	}
 	reg := a.reg
 	if registryPath != "" {
@@ -945,7 +961,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		}
 		reg = loaded
 	}
-	candidates, truncated, err := datago.VerificationCandidates(reg, ref, operation, limit)
+	candidates, truncated, err := datago.VerificationCandidatesWithFilters(reg, ref, operation, limit, candidateFilters)
 	if err != nil {
 		var resolveErr datago.VerificationResolveError
 		if errors.As(err, &resolveErr) {
@@ -1053,6 +1069,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		Operation:     operation,
 		Limit:         limit,
 		Truncated:     truncated,
+		Filters:       reportFilters,
 		FilteredCount: len(results),
 		Results:       results,
 	}
@@ -1676,6 +1693,54 @@ func verificationExitCode(summary datago.VerificationSummary, authMissing bool) 
 func validVerificationStatus(status string) bool {
 	switch status {
 	case "verified", "failed", "skipped", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a app) verificationFilters(providerName, host, kind string) (datago.VerificationCandidateFilters, *datago.VerificationReportFilters, error) {
+	providerName = strings.TrimSpace(providerName)
+	host = strings.ToLower(strings.TrimSpace(host))
+	kind = strings.TrimSpace(kind)
+	if kind != "" && !validVerificationKind(kind) {
+		return datago.VerificationCandidateFilters{}, nil, fmt.Errorf("--kind must be one of: data_go_kr_gateway, external_endpoint, service_root, no_endpoint, malformed_endpoint, soap, wms")
+	}
+	if providerName == "" && host == "" && kind == "" {
+		return datago.VerificationCandidateFilters{}, nil, nil
+	}
+	var hosts []string
+	providerRegistry, err := providers.DefaultRegistry()
+	if err != nil {
+		return datago.VerificationCandidateFilters{}, nil, err
+	}
+	if providerName != "" {
+		for _, adapter := range providerRegistry.Adapters() {
+			if strings.EqualFold(adapter.Name(), providerName) {
+				hosts = adapter.Hosts()
+				break
+			}
+		}
+		if len(hosts) == 0 {
+			return datago.VerificationCandidateFilters{}, nil, fmt.Errorf("--provider %q is not a registered provider adapter", providerName)
+		}
+	}
+	if host != "" {
+		if providerName != "" {
+			adapter, ok := providerRegistry.MatchHost(host)
+			if !ok || !strings.EqualFold(adapter.Name(), providerName) {
+				return datago.VerificationCandidateFilters{}, nil, fmt.Errorf("--host %s is not owned by provider %s", host, providerName)
+			}
+		}
+		hosts = []string{host}
+	}
+	reportFilters := &datago.VerificationReportFilters{Provider: providerName, Host: host, Kind: kind}
+	return datago.VerificationCandidateFilters{Hosts: hosts, Kind: kind}, reportFilters, nil
+}
+
+func validVerificationKind(kind string) bool {
+	switch kind {
+	case "data_go_kr_gateway", "external_endpoint", "service_root", "no_endpoint", "malformed_endpoint", "soap", "wms":
 		return true
 	default:
 		return false
@@ -2403,7 +2468,7 @@ Usage:
   datapan catalog diff --old OLD --new NEW [--limit N] [--json]
   datapan catalog audit [--registry PATH] [--sample N] [--json]
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
-  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
   datapan show <ref> [--json]

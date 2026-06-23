@@ -818,6 +818,62 @@ func TestCatalogVerifyUsesQNetAdapter(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyFiltersRegisteredProviderBeforeLimit(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"100",
+			"title":"게이트웨이",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"base_date"}]}]
+		},
+		{
+			"id":"15025329",
+			"title":"한국산업인력공단_산업인력 국가기술자격 통계 정보",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"연도별 등급별 실기 합격률 조회","endpoint":"http://openapi.q-net.or.kr/api/service/rest/InquiryStatSVC/getGradSiPassList","request_params":[{"name":"serviceKey"},{"name":"baseYY"}]}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.q-net.or.kr" {
+			t.Fatalf("expected q-net host after provider filter: %s", req.URL.String())
+		}
+		header := make(http.Header)
+		header.Set("Content-Type", "application/xml")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><name>ok</name></item></items></body></response>`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "--registry", tmp, "--provider", "q-net", "--kind", "external_endpoint", "--limit", "1", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"provider": "q-net"`,
+		`"kind": "external_endpoint"`,
+		`"filtered_count": 1`,
+		`"verified": 1`,
+		`"dataset_id": "15025329"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"dataset_id": "100"`) {
+		t.Fatalf("provider filter included gateway candidate: %s", stdout)
+	}
+}
+
 func TestCatalogVerifyCallsEligibleSmokeCandidate(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[

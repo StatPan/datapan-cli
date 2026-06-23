@@ -144,6 +144,12 @@ Expected evidence shape: `provider=q-net`, `dependency_class=external_endpoint`,
 `status=verified`, `semantic_status=provider_ok`, `provider_status.code=00`,
 and `body_shape=xml_items`.
 
+For bounded batch evidence, filter verification before the limit:
+
+```bash
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --output .datapan/qnet-batch-verification.json --json
+```
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:

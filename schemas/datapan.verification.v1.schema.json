@@ -55,6 +55,23 @@
       "properties": {
         "status": {
           "enum": ["verified", "failed", "skipped", "unknown"]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "data_go_kr_gateway",
+            "external_endpoint",
+            "service_root",
+            "no_endpoint",
+            "malformed_endpoint",
+            "soap",
+            "wms"
+          ]
         }
       }
     },

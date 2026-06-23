@@ -101,3 +101,46 @@ func TestVerificationParamsUsesSmokeParams(t *testing.T) {
 		t.Fatalf("params=%#v", params)
 	}
 }
+
+func TestVerificationCandidatesFilterBeforeLimit(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:       "100",
+			Title:    "게이트웨이",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "https://apis.data.go.kr/100/list"},
+			},
+		},
+		{
+			ID:       "200",
+			Title:    "Q-Net 1",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "https://openapi.q-net.or.kr/api/list"},
+			},
+		},
+		{
+			ID:       "300",
+			Title:    "Q-Net 2",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "https://c.q-net.or.kr/api/list"},
+			},
+		},
+	})
+
+	candidates, truncated, err := VerificationCandidatesWithFilters(reg, "", "", 1, VerificationCandidateFilters{
+		Hosts: []string{"openapi.q-net.or.kr", "c.q-net.or.kr"},
+		Kind:  "external_endpoint",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated || len(candidates) != 1 {
+		t.Fatalf("expected filtered truncation: truncated=%v len=%d", truncated, len(candidates))
+	}
+	if candidates[0].Spec.ID != "200" {
+		t.Fatalf("filter should apply before limit: %#v", candidates[0])
+	}
+}

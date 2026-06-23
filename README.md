@@ -75,6 +75,7 @@ datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-g
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
@@ -149,7 +150,8 @@ only operations Datapan can call conservatively with known smoke/default/safe
 paging parameters or a registered provider adapter, then records `verified`,
 `failed`, or `skipped` with provider status, HTTP status, dependency class,
 redacted URL, and skip reasons. Q-Net has a narrow verification path for proven
-XML endpoints, but Datapan still does not blindly call the whole catalog.
+XML endpoints. Use `--provider`, `--host`, and `--kind` to collect bounded
+adapter evidence without blindly calling the whole catalog.
 Use `datapan catalog verify --input REPORT` to reread an existing verification
 artifact and filter results by status without making new provider calls.
 Use `datapan catalog release draft` to assemble a local registry release layout

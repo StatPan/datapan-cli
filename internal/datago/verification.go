@@ -19,7 +19,10 @@ type VerificationReport struct {
 }
 
 type VerificationReportFilters struct {
-	Status string `json:"status,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Host     string `json:"host,omitempty"`
+	Kind     string `json:"kind,omitempty"`
 }
 
 type VerificationSummary struct {
@@ -59,7 +62,16 @@ type VerificationCandidate struct {
 	SkipReason      string
 }
 
+type VerificationCandidateFilters struct {
+	Hosts []string
+	Kind  string
+}
+
 func VerificationCandidates(reg Registry, ref string, operation string, limit int) ([]VerificationCandidate, bool, error) {
+	return VerificationCandidatesWithFilters(reg, ref, operation, limit, VerificationCandidateFilters{})
+}
+
+func VerificationCandidatesWithFilters(reg Registry, ref string, operation string, limit int, filters VerificationCandidateFilters) ([]VerificationCandidate, bool, error) {
 	specs := reg.Specs()
 	if strings.TrimSpace(ref) != "" {
 		resolved := reg.Resolve(ref, 10)
@@ -73,14 +85,12 @@ func VerificationCandidates(reg Registry, ref string, operation string, limit in
 	}
 	candidates := make([]VerificationCandidate, 0)
 	truncated := false
+	hostSet := verificationHostSet(filters.Hosts)
+	kind := strings.TrimSpace(filters.Kind)
 	for _, spec := range specs {
 		for _, op := range spec.Operations {
 			if operation != "" && op.Name != operation {
 				continue
-			}
-			if limit > 0 && len(candidates) >= limit {
-				truncated = true
-				return candidates, truncated, nil
 			}
 			candidate := VerificationCandidate{
 				Spec:            spec,
@@ -90,10 +100,41 @@ func VerificationCandidates(reg Registry, ref string, operation string, limit in
 			candidate.EndpointHost, _ = urlHost(op.Endpoint)
 			candidate.Params, candidate.MissingParams = VerificationParams(spec, op)
 			candidate.SkipReason = VerificationSkipReason(candidate)
+			if !candidateMatchesFilters(candidate, hostSet, kind) {
+				continue
+			}
+			if limit > 0 && len(candidates) >= limit {
+				truncated = true
+				return candidates, truncated, nil
+			}
 			candidates = append(candidates, candidate)
 		}
 	}
 	return candidates, truncated, nil
+}
+
+func verificationHostSet(hosts []string) map[string]bool {
+	if len(hosts) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host != "" {
+			out[host] = true
+		}
+	}
+	return out
+}
+
+func candidateMatchesFilters(candidate VerificationCandidate, hosts map[string]bool, kind string) bool {
+	if kind != "" && candidate.DependencyClass != kind {
+		return false
+	}
+	if len(hosts) > 0 && !hosts[strings.ToLower(strings.TrimSpace(candidate.EndpointHost))] {
+		return false
+	}
+	return true
 }
 
 func OperationDependencyClass(spec Spec, op Operation) string {

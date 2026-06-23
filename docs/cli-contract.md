@@ -115,15 +115,17 @@ envelope for agent use.
 `datapan catalog verify --registry PATH --json` collects bounded runtime
 evidence. It must not blindly call the whole catalog. By default it should
 consider a small bounded set of operations; callers may pass `--ref REF`,
-`--operation NAME`, `--limit N`, and `--output PATH|-`. The command should call
-only conservative candidates: data.go.kr gateway operations with concrete
-endpoints and enough known parameters from smoke metadata, operation defaults,
-or safe paging/format defaults, plus external endpoints owned by registered
-provider adapters when the adapter can supply conservative provider-specific
-defaults. External endpoints without adapters, service-root-only entries,
-unsupported protocols, malformed endpoints, approval-gated entries, and
-operations missing required parameters should be returned as `skipped` with a
-clear reason.
+`--operation NAME`, `--limit N`, `--provider NAME`, `--host HOST`, `--kind
+KIND`, and `--output PATH|-`. Provider, host, and kind filters apply before the
+limit, so `--provider q-net --limit 5` means five q-net candidates, not the
+first five catalog operations. The command should call only conservative
+candidates: data.go.kr gateway operations with concrete endpoints and enough
+known parameters from smoke metadata, operation defaults, or safe paging/format
+defaults, plus external endpoints owned by registered provider adapters when
+the adapter can supply conservative provider-specific defaults. External
+endpoints without adapters, service-root-only entries, unsupported protocols,
+malformed endpoints, approval-gated entries, and operations missing required
+parameters should be returned as `skipped` with a clear reason.
 
 Verification JSON includes a `report` with `generated_at`, `provider`,
 `registry`, `ref`, `operation`, `limit`, `truncated`, `filters`,
