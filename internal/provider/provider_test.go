@@ -95,3 +95,24 @@ func TestAdapterContractUsesDatapanTypes(t *testing.T) {
 		t.Fatalf("unexpected response: %#v", response)
 	}
 }
+
+func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
+	adapter := NewQNetAdapter()
+	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
+		if !adapter.MatchHost(host) {
+			t.Fatalf("expected q-net adapter to match %s", host)
+		}
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("q-net adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "200", Title: "Q-Net 샘플", Provider: "data.go.kr"}
+	op := datago.Operation{Name: "목록", Endpoint: "https://openapi.q-net.or.kr/api/list"}
+	result := adapter.Verify(context.Background(), VerificationRequest{Spec: spec, Operation: op, Params: map[string]string{"serviceKey": "secret", "pageNo": "1"}})
+	if result.Provider != "q-net" || result.Status != "skipped" || result.Reason != "qnet_adapter_observation_required" {
+		t.Fatalf("unexpected q-net verification result: %#v", result)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" {
+		t.Fatalf("unexpected q-net public params: %#v", result.Params)
+	}
+}

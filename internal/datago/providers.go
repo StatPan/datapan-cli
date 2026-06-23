@@ -33,6 +33,7 @@ type ProviderCounts struct {
 	DataGoKrGatewayHosts    int `json:"data_go_kr_gateway_hosts"`
 	ExternalEndpointHosts   int `json:"external_endpoint_hosts"`
 	ExternalGuideHosts      int `json:"external_guide_hosts"`
+	RegisteredAdapterHosts  int `json:"registered_adapter_hosts"`
 	OperationHosts          int `json:"operation_hosts"`
 	GuideOnlyHosts          int `json:"guide_only_hosts"`
 	MissingAdapterHosts     int `json:"missing_adapter_hosts"`
@@ -67,9 +68,14 @@ type providerAccumulator struct {
 }
 
 func ProviderBacklogForRegistry(reg Registry, sampleLimit int) ProviderBacklog {
+	return ProviderBacklogForRegistryWithAdapters(reg, sampleLimit, nil)
+}
+
+func ProviderBacklogForRegistryWithAdapters(reg Registry, sampleLimit int, adapterHosts []string) ProviderBacklog {
 	if sampleLimit < 0 {
 		sampleLimit = 0
 	}
+	adapterHostSet := normalizedHostSet(adapterHosts)
 	accs := map[string]*providerAccumulator{}
 	var counts ProviderCounts
 	for _, spec := range reg.Specs() {
@@ -97,7 +103,9 @@ func ProviderBacklogForRegistry(reg Registry, sampleLimit int) ProviderBacklog {
 				acc.summary.Operations++
 				if !isDataGoKrGateway(endpointHost) {
 					acc.summary.ExternalEndpointOperations++
-					counts.NeedsAdapterOperations++
+					if !adapterHostSet[endpointHost] {
+						counts.NeedsAdapterOperations++
+					}
 				}
 				if apiType == "SOAP" {
 					acc.summary.SOAPOperations++
@@ -150,7 +158,7 @@ func ProviderBacklogForRegistry(reg Registry, sampleLimit int) ProviderBacklog {
 		acc.summary.Kinds = sortedKinds(acc.kindSet)
 		acc.summary.Specs = len(acc.specIDs)
 		acc.summary.Provider = providerNameForHost(acc.summary.Host)
-		acc.summary.AdapterStatus = adapterStatus(acc.summary.Host, acc.kindSet)
+		acc.summary.AdapterStatus = adapterStatus(acc.summary.Host, acc.kindSet, adapterHostSet)
 		providers = append(providers, acc.summary)
 		counts.Hosts++
 		if acc.kindSet["data_go_kr_gateway"] {
@@ -167,6 +175,9 @@ func ProviderBacklogForRegistry(reg Registry, sampleLimit int) ProviderBacklog {
 		}
 		if acc.kindSet["external_guide"] && !acc.kindSet["data_go_kr_gateway"] && !acc.kindSet["external_endpoint"] && !acc.kindSet["service_root"] {
 			counts.GuideOnlyHosts++
+		}
+		if acc.summary.AdapterStatus == "adapter" {
+			counts.RegisteredAdapterHosts++
 		}
 		if acc.summary.AdapterStatus == "missing" {
 			counts.MissingAdapterHosts++
@@ -188,6 +199,17 @@ func ProviderBacklogForRegistry(reg Registry, sampleLimit int) ProviderBacklog {
 		return strings.Compare(a.Host, b.Host)
 	})
 	return ProviderBacklog{Providers: providers, Summary: counts}
+}
+
+func normalizedHostSet(hosts []string) map[string]bool {
+	out := map[string]bool{}
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host != "" {
+			out[host] = true
+		}
+	}
+	return out
 }
 
 func providerAcc(accs map[string]*providerAccumulator, host string) *providerAccumulator {
@@ -238,11 +260,14 @@ func sortedKinds(kinds map[string]bool) []string {
 	return out
 }
 
-func adapterStatus(host string, kinds map[string]bool) string {
+func adapterStatus(host string, kinds map[string]bool, adapterHosts map[string]bool) string {
 	if isDataGoKrGateway(host) {
 		return "builtin"
 	}
 	if kinds["external_endpoint"] || kinds["service_root"] {
+		if adapterHosts[strings.ToLower(strings.TrimSpace(host))] {
+			return "adapter"
+		}
 		return "missing"
 	}
 	return "guide_only"
@@ -252,12 +277,14 @@ func adapterStatusRank(status string) int {
 	switch status {
 	case "missing":
 		return 0
-	case "guide_only":
+	case "adapter":
 		return 1
-	case "builtin":
+	case "guide_only":
 		return 2
-	default:
+	case "builtin":
 		return 3
+	default:
+		return 4
 	}
 }
 

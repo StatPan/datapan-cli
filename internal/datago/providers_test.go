@@ -89,6 +89,45 @@ func TestProviderBacklogForRegistryClassifiesHosts(t *testing.T) {
 	}
 }
 
+func TestProviderBacklogMarksRegisteredAdapterHosts(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:       "200",
+			Title:    "기관_외부",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "https://openapi.q-net.or.kr/api/list"},
+				{Name: "상세", Endpoint: "https://c.q-net.or.kr/api/detail"},
+			},
+		},
+		{
+			ID:       "300",
+			Title:    "기관_외부2",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "https://missing.example.test/api/list"},
+			},
+		},
+	})
+
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"openapi.q-net.or.kr", "c.q-net.or.kr"})
+	if backlog.Summary.RegisteredAdapterHosts != 2 {
+		t.Fatalf("registered adapter hosts=%d", backlog.Summary.RegisteredAdapterHosts)
+	}
+	if backlog.Summary.MissingAdapterHosts != 1 {
+		t.Fatalf("missing adapter hosts=%d", backlog.Summary.MissingAdapterHosts)
+	}
+	if backlog.Summary.NeedsAdapterOperations != 1 {
+		t.Fatalf("needs adapter operations=%d", backlog.Summary.NeedsAdapterOperations)
+	}
+	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr"} {
+		qnet := findProviderSummary(backlog.Providers, host)
+		if qnet == nil || qnet.AdapterStatus != "adapter" {
+			t.Fatalf("expected adapter status for %s: %#v", host, qnet)
+		}
+	}
+}
+
 func findProviderSummary(providers []ProviderSummary, host string) *ProviderSummary {
 	for i := range providers {
 		if providers[i].Host == host {

@@ -48,3 +48,17 @@ func TestRegistryRejectsEmptyAdapterName(t *testing.T) {
 		t.Fatal("expected empty adapter name error")
 	}
 }
+
+func TestDefaultRegistryIncludesQNetAdapter(t *testing.T) {
+	registry, err := DefaultRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, ok := registry.MatchHost("openapi.q-net.or.kr")
+	if !ok {
+		t.Fatal("expected default registry to match q-net host")
+	}
+	if adapter.Name() != "q-net" {
+		t.Fatalf("adapter=%s", adapter.Name())
+	}
+}

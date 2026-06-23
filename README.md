@@ -137,12 +137,13 @@ dataset-deduplicated so one multi-operation dataset does not hide other
 examples.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
-external guide hosts, missing adapter hosts, operations that need adapters, and
-sample dataset IDs for each host. This is the command to run before deciding
-which external provider adapter should be built next. With `--output`, it writes
-a `datapan.providers.v1` report that can later be published by
-`datapan-registry`. Use `--status`, `--kind`, and `--provider` to narrow the
-adapter backlog.
+external guide hosts, registered adapter hosts, missing adapter hosts,
+operations that still need adapters, and sample dataset IDs for each host. This
+is the command to run before deciding which external provider adapter should be
+built next. With `--output`, it writes a `datapan.providers.v1` report that can
+later be published by `datapan-registry`. Use `--status`, `--kind`, and
+`--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
+registered external adapters such as q-net.
 Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
 only operations Datapan can call conservatively with known smoke/default/safe
 paging parameters, then records `verified`, `failed`, or `skipped` with

@@ -95,14 +95,16 @@ dataset contribute to the same audit count.
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary
 counts for data.go.kr gateway hosts, external endpoint hosts, external guide
-hosts, missing adapter hosts, operations that need adapters, approval-required
-operations, unsupported protocol operations, service-root operations, and
-malformed source URLs. Each provider item includes `host`, optional inferred
-`provider`, `kinds`, `adapter_status`, spec and operation counts, and bounded
-sample dataset IDs. `adapter_status` must stay conservative: `builtin` for
-hosts Datapan can route through core logic, `missing` for external endpoint or
-service-root hosts that need provider work, and `guide_only` for hosts that
-appear only as external documentation. With `--output PATH|-`, the command
+hosts, registered adapter hosts, missing adapter hosts, operations that need
+adapters, approval-required operations, unsupported protocol operations,
+service-root operations, and malformed source URLs. Each provider item includes
+`host`, optional inferred `provider`, `kinds`, `adapter_status`, spec and
+operation counts, and bounded sample dataset IDs. `adapter_status` must stay
+conservative: `builtin` for hosts Datapan can route through core logic,
+`adapter` for external endpoint or service-root hosts with a registered
+provider adapter, `missing` for hosts that still need provider work, and
+`guide_only` for hosts that appear only as external documentation. With
+`--output PATH|-`, the command
 writes a pure `datapan.providers.v1` report containing `generated_at`,
 `provider`, `registry`, `limit`, `truncated`, `filters`, `filtered_count`,
 `summary`, and `providers`. `--status`, `--kind`, and `--provider` narrow the

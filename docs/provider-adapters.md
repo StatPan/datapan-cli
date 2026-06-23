@@ -80,7 +80,13 @@ To inspect one likely provider family:
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider q-net --json
 ```
 
-The current imported registry shows q-net as a strong early candidate:
+To inspect hosts that already have an observation-stage adapter registered:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider q-net --json
+```
+
+The current imported registry shows q-net as a strong early adapter family:
 
 ```text
 openapi.q-net.or.kr   104 operations
@@ -89,12 +95,14 @@ open.api.q-net.or.kr    1 operation
 ```
 
 Those numbers are not a guarantee that the APIs work. They are adapter backlog
-evidence: enough surface exists to justify investigating q-net as a provider
-family.
+evidence: enough surface exists to justify tracking q-net as a provider family.
+Datapan now registers q-net host ownership so `catalog providers --status
+adapter --provider q-net` can separate q-net from hosts that still have no
+adapter at all.
 
-## First Adapter Candidate: q-net
+## First Adapter: q-net Observation Layer
 
-The q-net adapter should start with observation, not blind implementation:
+The q-net adapter starts with observation, not blind implementation:
 
 1. Pull q-net hosts from `catalog providers`.
 2. Inspect sample dataset IDs from the provider backlog report.
@@ -107,6 +115,11 @@ The adapter must not bypass provider security gates or pretend approval is
 present when it is not. If a human login, CAPTCHA, manual approval, or separate
 key is required, the adapter should return a conservative skipped or failed
 status with provider-specific evidence.
+
+The initial q-net adapter owns `openapi.q-net.or.kr`, `c.q-net.or.kr`, and
+`open.api.q-net.or.kr`, but its verification result is intentionally skipped
+with `qnet_adapter_observation_required` until credential and response-envelope
+evidence is captured.
 
 ## Adapter Readiness Bar
 

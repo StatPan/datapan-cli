@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
+	providers "github.com/StatPan/datapan-cli/internal/provider"
 )
 
 const (
@@ -794,7 +795,7 @@ func (a app) catalogProviders(args []string, jsonOut bool) int {
 		}
 		reg = loaded
 	}
-	backlog := datago.ProviderBacklogForRegistry(reg, sampleLimit)
+	backlog := datago.ProviderBacklogForRegistryWithAdapters(reg, sampleLimit, defaultProviderHosts())
 	filteredProviders := filterProviders(backlog.Providers, filters)
 	truncated := limit > 0 && len(filteredProviders) > limit
 	providers := limitProviders(filteredProviders, limit)
@@ -1134,7 +1135,7 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 	if err := writeRegistryAtomic(paths.RegistryPath, specs); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	backlog := datago.ProviderBacklogForRegistry(reg, 3)
+	backlog := datago.ProviderBacklogForRegistryWithAdapters(reg, 3, defaultProviderHosts())
 	providers := limitProviders(backlog.Providers, providerLimit)
 	providerReport := datago.ProviderBacklogReport{
 		GeneratedAt:   generatedAt,
@@ -1590,13 +1591,21 @@ func providerFilters(status, kind, provider string) (*datago.ProviderBacklogFilt
 	if status == "" && kind == "" && provider == "" {
 		return nil, nil
 	}
-	if status != "" && status != "missing" && status != "builtin" && status != "guide_only" {
-		return nil, fmt.Errorf("--status must be one of: missing, builtin, guide_only")
+	if status != "" && status != "missing" && status != "adapter" && status != "builtin" && status != "guide_only" {
+		return nil, fmt.Errorf("--status must be one of: missing, adapter, builtin, guide_only")
 	}
 	if kind != "" && kind != "data_go_kr_gateway" && kind != "external_endpoint" && kind != "external_guide" && kind != "service_root" {
 		return nil, fmt.Errorf("--kind must be one of: data_go_kr_gateway, external_endpoint, external_guide, service_root")
 	}
 	return &datago.ProviderBacklogFilters{Status: status, Kind: kind, Provider: provider}, nil
+}
+
+func defaultProviderHosts() []string {
+	registry, err := providers.DefaultRegistry()
+	if err != nil {
+		return nil
+	}
+	return registry.Hosts()
 }
 
 func filterProviders(providers []datago.ProviderSummary, filters *datago.ProviderBacklogFilters) []datago.ProviderSummary {

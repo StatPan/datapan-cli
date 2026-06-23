@@ -652,12 +652,13 @@ func TestCatalogProvidersJSONReportsAdapterBacklog(t *testing.T) {
 	for _, want := range []string{
 		`"external_endpoint_hosts": 1`,
 		`"external_guide_hosts": 1`,
-		`"missing_adapter_hosts": 2`,
-		`"needs_adapter_operations": 1`,
+		`"registered_adapter_hosts": 1`,
+		`"missing_adapter_hosts": 1`,
+		`"needs_adapter_operations": 0`,
 		`"unsupported_protocol_operations": 1`,
 		`"host": "openapi.q-net.or.kr"`,
 		`"provider": "q-net"`,
-		`"adapter_status": "missing"`,
+		`"adapter_status": "adapter"`,
 		`"external_endpoint_operations": 1`,
 		`"sample_ids":`,
 		`"200"`,
@@ -699,7 +700,7 @@ func TestCatalogProvidersWritesReportOutput(t *testing.T) {
 		`"provider": "data.go.kr"`,
 		`"registry": "` + jsonEscaped(registryPath) + `"`,
 		`"host": "openapi.q-net.or.kr"`,
-		`"adapter_status": "missing"`,
+		`"adapter_status": "adapter"`,
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("expected %q in report file: %s", want, data)
@@ -715,14 +716,14 @@ func TestCatalogProvidersFiltersAdapterBacklog(t *testing.T) {
 	]`)); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runTest([]string{"catalog", "providers", "--registry", tmp, "--status", "missing", "--kind", "external_endpoint", "--provider", "q-net", "--json"}, nil, nil)
+	code, stdout, stderr := runTest([]string{"catalog", "providers", "--registry", tmp, "--status", "adapter", "--kind", "external_endpoint", "--provider", "q-net", "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	for _, want := range []string{
 		`"filtered_count": 1`,
 		`"filters":`,
-		`"status": "missing"`,
+		`"status": "adapter"`,
 		`"kind": "external_endpoint"`,
 		`"provider": "q-net"`,
 		`"host": "openapi.q-net.or.kr"`,

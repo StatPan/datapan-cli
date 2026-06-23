@@ -48,7 +48,7 @@
       "additionalProperties": false,
       "properties": {
         "status": {
-          "enum": ["builtin", "missing", "guide_only"]
+          "enum": ["builtin", "missing", "adapter", "guide_only"]
         },
         "kind": {
           "enum": [
@@ -71,6 +71,7 @@
         "data_go_kr_gateway_hosts",
         "external_endpoint_hosts",
         "external_guide_hosts",
+        "registered_adapter_hosts",
         "operation_hosts",
         "guide_only_hosts",
         "missing_adapter_hosts",
@@ -94,6 +95,10 @@
           "minimum": 0
         },
         "external_guide_hosts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "registered_adapter_hosts": {
           "type": "integer",
           "minimum": 0
         },
@@ -156,7 +161,7 @@
           "minItems": 1
         },
         "adapter_status": {
-          "enum": ["builtin", "missing", "guide_only"]
+          "enum": ["builtin", "missing", "adapter", "guide_only"]
         },
         "specs": {
           "type": "integer",

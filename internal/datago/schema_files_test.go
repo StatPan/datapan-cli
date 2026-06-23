@@ -83,9 +83,11 @@ func TestProviderAdaptersDocReferencesContracts(t *testing.T) {
 		"type Adapter interface",
 		"datapan catalog providers",
 		"--status missing",
+		"--status adapter",
 		"--kind external_endpoint",
 		"--provider q-net",
 		"openapi.q-net.or.kr",
+		"qnet_adapter_observation_required",
 		"Adapter Readiness Bar",
 	} {
 		if !strings.Contains(text, want) {
