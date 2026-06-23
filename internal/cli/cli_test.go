@@ -601,8 +601,9 @@ func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]},
-		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록"}]},
-		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://example.test/api","request_params":[{"name":"page"}],"response_params":[{"name":"resultCode"}]}],"source":{"system":"data.go.kr","url":"https://www.data.go.kr/data/300/openapi.do","raw":{"updated_at":"2026-06-23"}}}
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","source":{"system":"data.go.kr","raw":{"end_point_url":"http://openapi.tour.go.kr/openapi/service","api_type":"SOAP","data_format":"WMS","is_confirmed_for_dev_nm":"심의승인","is_confirmed_for_prod_nm":"심의승인"}}}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/123/service/list","request_params":[{"name":"page"}],"response_params":[{"name":"resultCode"}],"source":{"system":"data.go.kr","raw":{"guide_url":"https://external.example.test/docs"}}}],"source":{"system":"data.go.kr","url":"https://www.data.go.kr/data/300/openapi.do","raw":{"updated_at":"2026-06-23"}}},
+		{"id":"400","title":"기관_D","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://external.example.test/api","request_params":[{"name":"page"}],"response_params":[{"name":"resultCode"}],"source":{"system":"data.go.kr","raw":{"updated_at":"2026-06-23"}}}],"source":{"system":"data.go.kr","url":"https://www.data.go.kr/data/400/openapi.do","raw":{"updated_at":"2026-06-23"}}}
 	]`)); err != nil {
 		t.Fatal(err)
 	}
@@ -611,13 +612,22 @@ func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	for _, want := range []string{
-		`"specs_total": 3`,
-		`"operations_total": 2`,
-		`"callable_operations": 1`,
+		`"specs_total": 4`,
+		`"operations_total": 3`,
+		`"callable_operations": 2`,
 		`"specs_without_operations": 1`,
 		`"specs_without_callable_operation": 2`,
 		`"operations_without_endpoint": 1`,
 		`"specs_missing_organization": 1`,
+		`"data_go_kr_gateway_operations": 1`,
+		`"gateway_with_external_guide_specs": 1`,
+		`"external_endpoint_specs": 1`,
+		`"external_endpoint_operations": 1`,
+		`"service_root_only_operations": 1`,
+		`"soap_operations": 1`,
+		`"wms_operations": 1`,
+		`"dev_approval_required_operations": 1`,
+		`"prod_approval_required_operations": 1`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)

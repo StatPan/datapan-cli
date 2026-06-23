@@ -84,8 +84,11 @@ agent can decide whether a registry replacement needs review.
 coverage gaps. The response includes counts for specs, operations, callable
 operations, specs without operations, specs without callable operations,
 operations without endpoints, operations missing request/response parameters,
-and missing source metadata. Samples should be included only as bounded
-summaries.
+and missing source metadata. It also includes dependency classification for
+data.go.kr gateway operations, external endpoint operations, gateway operations
+with external guide documents, service-root-only operations, SOAP/WMS
+operations, approval-required operations, and malformed endpoint or guide URLs.
+Samples should be included only as bounded summaries.
 
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the

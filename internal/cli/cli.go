@@ -729,6 +729,14 @@ func (a app) catalogAudit(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  specs missing organization: %d\n", audit.SpecsMissingOrganization)
 	fmt.Fprintf(a.stdout, "  specs missing source URL: %d\n", audit.SpecsMissingSourceURL)
 	fmt.Fprintf(a.stdout, "  specs missing updated_at: %d\n", audit.SpecsMissingUpdatedAt)
+	fmt.Fprintf(a.stdout, "  data.go.kr gateway operations: %d\n", audit.Dependency.DataGoKrGatewayOperations)
+	fmt.Fprintf(a.stdout, "  external endpoint specs: %d\n", audit.Dependency.ExternalEndpointSpecs)
+	fmt.Fprintf(a.stdout, "  gateway specs with external guide: %d\n", audit.Dependency.GatewayWithExternalGuideSpecs)
+	fmt.Fprintf(a.stdout, "  service-root-only operations: %d\n", audit.Dependency.ServiceRootOnlyOperations)
+	fmt.Fprintf(a.stdout, "  SOAP operations: %d\n", audit.Dependency.SOAPOperations)
+	fmt.Fprintf(a.stdout, "  WMS operations: %d\n", audit.Dependency.WMSOperations)
+	fmt.Fprintf(a.stdout, "  dev approval required operations: %d\n", audit.Dependency.DevApprovalRequiredOperations)
+	fmt.Fprintf(a.stdout, "  prod approval required operations: %d\n", audit.Dependency.ProdApprovalRequiredOperations)
 	return exitOK
 }
 

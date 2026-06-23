@@ -121,13 +121,16 @@ under `--json`.
 
 Use `datapan catalog audit` to make registry gaps visible: total specs,
 operations, callable operations, specs without operations, specs without
-callable endpoints, and missing source metadata. Use `datapan catalog update
-data-go-kr` for the safer update path. It imports the full upstream catalog with
-bounded retries, diffs it against the current registry, audits the new registry,
-and stays in dry-run mode unless `--apply` is present. Add `--backup` with
-`--apply` to keep a timestamped copy of the previous registry. Diff output is
-bounded by default; use `--diff-limit 0` when a full machine-readable diff is
-needed.
+callable endpoints, dependency classes, and missing source metadata. Dependency
+classes distinguish data.go.kr gateway operations, external endpoint operations,
+gateway operations with external guide documents, service-root-only operations,
+SOAP/WMS operations, approval-required operations, and malformed source URLs.
+Use `datapan catalog update data-go-kr` for the safer update path. It imports
+the full upstream catalog with bounded retries, diffs it against the current
+registry, audits the new registry, and stays in dry-run mode unless `--apply`
+is present. Add `--backup` with `--apply` to keep a timestamped copy of the
+previous registry. Diff output is bounded by default; use `--diff-limit 0` when
+a full machine-readable diff is needed.
 
 `datapan show <ref> --json` is the bridge from discovery to use. It keeps the
 normalized spec, and also returns access metadata, operation parameter names,
