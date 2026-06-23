@@ -76,6 +76,7 @@ datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --a
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --output .datapan/catalog-diff.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
 datapan catalog errors --registry .datapan/data-go-kr.registry.json --output .datapan/error-catalog.json --json
+datapan catalog dependencies --registry .datapan/data-go-kr.registry.json --kind external_endpoint --status missing --output .datapan/dependencies.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
@@ -149,6 +150,14 @@ response parameters, such as `resultCode`, `resultMsg`, `returnReasonCode`,
 `datapan.error-catalog.v1` report so verification, SDK, and Studio layers can
 preserve upstream error/status semantics instead of inventing a separate error
 taxonomy.
+Use `datapan catalog dependencies` to list operation-level dependency
+classifications. It keeps each operation's dataset ID, operation name,
+endpoint/source/guide hosts, dependency class, provider family, approval state,
+adapter status, and parameter counts together. This is the artifact to use when
+an agent, UI, or SDK generator needs to know which exact operations are
+gateway-hosted, externally hosted, service-root-only, unsupported, missing an
+adapter, or owned by a registered adapter. With `--output`, it writes a
+`datapan.dependencies.v1` report.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, registered adapter hosts, missing adapter hosts,
@@ -171,7 +180,7 @@ Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, optional previous-registry diff, provider index,
-catalog audit, error catalog, provider backlog, schema, schema index,
+catalog audit, error catalog, dependency inventory, provider backlog, schema, schema index,
 verification, verification summary, provenance, and manifest artifacts without
 calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
@@ -244,6 +253,7 @@ and eventually a Studio UI. See `docs/ecosystem.md`.
 The first schema drafts live in `schemas/`:
 
 - `datapan.specs.v1.schema.json` for normalized registry files;
+- `datapan.dependencies.v1.schema.json` for operation-level dependency inventories;
 - `datapan.provider-index.v1.schema.json` for registered provider adapter indexes;
 - `datapan.catalog-diff.v1.schema.json` for registry update diff reports;
 - `datapan.error-catalog.v1.schema.json` for upstream provider status field inventories;

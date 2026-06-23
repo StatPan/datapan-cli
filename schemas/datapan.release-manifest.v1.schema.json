@@ -70,6 +70,7 @@
             "catalog_diff",
             "catalog_audit",
             "error_catalog",
+            "dependencies",
             "provider_backlog",
             "verification",
             "verification_summary",

@@ -42,6 +42,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 	}
 	for _, name := range []string{
 		"datapan.specs.v1.schema.json",
+		"datapan.dependencies.v1.schema.json",
 		"datapan.providers.v1.schema.json",
 		"datapan.verification.v1.schema.json",
 		"datapan.verification-summary.v1.schema.json",
@@ -70,6 +71,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"schemas/datapan.specs.v1.schema.json",
+		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
@@ -84,6 +86,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"data/data-go-kr.registry.json",
 		"data/provider-index.json",
 		"reports/catalog-audit.json",
+		"reports/dependencies.json",
 		"reports/provider-backlog.json",
 		"reports/latest-verification.json",
 		"reports/latest-verification-summary.json",
@@ -97,6 +100,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"datapan catalog verify",
 		"datapan catalog verify --input",
 		"datapan catalog audit",
+		"datapan catalog dependencies",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("registry release doc should reference %q", want)
@@ -143,6 +147,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"`datapan-studio`",
 		"`datapan-cloud`",
 		"schemas/datapan.verification-summary.v1.schema.json",
+		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
@@ -152,6 +157,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"schemas/datapan.provider-index.v1.schema.json",
 		"docs/spec-governance.md",
 		"reports/latest-verification-summary.json",
+		"reports/dependencies.json",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ecosystem doc should reference %q", want)

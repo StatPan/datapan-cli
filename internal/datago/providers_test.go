@@ -128,10 +128,87 @@ func TestProviderBacklogMarksRegisteredAdapterHosts(t *testing.T) {
 	}
 }
 
+func TestDependencyInventoryClassifiesOperations(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:             "100",
+			Title:          "기관_게이트웨이",
+			Provider:       "data.go.kr",
+			Organization:   "기관",
+			SourceCategory: "교통",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "https://apis.data.go.kr/100/list"},
+			},
+		},
+		{
+			ID:       "200",
+			Title:    "기관_외부",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{
+					Name:     "목록",
+					Endpoint: "https://openapi.q-net.or.kr/api/list",
+					Source: &Source{Raw: map[string]any{
+						"is_confirmed_for_dev_nm": "심의승인",
+						"guide_url":               "https://www.q-net.or.kr/docs",
+					}},
+				},
+			},
+		},
+		{
+			ID:       "300",
+			Title:    "기관_루트",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{
+					Name: "목록",
+					Source: &Source{Raw: map[string]any{
+						"end_point_url": "http://openapi.tour.go.kr/openapi/service",
+						"api_type":      "SOAP",
+						"data_format":   "WMS",
+					}},
+				},
+			},
+		},
+	})
+
+	summary, deps := DependencyInventoryForRegistry(reg, []string{"openapi.q-net.or.kr"})
+	if summary.OperationsTotal != 3 || summary.DataGoKrGatewayOperations != 1 || summary.ExternalEndpointOps != 1 || summary.ServiceRootOperations != 1 {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if summary.RegisteredAdapterOps != 1 || summary.MissingAdapterOps != 1 || summary.ApprovalRequiredOps != 1 {
+		t.Fatalf("unexpected adapter/approval summary: %#v", summary)
+	}
+	qnet := findDependency(deps, "200", "목록")
+	if qnet == nil {
+		t.Fatalf("missing q-net dependency: %#v", deps)
+	}
+	if qnet.DependencyClass != "external_endpoint" || qnet.AdapterStatus != "adapter" || qnet.ProviderFamily != "q-net" || !qnet.ApprovalRequired || qnet.SkipReason != "" {
+		t.Fatalf("unexpected q-net dependency: %#v", qnet)
+	}
+	root := findDependency(deps, "300", "목록")
+	if root == nil || root.DependencyClass != "service_root" || root.AdapterStatus != "missing" || root.SourceHost != "openapi.tour.go.kr" {
+		t.Fatalf("unexpected service root dependency: %#v", root)
+	}
+	filtered := FilterDependencyOperations(deps, &DependencyInventoryFilters{Status: "missing"})
+	if len(filtered) != 1 || filtered[0].DatasetID != "300" {
+		t.Fatalf("unexpected missing filter: %#v", filtered)
+	}
+}
+
 func findProviderSummary(providers []ProviderSummary, host string) *ProviderSummary {
 	for i := range providers {
 		if providers[i].Host == host {
 			return &providers[i]
+		}
+	}
+	return nil
+}
+
+func findDependency(deps []DependencyOperationSummary, datasetID, operation string) *DependencyOperationSummary {
+	for i := range deps {
+		if deps[i].DatasetID == datasetID && deps[i].Operation == operation {
+			return &deps[i]
 		}
 	}
 	return nil

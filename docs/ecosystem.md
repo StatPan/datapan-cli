@@ -135,6 +135,7 @@ Likely artifacts:
 - `schemas/datapan.catalog-diff.v1.schema.json`;
 - `schemas/datapan.error-catalog.v1.schema.json`;
 - `schemas/datapan.catalog-audit.v1.schema.json`;
+- `schemas/datapan.dependencies.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
@@ -145,6 +146,7 @@ Likely artifacts:
 - `data/data-go-kr.registry.json`;
 - `data/provider-index.json`;
 - `reports/catalog-diff.json`;
+- `reports/dependencies.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
 - `reports/error-catalog.json`;
@@ -411,10 +413,11 @@ Done or in progress:
 - `.env` loading;
 - data.go.kr import/update/diff/audit;
 - provider backlog classification with `catalog providers`;
+- operation-level dependency inventory with `catalog dependencies`;
 - bounded runtime evidence collection with `catalog verify`;
 - schema drafts for registry, provider indexes, catalog audits, provider
-  backlog, verification reports, verification summaries, release manifests,
-  release verification, and schema indexes;
+  backlog, dependency inventories, verification reports, verification
+  summaries, release manifests, release verification, and schema indexes;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -433,11 +436,13 @@ Goal: own the catalog layer without pretending it is fully callable.
 Required:
 
 - `catalog providers`;
+- `catalog dependencies`;
 - dependency backlog by host, protocol, and approval state;
 - stable audit JSON;
 - stable diff report schema;
 - stable error catalog schema;
 - stable audit report schema;
+- stable dependency inventory schema;
 - stable registry schema draft;
 - update workflow that can be repeated locally and in CI.
 
@@ -490,10 +495,12 @@ Required:
 - create `datapan-registry`;
 - publish schemas and registry snapshots;
 - publish provider indexes;
+- publish dependency inventories;
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
 - publish catalog diff reports when a previous registry exists;
 - publish catalog audit reports;
+- publish dependency inventory reports;
 - publish error catalog reports;
 - publish verification reports;
 - publish verification summaries;
