@@ -61,4 +61,14 @@ func TestDefaultRegistryIncludesQNetAdapter(t *testing.T) {
 	if adapter.Name() != "q-net" {
 		t.Fatalf("adapter=%s", adapter.Name())
 	}
+	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
+	if report.AdapterCount != 1 || report.HostCount != 3 {
+		t.Fatalf("unexpected provider index counts: %#v", report)
+	}
+	if len(report.Adapters) != 1 || report.Adapters[0].Name != "q-net" || report.Adapters[0].Status != "registered" {
+		t.Fatalf("unexpected provider index adapter: %#v", report)
+	}
+	if strings.Join(report.Adapters[0].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
+		t.Fatalf("unexpected provider index hosts: %#v", report.Adapters[0].Hosts)
+	}
 }

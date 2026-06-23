@@ -1295,6 +1295,14 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 	if err := writeRegistryAtomic(paths.RegistryPath, specs); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
+	providerRegistry, err := providers.DefaultRegistry()
+	if err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
+	providerIndex := providerRegistry.IndexReport(generatedAt, version)
+	if err := writeJSONFile(paths.ProviderIndexPath, providerIndex); err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
 	auditReport := datago.CatalogAuditReport{
 		GeneratedAt: generatedAt,
 		Provider:    "data.go.kr",
@@ -1353,6 +1361,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 		"output_dir":                   outputDir,
 		"generated_at":                 generatedAt,
 		"registry":                     paths.RegistryPath,
+		"provider_index":               paths.ProviderIndexPath,
 		"schemas":                      datapanSchemaFileNames(),
 		"catalog_audit":                paths.CatalogAuditPath,
 		"provider_backlog":             paths.ProviderBacklogPath,
@@ -1373,6 +1382,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, ver
 	fmt.Fprintln(a.stdout, "Catalog release draft")
 	fmt.Fprintf(a.stdout, "  output: %s\n", outputDir)
 	fmt.Fprintf(a.stdout, "  registry: %s\n", paths.RegistryPath)
+	fmt.Fprintf(a.stdout, "  provider index: %s\n", paths.ProviderIndexPath)
 	fmt.Fprintf(a.stdout, "  catalog audit: %s\n", paths.CatalogAuditPath)
 	fmt.Fprintf(a.stdout, "  provider backlog: %s\n", paths.ProviderBacklogPath)
 	if verificationCopied {
@@ -2941,6 +2951,7 @@ type releasePaths struct {
 	ReportsDir              string
 	ProvenanceDir           string
 	RegistryPath            string
+	ProviderIndexPath       string
 	ProviderBacklogPath     string
 	CatalogAuditPath        string
 	VerificationPath        string
@@ -2958,6 +2969,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		ReportsDir:              joinPath(outputDir, "reports"),
 		ProvenanceDir:           joinPath(outputDir, "provenance"),
 		RegistryPath:            joinPath(outputDir, "data/data-go-kr.registry.json"),
+		ProviderIndexPath:       joinPath(outputDir, "data/provider-index.json"),
 		ProviderBacklogPath:     joinPath(outputDir, "reports/provider-backlog.json"),
 		CatalogAuditPath:        joinPath(outputDir, "reports/catalog-audit.json"),
 		VerificationPath:        joinPath(outputDir, "reports/latest-verification.json"),
@@ -2977,6 +2989,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
+		"schemas/datapan.provider-index.v1.schema.json",
 	}
 }
 
@@ -3419,6 +3432,7 @@ func releaseManifestArtifacts(paths releasePaths, includeVerification bool) []re
 	artifacts = append(artifacts,
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.SchemaIndexPath), Kind: "schema_index", Schema: "https://schemas.datapan.dev/datapan.schema-index.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.RegistryPath), Kind: "registry", Schema: "https://schemas.datapan.dev/datapan.specs.v1.schema.json"},
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderIndexPath), Kind: "provider_index", Schema: "https://schemas.datapan.dev/datapan.provider-index.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.CatalogAuditPath), Kind: "catalog_audit", Schema: "https://schemas.datapan.dev/datapan.catalog-audit.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
 	)
@@ -3496,6 +3510,7 @@ func releaseProvenance(generatedAt, registryPath, verificationPath string, provi
 		fmt.Fprintf(&b, " --verification %s", verificationPath)
 	}
 	fmt.Fprintf(&b, " --json\n")
+	fmt.Fprintf(&b, "# provider index: %s\n", paths.ProviderIndexPath)
 	fmt.Fprintf(&b, "datapan catalog audit --registry %s --output %s --json\n", paths.RegistryPath, paths.CatalogAuditPath)
 	fmt.Fprintf(&b, "datapan catalog providers --registry %s --limit %d --output %s --json\n", paths.RegistryPath, providerLimit, paths.ProviderBacklogPath)
 	if verificationPath != "" {

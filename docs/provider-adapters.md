@@ -99,6 +99,9 @@ evidence: enough surface exists to justify tracking q-net as a provider family.
 Datapan now registers q-net host ownership so `catalog providers --status
 adapter --provider q-net` can separate q-net from hosts that still have no
 adapter at all.
+Release drafts also publish `data/provider-index.json` using
+`schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
+registered adapter ownership from backlog observations.
 
 ## First Adapter: q-net
 

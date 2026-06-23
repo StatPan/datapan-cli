@@ -49,6 +49,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.release-verification.v1.schema.json",
 		"datapan.schema-index.v1.schema.json",
 		"datapan.catalog-audit.v1.schema.json",
+		"datapan.provider-index.v1.schema.json",
 	} {
 		if !found[name] {
 			t.Fatalf("missing schema file %s", name)
@@ -74,8 +75,10 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
+		"schemas/datapan.provider-index.v1.schema.json",
 		"schemas/index.json",
 		"data/data-go-kr.registry.json",
+		"data/provider-index.json",
 		"reports/catalog-audit.json",
 		"reports/provider-backlog.json",
 		"reports/latest-verification.json",
@@ -140,6 +143,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
+		"schemas/datapan.provider-index.v1.schema.json",
 		"docs/spec-governance.md",
 		"reports/latest-verification-summary.json",
 	} {

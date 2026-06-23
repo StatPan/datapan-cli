@@ -1253,7 +1253,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 15`,
+		`"artifacts": 17`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1269,8 +1269,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
 		outputDir + "/schemas/datapan.schema-index.v1.schema.json",
 		outputDir + "/schemas/datapan.catalog-audit.v1.schema.json",
+		outputDir + "/schemas/datapan.provider-index.v1.schema.json",
 		outputDir + "/schemas/index.json",
 		outputDir + "/data/data-go-kr.registry.json",
+		outputDir + "/data/provider-index.json",
 		outputDir + "/reports/catalog-audit.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
@@ -1302,11 +1304,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 8`,
+		`"count": 9`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-audit.v1.schema.json"`,
+		`"path": "schemas/datapan.provider-index.v1.schema.json"`,
 		`"contract": "schema-index"`,
 		`"contract": "catalog-audit"`,
+		`"contract": "provider-index"`,
 		`"version": "v1"`,
 	} {
 		if !strings.Contains(string(schemaIndex), want) {
@@ -1319,9 +1323,11 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 15`,
+		`"artifact_count": 17`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
+		`"path": "data/provider-index.json"`,
+		`"kind": "provider_index"`,
 		`"path": "reports/catalog-audit.json"`,
 		`"kind": "catalog_audit"`,
 		`"path": "reports/latest-verification-summary.json"`,
@@ -1342,7 +1348,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 15`,
+		`"checked": 17`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

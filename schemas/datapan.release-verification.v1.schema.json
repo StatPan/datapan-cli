@@ -67,6 +67,7 @@
             "schema",
             "schema_index",
             "registry",
+            "provider_index",
             "catalog_audit",
             "provider_backlog",
             "verification",

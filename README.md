@@ -162,9 +162,9 @@ artifact and filter results by status without making new provider calls.
 Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
-from existing registry, catalog audit, provider backlog, schema, schema index,
-verification, verification summary, provenance, and manifest artifacts without
-calling upstream APIs.
+from existing registry, provider index, catalog audit, provider backlog, schema,
+schema index, verification, verification summary, provenance, and manifest
+artifacts without calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`
@@ -235,6 +235,7 @@ and eventually a Studio UI. See `docs/ecosystem.md`.
 The first schema drafts live in `schemas/`:
 
 - `datapan.specs.v1.schema.json` for normalized registry files;
+- `datapan.provider-index.v1.schema.json` for registered provider adapter indexes;
 - `datapan.catalog-audit.v1.schema.json` for registry gap audit reports;
 - `datapan.providers.v1.schema.json` for provider backlog reports;
 - `datapan.verification.v1.schema.json` for runtime evidence reports;

@@ -5,6 +5,21 @@ import (
 	"sort"
 )
 
+type IndexReport struct {
+	GeneratedAt    string       `json:"generated_at"`
+	DatapanVersion string       `json:"datapan_version,omitempty"`
+	AdapterCount   int          `json:"adapter_count"`
+	HostCount      int          `json:"host_count"`
+	Adapters       []IndexEntry `json:"adapters"`
+}
+
+type IndexEntry struct {
+	Name         string   `json:"name"`
+	Status       string   `json:"status"`
+	Hosts        []string `json:"hosts"`
+	Capabilities []string `json:"capabilities"`
+}
+
 type Registry struct {
 	adapters []Adapter
 	hosts    map[string]string
@@ -71,4 +86,31 @@ func (r Registry) Hosts() []string {
 	}
 	sort.Strings(hosts)
 	return hosts
+}
+
+func (r Registry) IndexReport(generatedAt, datapanVersion string) IndexReport {
+	entries := make([]IndexEntry, 0, len(r.adapters))
+	for _, adapter := range r.adapters {
+		hosts := append([]string(nil), adapter.Hosts()...)
+		for idx := range hosts {
+			hosts[idx] = normalizeHost(hosts[idx])
+		}
+		sort.Strings(hosts)
+		entries = append(entries, IndexEntry{
+			Name:         normalizeHost(adapter.Name()),
+			Status:       "registered",
+			Hosts:        hosts,
+			Capabilities: []string{"verification"},
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name < entries[j].Name
+	})
+	return IndexReport{
+		GeneratedAt:    generatedAt,
+		DatapanVersion: datapanVersion,
+		AdapterCount:   len(entries),
+		HostCount:      len(r.Hosts()),
+		Adapters:       entries,
+	}
 }

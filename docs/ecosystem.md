@@ -131,6 +131,7 @@ release policy, provenance, verification timestamp, and change log.
 Likely artifacts:
 
 - `schemas/datapan.specs.v1.schema.json`;
+- `schemas/datapan.provider-index.v1.schema.json`;
 - `schemas/datapan.catalog-audit.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
@@ -407,9 +408,9 @@ Done or in progress:
 - data.go.kr import/update/diff/audit;
 - provider backlog classification with `catalog providers`;
 - bounded runtime evidence collection with `catalog verify`;
-- schema drafts for registry, catalog audits, provider backlog, verification
-  reports, verification summaries, release manifests, release verification, and
-  schema indexes;
+- schema drafts for registry, provider indexes, catalog audits, provider
+  backlog, verification reports, verification summaries, release manifests,
+  release verification, and schema indexes;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -465,6 +466,7 @@ Goal: turn external-host gaps into supported provider families.
 Required:
 
 - provider interface stabilized through real adapters;
+- provider index artifact for registered adapter ownership;
 - at least two external provider adapters;
 - adapter-specific verification;
 - provider-specific auth and error preservation.
@@ -481,6 +483,7 @@ Required:
 
 - create `datapan-registry`;
 - publish schemas and registry snapshots;
+- publish provider indexes;
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
 - publish catalog audit reports;
