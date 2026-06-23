@@ -90,9 +90,11 @@ Likely artifacts:
 - `schemas/datapan.specs.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
+- `schemas/datapan.verification-summary.v1.schema.json`;
 - `data/data-go-kr.registry.json`;
 - `data/provider-index.json`;
 - `reports/latest-verification.json`;
+- `reports/latest-verification-summary.json`;
 - `reports/catalog-audit.json`.
 
 Creation trigger:

@@ -36,6 +36,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.specs.v1.schema.json",
 		"datapan.providers.v1.schema.json",
 		"datapan.verification.v1.schema.json",
+		"datapan.verification-summary.v1.schema.json",
 	} {
 		if !found[name] {
 			t.Fatalf("missing schema file %s", name)
@@ -54,6 +55,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.specs.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
+		"schemas/datapan.verification-summary.v1.schema.json",
 		"data/data-go-kr.registry.json",
 		"reports/provider-backlog.json",
 		"reports/latest-verification.json",

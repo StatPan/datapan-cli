@@ -144,3 +144,31 @@ func TestVerificationCandidatesFilterBeforeLimit(t *testing.T) {
 		t.Fatalf("filter should apply before limit: %#v", candidates[0])
 	}
 }
+
+func TestSummarizeVerificationReportGroupsEvidence(t *testing.T) {
+	report := VerificationReport{
+		GeneratedAt: "2026-06-24T00:00:00Z",
+		Provider:    "data.go.kr",
+		Registry:    "registry.json",
+		Results: []VerificationResult{
+			{DatasetID: "100", Provider: "q-net", EndpointHost: "openapi.q-net.or.kr", DependencyClass: "external_endpoint", Status: "verified"},
+			{DatasetID: "101", Provider: "q-net", EndpointHost: "openapi.q-net.or.kr", DependencyClass: "external_endpoint", Status: "failed", Reason: "qnet_connection_validation_failed"},
+			{DatasetID: "102", Provider: "q-net", EndpointHost: "openapi.q-net.or.kr", DependencyClass: "external_endpoint", Status: "failed", ProviderStatus: &ProviderStatus{ReasonCode: "qnet_service_key_not_registered"}},
+			{DatasetID: "103", Provider: "data.go.kr", EndpointHost: "apis.data.go.kr", DependencyClass: "data_go_kr_gateway", Status: "skipped", Reason: "missing_required_params"},
+		},
+	}
+
+	summary := SummarizeVerificationReport(report, "verification.json", 1)
+	if summary.Source != "verification.json" || summary.Summary.Total != 4 || summary.Summary.Failed != 2 || !summary.Truncated {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if len(summary.Groups.ByStatus) != 3 || summary.Groups.ByStatus[0].Key != "failed" || summary.Groups.ByStatus[0].Count != 2 {
+		t.Fatalf("unexpected status groups: %#v", summary.Groups.ByStatus)
+	}
+	if len(summary.Groups.ByReason) != 1 || summary.Groups.ByReason[0].Key != "missing_required_params" {
+		t.Fatalf("expected reason groups to be limited and sorted: %#v", summary.Groups.ByReason)
+	}
+	if len(summary.Groups.ByProvider) != 1 || summary.Groups.ByProvider[0].Key != "q-net" || summary.Groups.ByProvider[0].Count != 3 {
+		t.Fatalf("unexpected provider groups: %#v", summary.Groups.ByProvider)
+	}
+}

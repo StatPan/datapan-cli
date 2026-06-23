@@ -1136,6 +1136,53 @@ func TestCatalogVerifyInputWritesFilteredReport(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifySummaryRollsUpReport(t *testing.T) {
+	dir := t.TempDir()
+	input := dir + "/verification.json"
+	output := dir + "/summary.json"
+	if err := osWriteFile(input, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"registry": "registry.json",
+		"limit": 0,
+		"truncated": false,
+		"filtered_count": 4,
+		"summary": {"total": 4, "verified": 1, "failed": 2, "skipped": 1, "unknown": 0},
+		"results": [
+			{"dataset_id": "100", "title": "성공", "operation": "목록", "provider": "q-net", "endpoint_host": "openapi.q-net.or.kr", "dependency_class": "external_endpoint", "status": "verified"},
+			{"dataset_id": "101", "title": "실패", "operation": "목록", "provider": "q-net", "endpoint_host": "openapi.q-net.or.kr", "dependency_class": "external_endpoint", "status": "failed", "reason": "qnet_connection_validation_failed", "provider_status": {"ok": false, "source": "resultCode/resultMsg", "code": "99", "reason_code": "qnet_connection_validation_failed"}},
+			{"dataset_id": "102", "title": "실패2", "operation": "목록", "provider": "q-net", "endpoint_host": "openapi.q-net.or.kr", "dependency_class": "external_endpoint", "status": "failed", "reason": "qnet_connection_validation_failed"},
+			{"dataset_id": "103", "title": "스킵", "operation": "목록", "provider": "q-net", "endpoint_host": "openapi.q-net.or.kr", "dependency_class": "external_endpoint", "status": "skipped", "reason": "qnet_wadl_metadata_only"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "summary", "--input", input, "--output", output, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "` + jsonEscaped(input) + `"`,
+		`"by_reason":`,
+		`"key": "qnet_connection_validation_failed"`,
+		`"count": 2`,
+		`"by_endpoint_host":`,
+		`"openapi.q-net.or.kr"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"by_status"`) || !strings.Contains(string(data), `"qnet_wadl_metadata_only"`) {
+		t.Fatalf("unexpected summary output file: %s", data)
+	}
+}
+
 func TestCatalogVerifyInputRejectsRegistryArgs(t *testing.T) {
 	code, _, stderr := runTest([]string{"catalog", "verify", "--input", "report.json", "--registry", "registry.json"}, nil, nil)
 	if code != exitUsage {
@@ -1189,6 +1236,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.specs.v1.schema.json",
 		outputDir + "/schemas/datapan.providers.v1.schema.json",
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
+		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",

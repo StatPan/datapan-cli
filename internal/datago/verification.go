@@ -1,6 +1,7 @@
 package datago
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -16,6 +17,35 @@ type VerificationReport struct {
 	FilteredCount int                        `json:"filtered_count"`
 	Summary       VerificationSummary        `json:"summary"`
 	Results       []VerificationResult       `json:"results"`
+}
+
+type VerificationSummaryReport struct {
+	GeneratedAt string                    `json:"generated_at"`
+	Source      string                    `json:"source,omitempty"`
+	Provider    string                    `json:"provider"`
+	Registry    string                    `json:"registry,omitempty"`
+	Limit       int                       `json:"limit"`
+	Truncated   bool                      `json:"truncated"`
+	Summary     VerificationSummary       `json:"summary"`
+	Groups      VerificationSummaryGroups `json:"groups"`
+}
+
+type VerificationSummaryGroups struct {
+	ByStatus       []VerificationGroup `json:"by_status"`
+	ByReason       []VerificationGroup `json:"by_reason,omitempty"`
+	ByProvider     []VerificationGroup `json:"by_provider,omitempty"`
+	ByEndpointHost []VerificationGroup `json:"by_endpoint_host,omitempty"`
+	ByKind         []VerificationGroup `json:"by_kind,omitempty"`
+}
+
+type VerificationGroup struct {
+	Key      string `json:"key"`
+	Count    int    `json:"count"`
+	Status   string `json:"status,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Host     string `json:"host,omitempty"`
+	Kind     string `json:"kind,omitempty"`
 }
 
 type VerificationReportFilters struct {
@@ -265,6 +295,80 @@ func SummarizeVerification(results []VerificationResult) VerificationSummary {
 		}
 	}
 	return summary
+}
+
+func SummarizeVerificationReport(source VerificationReport, sourcePath string, limit int) VerificationSummaryReport {
+	results := source.Results
+	truncated := false
+	statusGroups := verificationGroups(results, func(result VerificationResult) VerificationGroup {
+		return VerificationGroup{Key: result.Status, Status: result.Status}
+	}, 0, nil)
+	reasonGroups := verificationGroups(results, func(result VerificationResult) VerificationGroup {
+		key := strings.TrimSpace(result.Reason)
+		if key == "" && result.ProviderStatus != nil {
+			key = strings.TrimSpace(result.ProviderStatus.ReasonCode)
+		}
+		return VerificationGroup{Key: key, Reason: key}
+	}, limit, &truncated)
+	providerGroups := verificationGroups(results, func(result VerificationResult) VerificationGroup {
+		return VerificationGroup{Key: result.Provider, Provider: result.Provider}
+	}, limit, &truncated)
+	hostGroups := verificationGroups(results, func(result VerificationResult) VerificationGroup {
+		return VerificationGroup{Key: result.EndpointHost, Host: result.EndpointHost}
+	}, limit, &truncated)
+	kindGroups := verificationGroups(results, func(result VerificationResult) VerificationGroup {
+		return VerificationGroup{Key: result.DependencyClass, Kind: result.DependencyClass}
+	}, limit, &truncated)
+	return VerificationSummaryReport{
+		GeneratedAt: source.GeneratedAt,
+		Source:      sourcePath,
+		Provider:    source.Provider,
+		Registry:    source.Registry,
+		Limit:       limit,
+		Truncated:   truncated,
+		Summary:     SummarizeVerification(results),
+		Groups: VerificationSummaryGroups{
+			ByStatus:       statusGroups,
+			ByReason:       reasonGroups,
+			ByProvider:     providerGroups,
+			ByEndpointHost: hostGroups,
+			ByKind:         kindGroups,
+		},
+	}
+}
+
+func verificationGroups(results []VerificationResult, keyFunc func(VerificationResult) VerificationGroup, limit int, truncated *bool) []VerificationGroup {
+	counts := map[string]VerificationGroup{}
+	for _, result := range results {
+		group := keyFunc(result)
+		group.Key = strings.TrimSpace(group.Key)
+		if group.Key == "" {
+			continue
+		}
+		existing := counts[group.Key]
+		if existing.Key == "" {
+			existing = group
+		}
+		existing.Count++
+		counts[group.Key] = existing
+	}
+	groups := make([]VerificationGroup, 0, len(counts))
+	for _, group := range counts {
+		groups = append(groups, group)
+	}
+	slices.SortFunc(groups, func(a, b VerificationGroup) int {
+		if a.Count != b.Count {
+			return b.Count - a.Count
+		}
+		return strings.Compare(a.Key, b.Key)
+	})
+	if limit > 0 && len(groups) > limit {
+		if truncated != nil {
+			*truncated = true
+		}
+		return groups[:limit]
+	}
+	return groups
 }
 
 func publicVerificationParams(params map[string]string) map[string]string {

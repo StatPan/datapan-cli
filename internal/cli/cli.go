@@ -278,7 +278,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT] [--json] | datapan catalog release draft --registry PATH [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -876,6 +876,9 @@ func (a app) catalogProviders(args []string, jsonOut bool) int {
 }
 
 func (a app) catalogVerify(args []string, jsonOut bool) int {
+	if len(args) > 0 && args[0] == "summary" {
+		return a.catalogVerifySummary(args[1:], jsonOut)
+	}
 	input, args, err := consumeString(args, "--input", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -935,7 +938,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
@@ -1312,6 +1315,70 @@ func (a app) catalogVerifyInput(input, output, statusFilter string, limit int, j
 		fmt.Fprintln(a.stdout)
 	}
 	return verificationExitCode(report.Summary, false)
+}
+
+func (a app) catalogVerifySummary(args []string, jsonOut bool) int {
+	input, args, err := consumeString(args, "--input", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 20)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if input == "" || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification summary report JSON to stdout")
+	}
+	data, err := readAllInput(input, os.Stdin)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	var report datago.VerificationReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return a.fail(exitUsage, "verification report must be JSON: %v", err)
+	}
+	summary := datago.SummarizeVerificationReport(report, input, limit)
+	if output != "" {
+		data, err := json.MarshalIndent(summary, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return exitOK
+		}
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":      true,
+			"input":   input,
+			"output":  output,
+			"summary": summary,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Verification summary")
+	fmt.Fprintf(a.stdout, "  input: %s\n", input)
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	fmt.Fprintf(a.stdout, "  total: %d\n", summary.Summary.Total)
+	fmt.Fprintf(a.stdout, "  verified: %d\n", summary.Summary.Verified)
+	fmt.Fprintf(a.stdout, "  failed: %d\n", summary.Summary.Failed)
+	fmt.Fprintf(a.stdout, "  skipped: %d\n", summary.Summary.Skipped)
+	for _, group := range summary.Groups.ByReason {
+		fmt.Fprintf(a.stdout, "- reason %s: %d\n", group.Key, group.Count)
+	}
+	return exitOK
 }
 
 func (a app) info(args []string, jsonOut bool) int {
@@ -2470,6 +2537,7 @@ Usage:
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
@@ -2746,6 +2814,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.specs.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
+		"schemas/datapan.verification-summary.v1.schema.json",
 	}
 }
 

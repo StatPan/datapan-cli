@@ -151,6 +151,7 @@ For bounded batch evidence, filter verification before the limit:
 
 ```bash
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --output .datapan/qnet-batch-verification.json --json
+datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
 ```
 
 ## Adapter Readiness Bar

@@ -147,6 +147,13 @@ to filter results to `verified`, `failed`, `skipped`, or `unknown`, with
 write the filtered report. Input mode must not be combined with `--registry`,
 `--ref`, or `--operation`.
 
+`datapan catalog verify summary --input REPORT --json` reads an existing
+verification report and emits a pure `datapan.verification-summary.v1` rollup.
+The summary includes the original report summary plus grouped counts by status,
+reason, provider, endpoint host, and dependency class. `--limit N` bounds each
+group list except status groups, and `--output PATH|-` writes the summary
+artifact for release or CI use.
+
 `datapan catalog release draft --registry PATH --json` assembles a local
 registry release layout without fetching upstream data or calling provider
 APIs. It copies Datapan schema files, writes `data/data-go-kr.registry.json`,
