@@ -3059,16 +3059,22 @@ func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationRepo
 		Results:       make([]releaseManifestVerificationResult, 0, len(manifest.Artifacts)+1),
 	}
 	if manifest.ArtifactCount != len(manifest.Artifacts) {
-		report.OK = false
-		report.Failed++
-		report.Results = append(report.Results, releaseManifestVerificationResult{
-			Path:   manifestPath,
-			Kind:   "manifest",
-			Status: "failed",
-			Reason: "artifact_count_mismatch",
-		})
+		report.addManifestFailure(manifestPath, "artifact_count_mismatch")
 	}
+	if manifest.SchemaVersion != "datapan.release-manifest.v1" {
+		report.addManifestFailure(manifestPath, "unsupported_schema_version")
+	}
+	seen := map[string]bool{}
 	for _, artifact := range manifest.Artifacts {
+		if seen[artifact.Path] {
+			report.addManifestFailure(artifact.Path, "duplicate_artifact_path")
+			continue
+		}
+		seen[artifact.Path] = true
+		if filepath.ToSlash(filepath.Clean(filepath.FromSlash(artifact.Path))) == "manifest.json" {
+			report.addManifestFailure(artifact.Path, "manifest_self_reference")
+			continue
+		}
 		result := verifyReleaseManifestArtifact(root, artifact)
 		if result.Status == "failed" {
 			report.OK = false
@@ -3077,6 +3083,17 @@ func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationRepo
 		report.Results = append(report.Results, result)
 	}
 	return report, nil
+}
+
+func (r *releaseManifestVerificationReport) addManifestFailure(path, reason string) {
+	r.OK = false
+	r.Failed++
+	r.Results = append(r.Results, releaseManifestVerificationResult{
+		Path:   path,
+		Kind:   "manifest",
+		Status: "failed",
+		Reason: reason,
+	})
 }
 
 func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact) releaseManifestVerificationResult {
@@ -3091,6 +3108,16 @@ func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact
 	if !ok {
 		result.Status = "failed"
 		result.Reason = "invalid_path"
+		return result
+	}
+	if artifact.Bytes < 0 {
+		result.Status = "failed"
+		result.Reason = "invalid_size"
+		return result
+	}
+	if !isSHA256Hex(artifact.SHA256) {
+		result.Status = "failed"
+		result.Reason = "invalid_checksum"
 		return result
 	}
 	data, err := os.ReadFile(path)
@@ -3113,6 +3140,19 @@ func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact
 		return result
 	}
 	return result
+}
+
+func isSHA256Hex(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, ch := range value {
+		if ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func releaseArtifactPath(root, artifactPath string) (string, bool) {

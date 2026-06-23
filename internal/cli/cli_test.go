@@ -1309,6 +1309,47 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 }
 
+func TestCatalogReleaseVerifyRejectsInvalidManifest(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := dir + "/manifest.json"
+	if err := osWriteFile(dir+"/a.txt", []byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(manifestPath, []byte(`{
+		"schema_version": "datapan.release-manifest.v0",
+		"generated_at": "2026-06-24T00:00:00Z",
+		"datapan_version": "test",
+		"provider": "data.go.kr",
+		"source_registry": "registry.json",
+		"output_dir": "release",
+		"artifact_count": 4,
+		"artifacts": [
+			{"path": "a.txt", "kind": "registry", "bytes": 1, "sha256": "not-a-sha"},
+			{"path": "a.txt", "kind": "registry", "bytes": 1, "sha256": "not-a-sha"},
+			{"path": "manifest.json", "kind": "provenance", "bytes": 1, "sha256": "not-a-sha"},
+			{"path": "../outside.txt", "kind": "provenance", "bytes": 1, "sha256": "not-a-sha"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "release", "verify", "--manifest", manifestPath, "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"unsupported_schema_version"`,
+		`"invalid_checksum"`,
+		`"duplicate_artifact_path"`,
+		`"manifest_self_reference"`,
+		`"invalid_path"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
 func TestAuthCheckMissing(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"auth", "check"}, nil, nil)
 	if code != exitAuth {
