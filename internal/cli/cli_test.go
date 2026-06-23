@@ -1283,6 +1283,30 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 			t.Fatalf("expected %q in manifest: %s", want, manifest)
 		}
 	}
+	code, stdout, stderr = runTest([]string{"catalog", "release", "verify", "--manifest", outputDir + "/manifest.json", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"checked": 10`,
+		`"failed": 0`,
+		`"status": "verified"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in verification output: %s", want, stdout)
+		}
+	}
+	if err := osWriteFile(outputDir+"/reports/provider-backlog.json", []byte(`{"tampered":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runTest([]string{"catalog", "release", "verify", "--manifest", outputDir + "/manifest.json", "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"ok": false`) || !strings.Contains(stdout, `"size_mismatch"`) {
+		t.Fatalf("expected size mismatch in output: %s", stdout)
+	}
 }
 
 func TestAuthCheckMissing(t *testing.T) {

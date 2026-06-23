@@ -279,7 +279,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--json] | datapan catalog audit [--registry PATH] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--json] | datapan catalog release verify --manifest PATH [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -1128,10 +1128,22 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 }
 
 func (a app) catalogRelease(args []string, jsonOut bool) int {
-	if len(args) == 0 || args[0] != "draft" {
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]")
+	if len(args) == 0 {
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--json]")
 	}
-	args = args[1:]
+	switch args[0] {
+	case "draft":
+		return a.catalogReleaseDraft(args[1:], jsonOut)
+	case "verify":
+		return a.catalogReleaseVerify(args[1:], jsonOut)
+	default:
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--json]")
+	}
+}
+
+func (a app) catalogReleaseDraft(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
 	registryPath, args, err := consumeString(args, "--registry", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -1155,6 +1167,52 @@ func (a app) catalogRelease(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
 	}
+	return a.writeReleaseDraft(reg, registryPath, outputDir, verificationPath, providerLimit, jsonOut)
+}
+
+func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	manifestPath, args, err := consumeString(args, "--manifest", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if manifestPath == "" || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog release verify --manifest PATH [--json]")
+	}
+	report, err := verifyReleaseManifest(manifestPath)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		code := exitOK
+		if !report.OK {
+			code = exitRequest
+		}
+		if writeCode := a.writeJSON(map[string]any{
+			"ok":     report.OK,
+			"report": report,
+		}); writeCode != exitOK {
+			return writeCode
+		}
+		return code
+	}
+	fmt.Fprintln(a.stdout, "Release manifest verification")
+	fmt.Fprintf(a.stdout, "  manifest: %s\n", report.Manifest)
+	fmt.Fprintf(a.stdout, "  checked: %d\n", report.Checked)
+	fmt.Fprintf(a.stdout, "  failed: %d\n", report.Failed)
+	for _, result := range report.Results {
+		if result.Status == "failed" {
+			fmt.Fprintf(a.stdout, "- failed %s: %s\n", result.Path, result.Reason)
+		}
+	}
+	if !report.OK {
+		return exitRequest
+	}
+	return exitOK
+}
+
+func (a app) writeReleaseDraft(reg datago.Registry, registryPath, outputDir, verificationPath string, providerLimit int, jsonOut bool) int {
 	generatedAt := time.Now().UTC().Format(time.RFC3339)
 	paths := releaseDraftPaths(outputDir)
 	for _, dir := range []string{paths.SchemaDir, paths.DataDir, paths.ReportsDir, paths.ProvenanceDir} {
@@ -2556,6 +2614,7 @@ Usage:
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog release draft --registry PATH [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
+  datapan catalog release verify --manifest PATH [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
@@ -2930,6 +2989,28 @@ type releaseManifestArtifact struct {
 	SHA256 string `json:"sha256"`
 }
 
+type releaseManifestVerificationReport struct {
+	Manifest      string                              `json:"manifest"`
+	Root          string                              `json:"root"`
+	SchemaVersion string                              `json:"schema_version,omitempty"`
+	ArtifactCount int                                 `json:"artifact_count"`
+	Checked       int                                 `json:"checked"`
+	Failed        int                                 `json:"failed"`
+	OK            bool                                `json:"ok"`
+	Results       []releaseManifestVerificationResult `json:"results"`
+}
+
+type releaseManifestVerificationResult struct {
+	Path           string `json:"path"`
+	Kind           string `json:"kind,omitempty"`
+	Status         string `json:"status"`
+	Reason         string `json:"reason,omitempty"`
+	ExpectedBytes  int64  `json:"expected_bytes,omitempty"`
+	ActualBytes    int64  `json:"actual_bytes,omitempty"`
+	ExpectedSHA256 string `json:"expected_sha256,omitempty"`
+	ActualSHA256   string `json:"actual_sha256,omitempty"`
+}
+
 func writeReleaseManifest(generatedAt, sourceRegistry string, includeVerification bool, paths releasePaths) (releaseManifest, error) {
 	artifacts := releaseManifestArtifacts(paths, includeVerification)
 	manifest := releaseManifest{
@@ -2953,6 +3034,102 @@ func writeReleaseManifest(generatedAt, sourceRegistry string, includeVerificatio
 		return releaseManifest{}, err
 	}
 	return manifest, nil
+}
+
+func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationReport, error) {
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return releaseManifestVerificationReport{}, err
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return releaseManifestVerificationReport{}, err
+	}
+	root := filepathDir(manifestPath)
+	if root == "" {
+		root = "."
+	}
+	report := releaseManifestVerificationReport{
+		Manifest:      manifestPath,
+		Root:          root,
+		SchemaVersion: manifest.SchemaVersion,
+		ArtifactCount: manifest.ArtifactCount,
+		Checked:       len(manifest.Artifacts),
+		OK:            true,
+		Results:       make([]releaseManifestVerificationResult, 0, len(manifest.Artifacts)+1),
+	}
+	if manifest.ArtifactCount != len(manifest.Artifacts) {
+		report.OK = false
+		report.Failed++
+		report.Results = append(report.Results, releaseManifestVerificationResult{
+			Path:   manifestPath,
+			Kind:   "manifest",
+			Status: "failed",
+			Reason: "artifact_count_mismatch",
+		})
+	}
+	for _, artifact := range manifest.Artifacts {
+		result := verifyReleaseManifestArtifact(root, artifact)
+		if result.Status == "failed" {
+			report.OK = false
+			report.Failed++
+		}
+		report.Results = append(report.Results, result)
+	}
+	return report, nil
+}
+
+func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact) releaseManifestVerificationResult {
+	result := releaseManifestVerificationResult{
+		Path:           artifact.Path,
+		Kind:           artifact.Kind,
+		Status:         "verified",
+		ExpectedBytes:  artifact.Bytes,
+		ExpectedSHA256: artifact.SHA256,
+	}
+	path, ok := releaseArtifactPath(root, artifact.Path)
+	if !ok {
+		result.Status = "failed"
+		result.Reason = "invalid_path"
+		return result
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		result.Status = "failed"
+		result.Reason = "missing_artifact"
+		return result
+	}
+	result.ActualBytes = int64(len(data))
+	sum := sha256.Sum256(data)
+	result.ActualSHA256 = fmt.Sprintf("%x", sum)
+	if artifact.Bytes != result.ActualBytes {
+		result.Status = "failed"
+		result.Reason = "size_mismatch"
+		return result
+	}
+	if !strings.EqualFold(artifact.SHA256, result.ActualSHA256) {
+		result.Status = "failed"
+		result.Reason = "checksum_mismatch"
+		return result
+	}
+	return result
+}
+
+func releaseArtifactPath(root, artifactPath string) (string, bool) {
+	if strings.TrimSpace(artifactPath) == "" || strings.Contains(artifactPath, `\`) {
+		return "", false
+	}
+	rel := filepath.Clean(filepath.FromSlash(artifactPath))
+	if filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	rootClean := filepath.Clean(root)
+	full := filepath.Join(rootClean, rel)
+	check, err := filepath.Rel(rootClean, full)
+	if err != nil || check == ".." || strings.HasPrefix(check, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	return full, true
 }
 
 func releaseManifestArtifacts(paths releasePaths, includeVerification bool) []releaseManifestArtifact {
