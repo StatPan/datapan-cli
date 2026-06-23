@@ -237,6 +237,18 @@ invalid checksum format, fails schema validation, duplicates another artifact
 path, references `manifest.json` itself, uses an unsupported manifest schema
 version, or when `artifact_count` does not match the listed artifact count.
 
+`datapan catalog release readiness --manifest PATH --json` rereads a release
+manifest, runs the same manifest verification, and emits a
+`datapan.release-readiness.v1` gate report for registry publication decisions.
+It must not fetch upstream data or call provider APIs. Required gates include a
+verified manifest, a complete schema set for the current CLI, a non-empty
+registry, and the presence of `schema_index`, `registry`, `provider_index`,
+`catalog_audit`, `error_catalog`, `dependencies`, `adapter_targets`,
+`provider_backlog`, and `provenance` artifacts. Recommended gates warn when
+`catalog_diff`, `verification`, or `verification_summary` artifacts are absent.
+The command returns exit code 4 when any required gate fails. Warnings do not
+make `ready:false`, but they remain visible in `summary` and `gates`.
+
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the
 existing registry, audits the new registry, and returns the result without

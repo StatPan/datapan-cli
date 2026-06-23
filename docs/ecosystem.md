@@ -143,6 +143,7 @@ Likely artifacts:
 - `schemas/datapan.verification-summary.v1.schema.json`;
 - `schemas/datapan.release-manifest.v1.schema.json`;
 - `schemas/datapan.release-verification.v1.schema.json`;
+- `schemas/datapan.release-readiness.v1.schema.json`;
 - `schemas/datapan.schema-index.v1.schema.json`;
 - `schemas/index.json`;
 - `data/data-go-kr.registry.json`;
@@ -152,6 +153,7 @@ Likely artifacts:
 - `reports/adapter-targets.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
+- `reports/latest-release-readiness.json`;
 - `reports/error-catalog.json`;
 - `reports/catalog-audit.json`;
 - `manifest.json`.
@@ -421,8 +423,8 @@ Done or in progress:
 - bounded runtime evidence collection with `catalog verify`;
 - schema drafts for registry, provider indexes, catalog audits, provider
   backlog, dependency inventories, adapter targets, verification reports,
-  verification summaries, release manifests, release verification, and schema
-  indexes;
+  verification summaries, release manifests, release verification, release
+  readiness, and schema indexes;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -515,6 +517,7 @@ Required:
 - publish verification summaries;
 - publish release manifests with artifact checksums;
 - publish release verification reports;
+- publish release readiness reports;
 - document provenance and update cadence.
 
 Completion bar:

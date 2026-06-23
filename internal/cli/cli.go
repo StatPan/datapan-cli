@@ -280,7 +280,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -1487,15 +1487,17 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 
 func (a app) catalogRelease(args []string, jsonOut bool) int {
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]\n       datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "draft":
 		return a.catalogReleaseDraft(args[1:], jsonOut)
 	case "verify":
 		return a.catalogReleaseVerify(args[1:], jsonOut)
+	case "readiness":
+		return a.catalogReleaseReadiness(args[1:], jsonOut)
 	default:
-		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]\n       datapan catalog release verify --manifest PATH [--output PATH|-] [--json]\n       datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 }
 
@@ -1591,6 +1593,72 @@ func (a app) catalogReleaseVerify(args []string, jsonOut bool) int {
 		}
 	}
 	if !report.OK {
+		return exitRequest
+	}
+	return exitOK
+}
+
+func (a app) catalogReleaseReadiness(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	manifestPath, args, err := consumeString(args, "--manifest", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if manifestPath == "" || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the release readiness report JSON to stdout")
+	}
+	report, err := releaseReadinessReportForManifest(manifestPath, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if output != "" {
+		if err := writeJSONFile(output, report); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			if !report.Ready {
+				return exitRequest
+			}
+			return exitOK
+		}
+	}
+	if jsonOut {
+		code := exitOK
+		if !report.Ready {
+			code = exitRequest
+		}
+		if writeCode := a.writeJSON(map[string]any{
+			"ok":     report.Ready,
+			"output": output,
+			"report": report,
+		}); writeCode != exitOK {
+			return writeCode
+		}
+		return code
+	}
+	fmt.Fprintln(a.stdout, "Release readiness")
+	fmt.Fprintf(a.stdout, "  manifest: %s\n", report.Manifest)
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	fmt.Fprintf(a.stdout, "  ready: %t\n", report.Ready)
+	fmt.Fprintf(a.stdout, "  passed: %d\n", report.Summary.Passed)
+	fmt.Fprintf(a.stdout, "  warned: %d\n", report.Summary.Warned)
+	fmt.Fprintf(a.stdout, "  failed: %d\n", report.Summary.Failed)
+	for _, gate := range report.Gates {
+		if gate.Status != "pass" {
+			fmt.Fprintf(a.stdout, "- %s %s: %s\n", gate.Status, gate.ID, gate.Message)
+		}
+	}
+	if !report.Ready {
 		return exitRequest
 	}
 	return exitOK
@@ -3145,6 +3213,7 @@ Usage:
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
+  datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
@@ -3443,6 +3512,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
+		"schemas/datapan.release-readiness.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
 		"schemas/datapan.catalog-diff.v1.schema.json",
 		"schemas/datapan.error-catalog.v1.schema.json",
@@ -3582,6 +3652,42 @@ type releaseManifestVerificationResult struct {
 	ActualSHA256   string `json:"actual_sha256,omitempty"`
 }
 
+type releaseReadinessReport struct {
+	Manifest       string                  `json:"manifest"`
+	Root           string                  `json:"root"`
+	SchemaVersion  string                  `json:"schema_version"`
+	GeneratedAt    string                  `json:"generated_at"`
+	DatapanVersion string                  `json:"datapan_version"`
+	Provider       string                  `json:"provider"`
+	Ready          bool                    `json:"ready"`
+	Summary        releaseReadinessSummary `json:"summary"`
+	Gates          []releaseReadinessGate  `json:"gates"`
+}
+
+type releaseReadinessSummary struct {
+	GatesTotal               int `json:"gates_total"`
+	Passed                   int `json:"passed"`
+	Warned                   int `json:"warned"`
+	Failed                   int `json:"failed"`
+	RequiredArtifacts        int `json:"required_artifacts"`
+	MissingRequiredArtifacts int `json:"missing_required_artifacts"`
+	RecommendedArtifacts     int `json:"recommended_artifacts"`
+	MissingRecommended       int `json:"missing_recommended_artifacts"`
+	SchemaArtifacts          int `json:"schema_artifacts"`
+	RegistrySpecs            int `json:"registry_specs"`
+}
+
+type releaseReadinessGate struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	Severity     string `json:"severity"`
+	Message      string `json:"message"`
+	ArtifactKind string `json:"artifact_kind,omitempty"`
+	ArtifactPath string `json:"artifact_path,omitempty"`
+	Expected     int    `json:"expected,omitempty"`
+	Actual       int    `json:"actual,omitempty"`
+}
+
 type releaseSchemaValidator struct {
 	schemas map[string]*jsonschema.Schema
 }
@@ -3714,6 +3820,231 @@ func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationRepo
 		report.Results = append(report.Results, result)
 	}
 	return report, nil
+}
+
+func releaseReadinessReportForManifest(manifestPath, generatedAt string) (releaseReadinessReport, error) {
+	manifest, err := readReleaseManifest(manifestPath)
+	if err != nil {
+		return releaseReadinessReport{}, err
+	}
+	root := filepathDir(manifestPath)
+	if root == "" {
+		root = "."
+	}
+	report := releaseReadinessReport{
+		Manifest:       manifestPath,
+		Root:           root,
+		SchemaVersion:  "datapan.release-readiness.v1",
+		GeneratedAt:    generatedAt,
+		DatapanVersion: version,
+		Provider:       manifest.Provider,
+		Ready:          true,
+		Gates:          make([]releaseReadinessGate, 0),
+	}
+	verification, err := verifyReleaseManifest(manifestPath)
+	if err != nil {
+		return releaseReadinessReport{}, err
+	}
+	if verification.OK {
+		report.addReadinessGate(releaseReadinessGate{
+			ID:       "manifest_verified",
+			Status:   "pass",
+			Severity: "required",
+			Message:  "release manifest checksums and schema-bound artifacts verified",
+			Expected: verification.Checked,
+			Actual:   verification.Checked,
+		})
+	} else {
+		report.addReadinessGate(releaseReadinessGate{
+			ID:       "manifest_verified",
+			Status:   "fail",
+			Severity: "required",
+			Message:  "release manifest verification failed",
+			Expected: verification.Checked,
+			Actual:   verification.Checked - verification.Failed,
+		})
+	}
+	byKind := releaseArtifactsByKind(manifest.Artifacts)
+	required := []string{
+		"schema_index",
+		"registry",
+		"provider_index",
+		"catalog_audit",
+		"error_catalog",
+		"dependencies",
+		"adapter_targets",
+		"provider_backlog",
+		"provenance",
+	}
+	for _, kind := range required {
+		report.Summary.RequiredArtifacts++
+		artifacts := byKind[kind]
+		if len(artifacts) == 0 {
+			report.Summary.MissingRequiredArtifacts++
+			report.addReadinessGate(releaseReadinessGate{
+				ID:           "required_artifact_" + kind,
+				Status:       "fail",
+				Severity:     "required",
+				Message:      "required release artifact is missing",
+				ArtifactKind: kind,
+				Expected:     1,
+			})
+			continue
+		}
+		report.addReadinessGate(releaseReadinessGate{
+			ID:           "required_artifact_" + kind,
+			Status:       "pass",
+			Severity:     "required",
+			Message:      "required release artifact is present",
+			ArtifactKind: kind,
+			ArtifactPath: artifacts[0].Path,
+			Expected:     1,
+			Actual:       len(artifacts),
+		})
+	}
+	recommended := []string{"catalog_diff", "verification", "verification_summary"}
+	for _, kind := range recommended {
+		report.Summary.RecommendedArtifacts++
+		artifacts := byKind[kind]
+		if len(artifacts) == 0 {
+			report.Summary.MissingRecommended++
+			report.addReadinessGate(releaseReadinessGate{
+				ID:           "recommended_artifact_" + kind,
+				Status:       "warn",
+				Severity:     "recommended",
+				Message:      "recommended release artifact is not present yet",
+				ArtifactKind: kind,
+				Expected:     1,
+			})
+			continue
+		}
+		report.addReadinessGate(releaseReadinessGate{
+			ID:           "recommended_artifact_" + kind,
+			Status:       "pass",
+			Severity:     "recommended",
+			Message:      "recommended release artifact is present",
+			ArtifactKind: kind,
+			ArtifactPath: artifacts[0].Path,
+			Expected:     1,
+			Actual:       len(artifacts),
+		})
+	}
+	schemaCount := len(byKind["schema"])
+	report.Summary.SchemaArtifacts = schemaCount
+	if schemaCount >= len(datapanSchemaFiles()) {
+		report.addReadinessGate(releaseReadinessGate{
+			ID:       "schema_set_complete",
+			Status:   "pass",
+			Severity: "required",
+			Message:  "release includes all Datapan schema files known to this CLI",
+			Expected: len(datapanSchemaFiles()),
+			Actual:   schemaCount,
+		})
+	} else {
+		report.addReadinessGate(releaseReadinessGate{
+			ID:       "schema_set_complete",
+			Status:   "fail",
+			Severity: "required",
+			Message:  "release is missing one or more Datapan schema files known to this CLI",
+			Expected: len(datapanSchemaFiles()),
+			Actual:   schemaCount,
+		})
+	}
+	registrySpecs, registryGate := releaseRegistryReadinessGate(root, byKind["registry"])
+	report.Summary.RegistrySpecs = registrySpecs
+	report.addReadinessGate(registryGate)
+	report.Ready = report.Summary.Failed == 0
+	return report, nil
+}
+
+func readReleaseManifest(path string) (releaseManifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return releaseManifest{}, err
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return releaseManifest{}, err
+	}
+	return manifest, nil
+}
+
+func releaseArtifactsByKind(artifacts []releaseManifestArtifact) map[string][]releaseManifestArtifact {
+	out := map[string][]releaseManifestArtifact{}
+	for _, artifact := range artifacts {
+		out[artifact.Kind] = append(out[artifact.Kind], artifact)
+	}
+	return out
+}
+
+func releaseRegistryReadinessGate(root string, artifacts []releaseManifestArtifact) (int, releaseReadinessGate) {
+	if len(artifacts) == 0 {
+		return 0, releaseReadinessGate{
+			ID:           "registry_has_specs",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "registry artifact is missing",
+			ArtifactKind: "registry",
+			Expected:     1,
+		}
+	}
+	path, ok := releaseArtifactPath(root, artifacts[0].Path)
+	if !ok {
+		return 0, releaseReadinessGate{
+			ID:           "registry_has_specs",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "registry artifact path is invalid",
+			ArtifactKind: "registry",
+			ArtifactPath: artifacts[0].Path,
+		}
+	}
+	reg, err := datago.LoadRegistry(path)
+	if err != nil {
+		return 0, releaseReadinessGate{
+			ID:           "registry_has_specs",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "registry artifact cannot be decoded",
+			ArtifactKind: "registry",
+			ArtifactPath: artifacts[0].Path,
+		}
+	}
+	specs := len(reg.Specs())
+	if specs == 0 {
+		return 0, releaseReadinessGate{
+			ID:           "registry_has_specs",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "registry contains no specs",
+			ArtifactKind: "registry",
+			ArtifactPath: artifacts[0].Path,
+			Expected:     1,
+		}
+	}
+	return specs, releaseReadinessGate{
+		ID:           "registry_has_specs",
+		Status:       "pass",
+		Severity:     "required",
+		Message:      "registry contains normalized specs",
+		ArtifactKind: "registry",
+		ArtifactPath: artifacts[0].Path,
+		Expected:     1,
+		Actual:       specs,
+	}
+}
+
+func (r *releaseReadinessReport) addReadinessGate(gate releaseReadinessGate) {
+	r.Summary.GatesTotal++
+	switch gate.Status {
+	case "pass":
+		r.Summary.Passed++
+	case "warn":
+		r.Summary.Warned++
+	case "fail":
+		r.Summary.Failed++
+	}
+	r.Gates = append(r.Gates, gate)
 }
 
 func (r *releaseManifestVerificationReport) addManifestFailure(path, reason string) {

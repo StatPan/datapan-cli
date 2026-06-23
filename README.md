@@ -85,6 +85,7 @@ datapan catalog verify --input .datapan/latest-verification.json --status failed
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
+datapan catalog release readiness --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-readiness.json --json
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
@@ -194,6 +195,12 @@ Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`
 report.
+Use `datapan catalog release readiness --manifest PATH --output REPORT` after
+manifest verification to produce a `datapan.release-readiness.v1` gate report.
+It checks whether the release contains the required registry, schema index,
+provider index, catalog audit, error catalog, dependency inventory, adapter
+target, provider backlog, and provenance artifacts, while treating catalog diff
+and runtime verification evidence as recommended gates.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`
@@ -271,6 +278,7 @@ The first schema drafts live in `schemas/`:
 - `datapan.verification-summary.v1.schema.json` for verification rollups;
 - `datapan.release-manifest.v1.schema.json` for release artifact manifests;
 - `datapan.release-verification.v1.schema.json` for release verification reports;
+- `datapan.release-readiness.v1.schema.json` for registry publication gate reports;
 - `datapan.schema-index.v1.schema.json` for the release schema index at
   `schemas/index.json`.
 

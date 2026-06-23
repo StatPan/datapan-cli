@@ -1456,7 +1456,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 25`,
+		`"artifacts": 26`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1472,6 +1472,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
+		outputDir + "/schemas/datapan.release-readiness.v1.schema.json",
 		outputDir + "/schemas/datapan.schema-index.v1.schema.json",
 		outputDir + "/schemas/datapan.catalog-diff.v1.schema.json",
 		outputDir + "/schemas/datapan.error-catalog.v1.schema.json",
@@ -1567,9 +1568,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 13`,
+		`"count": 14`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
+		`"path": "schemas/datapan.release-readiness.v1.schema.json"`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-diff.v1.schema.json"`,
 		`"path": "schemas/datapan.error-catalog.v1.schema.json"`,
@@ -1577,6 +1579,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"path": "schemas/datapan.provider-index.v1.schema.json"`,
 		`"contract": "dependencies"`,
 		`"contract": "adapter-targets"`,
+		`"contract": "release-readiness"`,
 		`"contract": "schema-index"`,
 		`"contract": "catalog-diff"`,
 		`"contract": "error-catalog"`,
@@ -1594,7 +1597,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 25`,
+		`"artifact_count": 26`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -1627,7 +1630,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 25`,
+		`"checked": 26`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -1641,6 +1644,36 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(verifyReport), `"schema_version": "datapan.release-verification.v1"`) || strings.Contains(string(verifyReport), `"report":`) {
 		t.Fatalf("unexpected release verification report file: %s", verifyReport)
+	}
+	readinessOutput := outputDir + "/reports/latest-release-readiness.json"
+	code, stdout, stderr = runTest([]string{"catalog", "release", "readiness", "--manifest", outputDir + "/manifest.json", "--output", readinessOutput, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"schema_version": "datapan.release-readiness.v1"`,
+		`"ready": true`,
+		`"id": "manifest_verified"`,
+		`"id": "required_artifact_dependencies"`,
+		`"id": "required_artifact_adapter_targets"`,
+		`"id": "recommended_artifact_catalog_diff"`,
+		`"registry_specs": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in readiness output: %s", want, stdout)
+		}
+	}
+	readinessReport, err := osReadFile(readinessOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, available, err := loadReleaseSchemaValidator(outputDir)
+	if err != nil || !available {
+		t.Fatalf("expected release schema validator: available=%v err=%v", available, err)
+	}
+	if err := validator.validate("https://schemas.datapan.dev/datapan.release-readiness.v1.schema.json", readinessReport); err != nil {
+		t.Fatalf("expected readiness report to match schema: %v\n%s", err, readinessReport)
 	}
 	if err := osWriteFile(outputDir+"/reports/provider-backlog.json", []byte(`{"tampered":true}`)); err != nil {
 		t.Fatal(err)
