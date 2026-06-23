@@ -179,12 +179,12 @@ Purpose:
   classification isolated;
 - let the CLI and future Studio share provider implementations.
 
-Candidate adapters:
+Adapter status:
 
 - `data-go-kr`: gateway APIs, approval metadata, provider error bodies;
+- `q-net`: registered observation-stage adapter for qualification/exam APIs;
+- `epost`: registered observation-stage adapter for postal APIs;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
-- `q-net`: qualification/exam APIs;
-- `epost`: postal APIs;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;
 - local government open APIs with repeated host patterns.
@@ -192,7 +192,8 @@ Candidate adapters:
 Creation trigger:
 
 - create this repository when at least two non-data.go.kr provider adapters are
-  needed and the `Provider` interface has stabilized inside `datapan-cli`.
+  needed, at least one adapter has call behavior, and the `Provider` interface
+  has stabilized inside `datapan-cli`.
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; keep it there until multiple real

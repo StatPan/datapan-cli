@@ -146,6 +146,115 @@ func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	}
 }
 
+func TestEPostAdapterOwnsKnownHostsConservatively(t *testing.T) {
+	adapter := NewEPostAdapter()
+	for _, host := range []string{"openapi.epost.go.kr", "openapi.epost.go.kr:80"} {
+		if !adapter.MatchHost(host) {
+			t.Fatalf("expected epost adapter to match %s", host)
+		}
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("epost adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "300", Title: "EPost 샘플", Provider: "data.go.kr"}
+	op := datago.Operation{Name: "우편번호", Endpoint: "http://openapi.epost.go.kr/postal/retrieveNewZipCdService/retrieveNewZipCdService/getNewZipCdList"}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in provider request")
+		}
+		if req.URL.Query().Get("srchwrd") != "서울" || req.URL.Query().Get("countPerPage") != "1" {
+			t.Fatalf("unexpected epost query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><zipNo>04524</zipNo></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		Params:        map[string]string{"serviceKey": "secret", "srchwrd": "서울"},
+		MissingParams: []string{"countPerPage"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "epost" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected epost verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted epost URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["srchwrd"] != "서울" || result.Params["countPerPage"] != "1" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected epost public params: %#v", result.Params)
+	}
+}
+
+func TestEPostAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
+	adapter := NewEPostAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "301", Title: "EPost WADL", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "메타데이터", Endpoint: "http://openapi.epost.go.kr:80/postal/retrieveNewAdressAreaCdService?_wadl&type=xml"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "epost_wadl_metadata_only" {
+		t.Fatalf("unexpected epost WADL skip result: %#v", result)
+	}
+}
+
+func TestEPostAdapterSkipsUnsupportedSOAP(t *testing.T) {
+	adapter := NewEPostAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "302", Title: "EPost SOAP", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "SOAP",
+			Endpoint: "http://openapi.epost.go.kr:80/postal/RegisterEMSService",
+			Source:   &datago.Source{Raw: map[string]any{"api_type": "SOAP"}},
+		},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "epost_unsupported_protocol" {
+		t.Fatalf("unexpected epost SOAP skip result: %#v", result)
+	}
+}
+
+func TestEPostAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewEPostAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "303", Title: "EPost 상세", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "상세", Endpoint: "http://openapi.epost.go.kr/postal/detail"},
+		MissingParams: []string{"srchwrd"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "epost_missing_required_params" || len(result.MissingParams) != 1 {
+		t.Fatalf("unexpected epost skip result: %#v", result)
+	}
+}
+
+func TestEPostAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewEPostAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>SERVICE ERROR</errMsg><returnAuthMsg>SERVICE KEY IS NOT REGISTERED ERROR.</returnAuthMsg></cmmMsgHeader></OpenAPI_ServiceResponse>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "304", Title: "EPost key", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "키 오류", Endpoint: "http://openapi.epost.go.kr/postal/list"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "epost_service_key_not_registered" {
+		t.Fatalf("unexpected epost service key result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.AuthMessage == "" {
+		t.Fatalf("unexpected epost provider status: %#v", result.ProviderStatus)
+	}
+}
+
 func TestQNetAdapterSkipsUnknownRequiredParams(t *testing.T) {
 	adapter := NewQNetAdapter()
 	result := adapter.Verify(context.Background(), VerificationRequest{

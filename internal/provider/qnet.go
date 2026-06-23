@@ -132,15 +132,15 @@ func (a QNetAdapter) Verify(ctx context.Context, req VerificationRequest) datago
 	return result
 }
 
-type qnetPlan struct {
+type providerRequestPlan struct {
 	url      string
 	redacted string
 }
 
-func qnetRequestURL(endpoint string, params map[string]string, key string) (qnetPlan, error) {
+func qnetRequestURL(endpoint string, params map[string]string, key string) (providerRequestPlan, error) {
 	u, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil {
-		return qnetPlan{}, err
+		return providerRequestPlan{}, err
 	}
 	q := u.Query()
 	for k, v := range params {
@@ -154,7 +154,7 @@ func qnetRequestURL(endpoint string, params map[string]string, key string) (qnet
 	rq := redacted.Query()
 	rq.Set("serviceKey", "REDACTED")
 	redacted.RawQuery = rq.Encode()
-	return qnetPlan{url: u.String(), redacted: redacted.String()}, nil
+	return providerRequestPlan{url: u.String(), redacted: redacted.String()}, nil
 }
 
 func qnetVerificationParams(params map[string]string, missing []string) (map[string]string, []string) {
@@ -331,7 +331,7 @@ func (a QNetAdapter) Call(ctx context.Context, req CallRequest) (datago.Response
 }
 
 func DefaultRegistry() (Registry, error) {
-	return NewRegistry(NewQNetAdapter())
+	return NewRegistry(NewEPostAdapter(), NewQNetAdapter())
 }
 
 func endpointHost(raw string) string {

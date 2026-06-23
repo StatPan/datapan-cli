@@ -49,26 +49,37 @@ func TestRegistryRejectsEmptyAdapterName(t *testing.T) {
 	}
 }
 
-func TestDefaultRegistryIncludesQNetAdapter(t *testing.T) {
+func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	registry, err := DefaultRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter, ok := registry.MatchHost("openapi.q-net.or.kr")
-	if !ok {
-		t.Fatal("expected default registry to match q-net host")
-	}
-	if adapter.Name() != "q-net" {
-		t.Fatalf("adapter=%s", adapter.Name())
+	for host, name := range map[string]string{
+		"openapi.q-net.or.kr": "q-net",
+		"openapi.epost.go.kr": "epost",
+	} {
+		adapter, ok := registry.MatchHost(host)
+		if !ok {
+			t.Fatalf("expected default registry to match %s", host)
+		}
+		if adapter.Name() != name {
+			t.Fatalf("adapter for %s=%s", host, adapter.Name())
+		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 1 || report.HostCount != 3 {
+	if report.AdapterCount != 2 || report.HostCount != 5 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
-	if len(report.Adapters) != 1 || report.Adapters[0].Name != "q-net" || report.Adapters[0].Status != "registered" {
+	if len(report.Adapters) != 2 || report.Adapters[0].Name != "epost" || report.Adapters[1].Name != "q-net" {
 		t.Fatalf("unexpected provider index adapter: %#v", report)
 	}
-	if strings.Join(report.Adapters[0].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
-		t.Fatalf("unexpected provider index hosts: %#v", report.Adapters[0].Hosts)
+	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" {
+		t.Fatalf("unexpected provider index adapter status: %#v", report)
+	}
+	if strings.Join(report.Adapters[0].Hosts, ",") != "openapi.epost.go.kr,openapi.epost.go.kr:80" {
+		t.Fatalf("unexpected epost provider index hosts: %#v", report.Adapters[0].Hosts)
+	}
+	if strings.Join(report.Adapters[1].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
+		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[1].Hosts)
 	}
 }

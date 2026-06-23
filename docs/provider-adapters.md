@@ -85,12 +85,15 @@ To inspect one likely provider family:
 ```bash
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider q-net --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider q-net --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider epost --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider epost --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
 
 ```bash
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider q-net --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider epost --json
 ```
 
 The current imported registry shows q-net as a strong early adapter family:
@@ -106,6 +109,9 @@ evidence: enough surface exists to justify tracking q-net as a provider family.
 Datapan now registers q-net host ownership so `catalog providers --status
 adapter --provider q-net` can separate q-net from hosts that still have no
 adapter at all.
+It also registers epost host ownership for `openapi.epost.go.kr` and
+`openapi.epost.go.kr:80`, so q-net is no longer the only exercised external
+adapter family.
 Release drafts also publish `data/provider-index.json` using
 `schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
 registered adapter ownership from backlog observations.
@@ -168,6 +174,39 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
 ```
 
+## Second Adapter: epost
+
+The epost adapter covers postal API hosts that data.go.kr catalogs as external
+endpoints:
+
+```text
+openapi.epost.go.kr:80   22 operations
+openapi.epost.go.kr       6 operations
+```
+
+The first epost boundary is deliberately conservative. It owns the hosts,
+participates in provider-index release artifacts, and verifies REST XML
+operation URLs when required parameters are supplied or have safe pagination
+defaults such as `countPerPage=1` and `currentPage=1`. It skips WADL metadata
+URLs with `epost_wadl_metadata_only`, SOAP operations with
+`epost_unsupported_protocol`, and unknown required parameters with
+`epost_missing_required_params`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider epost --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider epost --kind external_endpoint --limit 5 --output .datapan/epost-batch-verification.json --json
+datapan catalog verify summary --input .datapan/epost-batch-verification.json --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15075270 --operation "우체국알뜰폰 요금제 조회" --output .datapan/epost-single-verification.json --json
+```
+
+Expected evidence shape: registered adapter ownership for both epost hosts,
+redacted URLs, provider-specific skip reasons for WADL/SOAP/required-parameter
+cases, `provider=epost` in verification results, and stable provider error
+reasons such as `epost_service_key_not_registered` when the upstream epost
+service rejects the shared data.go.kr key.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -184,6 +223,6 @@ A provider adapter is not ready just because it can build a URL. It needs:
 ## Split Trigger
 
 Keep adapters inside `datapan-cli` until at least two external providers have
-real verification and call behavior. Move to `datapan-providers` only when the
-interface has been exercised by multiple providers and the release boundary is
-worth maintaining separately.
+real verification and at least one provider has call behavior. Move to
+`datapan-providers` only when the interface has been exercised by multiple
+providers and the release boundary is worth maintaining separately.
