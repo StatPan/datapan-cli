@@ -30,6 +30,21 @@ those gaps into provider adapters, verification reports, and reusable specs.
 
 ## Repository Map
 
+Repository splits should follow contracts, not ambition. The current bias is to
+keep implementation and schemas in `datapan-cli` until a split makes a contract
+more reliable.
+
+| Repository | Timing | Owns | Must Not Own |
+| --- | --- | --- | --- |
+| `datapan-cli` | Active now | CLI runtime, command contract, local auth, import/update/diff/audit, verification, first provider adapters | hosted service responsibilities or broad claims about unverified APIs |
+| `datapan-data` | Existing research/server-side reference | prior data.go.kr application research, browser/application workflow evidence, server-side experiments worth mining | the canonical user-facing contract or released registry artifacts |
+| `datapan-registry` | Create after repeatable registry releases are boring | versioned registry snapshots, provider backlog, verification reports, provenance, release notes | CLI behavior or provider call logic |
+| `datapan-providers` | Create after multiple external adapters prove the boundary | reusable provider adapters, provider auth/error/approval semantics | catalog release policy or UI state |
+| `datapan-spec` | Optional after schemas have consumers outside the CLI | canonical JSON Schemas and codegen inputs | implementation-specific Go internals |
+| `datapan-sdk-*` | Deferred until specs and verification are stable | generated or registry-driven clients for application developers | hand-written wrappers for thousands of APIs |
+| `datapan-studio` | Future product | DBeaver/Postman-like UI over the same registry, verification, and call engine | a second interpretation of public-data behavior |
+| `datapan-cloud` | Future business layer | hosted registry, scheduled verification, monitoring, team workflows | required runtime dependency for open-source CLI users |
+
 ### datapan-cli
 
 Status: active first repository.
@@ -67,6 +82,34 @@ Non-goals for this repository:
 - provider-specific SDK packages for many languages;
 - silent automation of provider security gates;
 - claims that unverified APIs work.
+
+### datapan-data
+
+Status: existing reference and research repository.
+
+Purpose:
+
+- preserve earlier data.go.kr exploration and server-side experiments;
+- keep evidence about application/login/browser workflows that the CLI can
+  turn into explicit user commands;
+- provide real-world examples for approval, authentication, and provider quirks;
+- help identify what should become schema, adapter behavior, or documentation.
+
+`datapan-data` should be treated as research material, not as the canonical
+public contract. When useful behavior is discovered there, the behavior should
+move into one of these Datapan-owned layers:
+
+- CLI command contract in `docs/cli-contract.md`;
+- registry/provider/verification schema under `schemas/`;
+- provider adapter behavior under `internal/provider`;
+- release artifact policy in `docs/registry-release.md`.
+
+Non-goals for this repository:
+
+- replacing the CLI as the local user-facing runtime;
+- publishing registry release artifacts;
+- owning SDK or Studio behavior;
+- hiding browser automation behind unclear server behavior.
 
 ### datapan-registry
 
@@ -222,6 +265,32 @@ Creation trigger:
 Every repository should reinforce these contracts instead of inventing a new
 source of truth.
 
+### Spec-First Ownership Ladder
+
+Datapan should earn control in layers. Each layer should become a published
+contract before the project claims the next one.
+
+1. **Raw catalog preservation**: import data.go.kr metadata without destroying
+   upstream names, IDs, parameters, categories, organizations, or raw fields.
+2. **Normalized registry**: express public-data datasets and operations in
+   Datapan's stable `Spec` shape while keeping raw upstream fields available.
+3. **Dependency classification**: classify gateway APIs, external hosts, SOAP,
+   WMS, missing endpoints, malformed endpoints, approval requirements, and
+   provider families.
+4. **Verification evidence**: prove what was attempted, what worked, what
+   failed, and what was skipped with stable reasons and redacted request
+   metadata.
+5. **Provider adapters**: turn repeated external-host behavior into reusable
+   adapters instead of one-off command fixes.
+6. **Call and export contract**: make discovered and verified operations usable
+   through JSON/CSV, curl/Postman exports, and later SDK generation.
+7. **Studio and cloud surfaces**: build UI and hosted reliability features only
+   on top of the same registry, provider, verification, and call contracts.
+
+The rule of thumb: if a fact can be preserved from upstream, preserve it; if a
+fact is Datapan's interpretation, mark it as Datapan-owned evidence; if a fact
+is not verified, make the uncertainty visible.
+
 ### Registry Contract
 
 The registry describes what exists. It should preserve upstream values as much
@@ -330,7 +399,8 @@ Done or in progress:
 - data.go.kr import/update/diff/audit;
 - provider backlog classification with `catalog providers`;
 - bounded runtime evidence collection with `catalog verify`;
-- schema drafts for registry, provider backlog, and verification reports;
+- schema drafts for registry, provider backlog, verification reports, and
+  verification summaries;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -367,6 +437,7 @@ Required:
 
 - `catalog verify`;
 - verification report schema;
+- verification summary schema and grouped reason/provider/host rollups;
 - conservative eligible set for safe data.go.kr gateway calls;
 - explicit skipped reasons for APIs that need adapters, approval, required
   parameters, or unsupported protocols;
@@ -401,6 +472,7 @@ Required:
 - create `datapan-registry`;
 - publish schemas and registry snapshots;
 - publish verification reports;
+- publish verification summaries;
 - document provenance and update cadence.
 
 Completion bar:

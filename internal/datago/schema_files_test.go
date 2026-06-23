@@ -72,6 +72,32 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 	}
 }
 
+func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
+	path := filepath.Clean(filepath.Join("..", "..", "docs", "ecosystem.md"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"Spec-First Ownership Ladder",
+		"`datapan-cli`",
+		"`datapan-data`",
+		"`datapan-registry`",
+		"`datapan-providers`",
+		"`datapan-spec`",
+		"`datapan-sdk-*`",
+		"`datapan-studio`",
+		"`datapan-cloud`",
+		"schemas/datapan.verification-summary.v1.schema.json",
+		"reports/latest-verification-summary.json",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ecosystem doc should reference %q", want)
+		}
+	}
+}
+
 func TestProviderAdaptersDocReferencesContracts(t *testing.T) {
 	path := filepath.Clean(filepath.Join("..", "..", "docs", "provider-adapters.md"))
 	data, err := os.ReadFile(path)

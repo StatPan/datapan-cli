@@ -42,7 +42,7 @@ go test ./...
 ```
 
 See `.env.example` for local key names, `docs/cli-contract.md` for the
-agent-facing command contract, `docs/ecosystem.md` for the planned Datapan
+agent-facing command contract, `docs/ecosystem.md` for the spec-first Datapan
 repository map, `docs/registry-release.md` for registry artifact release
 planning, `docs/provider-adapters.md` for external-provider adapter boundaries,
 and `schemas/` for the first registry/provider/verification artifact schemas.
