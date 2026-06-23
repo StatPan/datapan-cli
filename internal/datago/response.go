@@ -9,16 +9,27 @@ import (
 )
 
 type ResponseEnvelope struct {
-	OK             bool   `json:"ok"`
-	Provider       string `json:"provider"`
-	Dataset        string `json:"dataset"`
-	Operation      string `json:"operation"`
-	StatusCode     int    `json:"status_code"`
-	ContentType    string `json:"content_type,omitempty"`
-	SemanticStatus string `json:"semantic_status"`
-	Message        string `json:"message,omitempty"`
-	URL            string `json:"url"`
-	Body           string `json:"body"`
+	OK             bool            `json:"ok"`
+	Provider       string          `json:"provider"`
+	Dataset        string          `json:"dataset"`
+	Operation      string          `json:"operation"`
+	StatusCode     int             `json:"status_code"`
+	ContentType    string          `json:"content_type,omitempty"`
+	SemanticStatus string          `json:"semantic_status"`
+	Message        string          `json:"message,omitempty"`
+	ProviderStatus *ProviderStatus `json:"provider_status,omitempty"`
+	URL            string          `json:"url"`
+	Body           string          `json:"body"`
+}
+
+type ProviderStatus struct {
+	OK           bool   `json:"ok"`
+	Source       string `json:"source"`
+	Code         string `json:"code,omitempty"`
+	Message      string `json:"message,omitempty"`
+	ReasonCode   string `json:"reason_code,omitempty"`
+	AuthMessage  string `json:"auth_message,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 func RowsFromJSON(data []byte) ([]map[string]any, error) {
@@ -33,81 +44,96 @@ func RowsFromJSON(data []byte) ([]map[string]any, error) {
 	return rows, nil
 }
 
-func ClassifyResponse(statusCode int, contentType string, body []byte) (bool, string, string) {
+func ClassifyResponse(statusCode int, contentType string, body []byte) (bool, string, string, *ProviderStatus) {
 	if statusCode < 200 || statusCode >= 300 {
-		return false, "http_error", fmt.Sprintf("HTTP %d", statusCode)
+		return false, "http_error", fmt.Sprintf("HTTP %d", statusCode), nil
 	}
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
-		return true, "empty_response", ""
+		return true, "empty_response", "", nil
 	}
 	lowerContentType := strings.ToLower(contentType)
 	lowerBody := strings.ToLower(string(trimmed[:min(len(trimmed), 256)]))
 	if strings.Contains(lowerContentType, "html") || strings.HasPrefix(lowerBody, "<!doctype html") || strings.HasPrefix(lowerBody, "<html") {
-		return false, "html_response", "provider returned HTML instead of data"
+		return false, "html_response", "provider returned HTML instead of data", nil
 	}
 	if strings.Contains(lowerContentType, "json") || strings.HasPrefix(string(trimmed), "{") || strings.HasPrefix(string(trimmed), "[") {
 		var payload any
 		if err := json.Unmarshal(trimmed, &payload); err == nil {
-			if code, msg, ok := providerResult(payload); ok {
-				if providerCodeOK(code) {
-					return true, "provider_ok", msg
+			if status, ok := providerResult(payload); ok {
+				if providerCodeOK(status.Code) {
+					status.OK = true
+					return true, "provider_ok", status.Message, &status
 				}
+				status.OK = false
+				msg := status.Message
 				if msg == "" {
-					msg = "provider returned resultCode " + code
+					msg = "provider returned resultCode " + status.Code
 				}
-				return false, "provider_error", msg
+				return false, "provider_error", msg, &status
 			}
-			return true, "json_response", ""
+			return true, "json_response", "", nil
 		}
 	}
-	if code := xmlTagValue(trimmed, "resultCode"); code != "" {
-		msg := xmlTagValue(trimmed, "resultMsg")
-		if providerCodeOK(code) {
-			return true, "provider_ok", msg
+	if status, ok := xmlProviderStatus(trimmed); ok {
+		if providerCodeOK(status.Code) || providerCodeOK(status.ReasonCode) {
+			status.OK = true
+			return true, "provider_ok", status.Message, &status
 		}
+		status.OK = false
+		msg := status.Message
 		if msg == "" {
-			msg = "provider returned resultCode " + code
+			msg = status.AuthMessage
 		}
-		return false, "provider_error", msg
+		if msg == "" && status.Code != "" {
+			msg = "provider returned resultCode " + status.Code
+		}
+		if msg == "" && status.ReasonCode != "" {
+			msg = "provider returned returnReasonCode " + status.ReasonCode
+		}
+		return false, "provider_error", msg, &status
 	}
 	if strings.HasPrefix(string(trimmed), "<") {
-		return true, "xml_response", ""
+		return true, "xml_response", "", nil
 	}
-	return true, "unclassified_response", ""
+	return true, "unclassified_response", "", nil
 }
 
-func providerResult(value any) (string, string, bool) {
+func providerResult(value any) (ProviderStatus, bool) {
 	switch typed := value.(type) {
 	case map[string]any:
 		code := stringValue(typed["resultCode"])
 		msg := stringValue(typed["resultMsg"])
 		if code != "" {
-			return code, msg, true
+			return ProviderStatus{
+				Source:  "resultCode/resultMsg",
+				Code:    code,
+				Message: msg,
+			}, true
 		}
 		if header, ok := typed["header"]; ok {
-			if code, msg, ok := providerResult(header); ok {
-				return code, msg, ok
+			if status, ok := providerResult(header); ok {
+				return status, ok
 			}
 		}
 		if response, ok := typed["response"]; ok {
-			if code, msg, ok := providerResult(response); ok {
-				return code, msg, ok
+			if status, ok := providerResult(response); ok {
+				return status, ok
 			}
 		}
 		for _, child := range typed {
-			if code, msg, ok := providerResult(child); ok {
-				return code, msg, ok
+			if status, ok := providerResult(child); ok {
+				return status, ok
 			}
 		}
 	case []any:
 		for _, child := range typed {
-			if code, msg, ok := providerResult(child); ok {
-				return code, msg, ok
+			if status, ok := providerResult(child); ok {
+				return status, ok
 			}
 		}
 	}
-	return "", "", false
+	return ProviderStatus{}, false
 }
 
 func providerCodeOK(code string) bool {
@@ -133,6 +159,38 @@ func xmlTagValue(body []byte, tag string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(match[1]))
+}
+
+func xmlProviderStatus(body []byte) (ProviderStatus, bool) {
+	if code := xmlTagValue(body, "resultCode"); code != "" {
+		return ProviderStatus{
+			Source:  "resultCode/resultMsg",
+			Code:    code,
+			Message: xmlTagValue(body, "resultMsg"),
+		}, true
+	}
+	reasonCode := xmlTagValue(body, "returnReasonCode")
+	authMessage := xmlTagValue(body, "returnAuthMsg")
+	errorMessage := xmlTagValue(body, "errMsg")
+	if reasonCode == "" && authMessage == "" && errorMessage == "" {
+		return ProviderStatus{}, false
+	}
+	return ProviderStatus{
+		Source:       "OpenAPI_ServiceResponse/cmmMsgHeader",
+		ReasonCode:   reasonCode,
+		AuthMessage:  authMessage,
+		ErrorMessage: errorMessage,
+		Message:      firstProviderMessage(authMessage, errorMessage),
+	}, true
+}
+
+func firstProviderMessage(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func findRows(value any) []map[string]any {

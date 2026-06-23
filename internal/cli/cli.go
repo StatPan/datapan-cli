@@ -1280,7 +1280,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		return datago.ResponseEnvelope{}, err
 	}
 	contentType := resp.Header.Get("Content-Type")
-	ok, semanticStatus, message := datago.ClassifyResponse(resp.StatusCode, contentType, body)
+	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, contentType, body)
 	return datago.ResponseEnvelope{
 		OK:             ok,
 		Provider:       "data.go.kr",
@@ -1290,6 +1290,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		ContentType:    contentType,
 		SemanticStatus: semanticStatus,
 		Message:        message,
+		ProviderStatus: providerStatus,
 		URL:            plan.RedactedURL,
 		Body:           string(body),
 	}, nil

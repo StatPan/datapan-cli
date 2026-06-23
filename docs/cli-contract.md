@@ -24,10 +24,15 @@ and a stable `error` value such as `ambiguous_ref`, `not_found`,
 `missing_auth`, `request_failed`, `open_failed`, or `copy_failed`. Commands
 should still use the documented exit code for that failure.
 
-Request envelopes may also include `semantic_status`. This is the provider-level
-classification after HTTP succeeds or fails, such as `http_error`,
-`provider_error`, `html_response`, `provider_ok`, or `json_response`. A
-non-success semantic status must set `ok:false` and use exit code 4.
+Request envelopes may include `semantic_status` for broad transport/body shape
+classification, such as `http_error`, `provider_error`, `html_response`,
+`provider_ok`, or `json_response`. Provider-defined error details must be
+preserved separately under `provider_status` instead of being remapped into
+Datapan-specific error types. When present, `provider_status` should carry
+source fields such as `resultCode/resultMsg` or
+`OpenAPI_ServiceResponse/cmmMsgHeader` values including `returnReasonCode`,
+`returnAuthMsg`, and `errMsg`. A provider failure must set `ok:false` and use
+exit code 4.
 
 `--json` may appear before or after the subcommand:
 

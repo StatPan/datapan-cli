@@ -668,7 +668,49 @@ func TestGetProviderErrorJSONReturnsRequestExit(t *testing.T) {
 		`"ok": false`,
 		`"status_code": 200`,
 		`"semantic_status": "provider_error"`,
+		`"provider_status":`,
+		`"source": "resultCode/resultMsg"`,
+		`"code": "30"`,
 		`"message": "SERVICE KEY IS NOT REGISTERED ERROR."`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestGetOpenAPIServiceResponseErrorJSONPreservesProviderFields(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "application/xml")
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(`
+				<OpenAPI_ServiceResponse>
+					<cmmMsgHeader>
+						<errMsg>SERVICE ERROR</errMsg>
+						<returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg>
+						<returnReasonCode>30</returnReasonCode>
+					</cmmMsgHeader>
+				</OpenAPI_ServiceResponse>
+			`)),
+			Header: header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"semantic_status": "provider_error"`,
+		`"source": "OpenAPI_ServiceResponse/cmmMsgHeader"`,
+		`"reason_code": "30"`,
+		`"auth_message": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR"`,
+		`"error_message": "SERVICE ERROR"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)

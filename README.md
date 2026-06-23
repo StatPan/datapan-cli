@@ -121,9 +121,10 @@ response-field counts, and a copyable `datapan get ...` example where Datapan
 can synthesize one from the imported data.go.kr spec.
 
 `datapan get` treats HTTP failures, data.go.kr provider errors such as non-`00`
-`resultCode`, and HTML service pages as request failures. JSON output includes
-`semantic_status` so scripts and agents can tell whether a failure came from
-HTTP, provider semantics, or an unexpected response shape.
+`resultCode`, and HTML service pages as request failures. JSON output preserves
+provider error fields under `provider_status`, including `resultCode/resultMsg`
+or `OpenAPI_ServiceResponse` fields such as `returnReasonCode`,
+`returnAuthMsg`, and `errMsg` when they appear in the response body.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
