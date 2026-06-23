@@ -22,6 +22,7 @@ import (
 
 	"github.com/StatPan/datapan-cli/internal/datago"
 	providers "github.com/StatPan/datapan-cli/internal/provider"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const (
@@ -3110,6 +3111,10 @@ type releaseManifestVerificationResult struct {
 	ActualSHA256   string `json:"actual_sha256,omitempty"`
 }
 
+type releaseSchemaValidator struct {
+	schemas map[string]*jsonschema.Schema
+}
+
 func buildSchemaIndex(generatedAt string, paths releasePaths) (schemaIndex, error) {
 	entries := make([]schemaIndexEntry, 0, len(datapanSchemaFiles()))
 	for _, schema := range datapanSchemaFiles() {
@@ -3211,6 +3216,14 @@ func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationRepo
 	if manifest.SchemaVersion != "datapan.release-manifest.v1" {
 		report.addManifestFailure(manifestPath, "unsupported_schema_version")
 	}
+	validator, schemasAvailable, err := loadReleaseSchemaValidator(root)
+	if err != nil {
+		report.addManifestFailure("schemas", "schema_compile_failed")
+	} else if schemasAvailable {
+		if err := validator.validate("https://schemas.datapan.dev/datapan.release-manifest.v1.schema.json", data); err != nil {
+			report.addManifestFailure(manifestPath, "schema_validation_failed")
+		}
+	}
 	seen := map[string]bool{}
 	for _, artifact := range manifest.Artifacts {
 		if seen[artifact.Path] {
@@ -3222,7 +3235,7 @@ func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationRepo
 			report.addManifestFailure(artifact.Path, "manifest_self_reference")
 			continue
 		}
-		result := verifyReleaseManifestArtifact(root, artifact)
+		result := verifyReleaseManifestArtifact(root, artifact, validator)
 		if result.Status == "failed" {
 			report.OK = false
 			report.Failed++
@@ -3243,7 +3256,7 @@ func (r *releaseManifestVerificationReport) addManifestFailure(path, reason stri
 	})
 }
 
-func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact) releaseManifestVerificationResult {
+func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact, validator *releaseSchemaValidator) releaseManifestVerificationResult {
 	result := releaseManifestVerificationResult{
 		Path:           artifact.Path,
 		Kind:           artifact.Kind,
@@ -3286,7 +3299,83 @@ func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact
 		result.Reason = "checksum_mismatch"
 		return result
 	}
+	if artifact.Schema != "" {
+		if validator == nil {
+			result.Status = "failed"
+			result.Reason = "schema_unavailable"
+			return result
+		}
+		if err := validator.validate(artifact.Schema, data); err != nil {
+			result.Status = "failed"
+			result.Reason = "schema_validation_failed"
+			return result
+		}
+	}
 	return result
+}
+
+func loadReleaseSchemaValidator(root string) (*releaseSchemaValidator, bool, error) {
+	dir := filepath.Join(root, "schemas")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	compiler := jsonschema.NewCompiler()
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".schema.json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, true, err
+		}
+		var meta struct {
+			ID string `json:"$id"`
+		}
+		if err := json.Unmarshal(data, &meta); err != nil {
+			return nil, true, err
+		}
+		if strings.TrimSpace(meta.ID) == "" {
+			return nil, true, fmt.Errorf("schema %s missing $id", path)
+		}
+		doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+		if err != nil {
+			return nil, true, err
+		}
+		if err := compiler.AddResource(meta.ID, doc); err != nil {
+			return nil, true, err
+		}
+		ids = append(ids, meta.ID)
+	}
+	if len(ids) == 0 {
+		return nil, false, nil
+	}
+	schemas := make(map[string]*jsonschema.Schema, len(ids))
+	for _, id := range ids {
+		schema, err := compiler.Compile(id)
+		if err != nil {
+			return nil, true, err
+		}
+		schemas[id] = schema
+	}
+	return &releaseSchemaValidator{schemas: schemas}, true, nil
+}
+
+func (v *releaseSchemaValidator) validate(schemaID string, data []byte) error {
+	schema, ok := v.schemas[schemaID]
+	if !ok {
+		return fmt.Errorf("schema not found: %s", schemaID)
+	}
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	return schema.Validate(instance)
 }
 
 func isSHA256Hex(value string) bool {

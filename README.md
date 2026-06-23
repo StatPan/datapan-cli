@@ -166,8 +166,9 @@ from existing registry, catalog audit, provider backlog, schema, schema index,
 verification, verification summary, provenance, and manifest artifacts without
 calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
-the manifest's artifact paths, byte sizes, and SHA-256 checksums before
-publishing and preserve a `datapan.release-verification.v1` report.
+the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
+artifact shapes before publishing and preserve a `datapan.release-verification.v1`
+report.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`

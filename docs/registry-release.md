@@ -210,7 +210,10 @@ not make the release unstable.
 
 `catalog release verify --manifest PATH --output REPORT --json` emits and
 stores a `datapan.release-verification.v1` report that records the checked
-artifact count, failure count, and per-artifact verification status.
+artifact count, failure count, and per-artifact verification status. It also
+validates schema-bound artifacts against the schema files shipped in the same
+release, including the manifest itself when the release manifest schema is
+available under `schemas/`.
 
 ## Local Release Draft
 
@@ -257,7 +260,7 @@ Before publishing a registry snapshot:
 - `manifest.json` must list every release artifact except itself with size and
   SHA-256 checksum;
 - `catalog release verify --manifest manifest.json --output reports/latest-release-verification.json`
-  must pass before publishing;
+  must pass checksum and schema-bound artifact validation before publishing;
 - credentials must never appear in artifacts;
 - schema files must be copied from this repository, not rewritten by hand;
 - provenance must record CLI version, source provider, generation time, and

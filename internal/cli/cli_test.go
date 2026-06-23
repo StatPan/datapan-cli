@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -1401,6 +1403,54 @@ func TestCatalogReleaseVerifyRejectsInvalidManifest(t *testing.T) {
 		`"duplicate_artifact_path"`,
 		`"manifest_self_reference"`,
 		`"invalid_path"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogReleaseVerifyRejectsSchemaInvalidArtifact(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := dir + "/registry.json"
+	outputDir := dir + "/release"
+	if err := osWriteFile(registryPath, []byte(`[{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--output-dir", outputDir, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	badRegistry := []byte(`{"not":"a datapan registry array"}`)
+	if err := osWriteFile(outputDir+"/data/data-go-kr.registry.json", badRegistry); err != nil {
+		t.Fatal(err)
+	}
+	manifestData, err := osReadFile(outputDir + "/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(badRegistry)
+	for idx := range manifest.Artifacts {
+		if manifest.Artifacts[idx].Path == "data/data-go-kr.registry.json" {
+			manifest.Artifacts[idx].Bytes = int64(len(badRegistry))
+			manifest.Artifacts[idx].SHA256 = fmt.Sprintf("%x", sum)
+		}
+	}
+	if err := writeJSONFile(outputDir+"/manifest.json", manifest); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runTest([]string{"catalog", "release", "verify", "--manifest", outputDir + "/manifest.json", "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"path": "data/data-go-kr.registry.json"`,
+		`"reason": "schema_validation_failed"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)

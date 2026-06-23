@@ -89,7 +89,10 @@
             "invalid_checksum",
             "missing_artifact",
             "size_mismatch",
-            "checksum_mismatch"
+            "checksum_mismatch",
+            "schema_compile_failed",
+            "schema_unavailable",
+            "schema_validation_failed"
           ]
         },
         "expected_bytes": {

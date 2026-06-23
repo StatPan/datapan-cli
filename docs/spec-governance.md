@@ -87,7 +87,7 @@ Before a registry snapshot is published:
 - `schemas/index.json` must be generated from the copied schema files;
 - `manifest.json` must list every release artifact except itself;
 - `catalog release verify --manifest manifest.json --output reports/latest-release-verification.json`
-  must pass;
+  must pass checksum and schema-bound artifact validation;
 - release verification output must be a `datapan.release-verification.v1`
   report;
 - credentials and API keys must never appear in schema-bound artifacts.
