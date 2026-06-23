@@ -1230,7 +1230,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 10`,
+		`"artifacts": 11`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1243,6 +1243,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
+		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
@@ -1274,7 +1275,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 10`,
+		`"artifact_count": 11`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
 		`"sha256":`,
@@ -1289,7 +1290,9 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"checked": 10`,
+		`"schema_version": "datapan.release-verification.v1"`,
+		`"manifest_schema_version": "datapan.release-manifest.v1"`,
+		`"checked": 11`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

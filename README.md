@@ -233,7 +233,8 @@ The first schema drafts live in `schemas/`:
 - `datapan.providers.v1.schema.json` for provider backlog reports;
 - `datapan.verification.v1.schema.json` for runtime evidence reports;
 - `datapan.verification-summary.v1.schema.json` for verification rollups;
-- `datapan.release-manifest.v1.schema.json` for release artifact manifests.
+- `datapan.release-manifest.v1.schema.json` for release artifact manifests;
+- `datapan.release-verification.v1.schema.json` for release verification reports.
 
 See `docs/registry-release.md` for the local draft layout and release gates for
 a future `datapan-registry` repository.

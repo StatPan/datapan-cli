@@ -135,6 +135,7 @@ Likely artifacts:
 - `schemas/datapan.verification.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
 - `schemas/datapan.release-manifest.v1.schema.json`;
+- `schemas/datapan.release-verification.v1.schema.json`;
 - `data/data-go-kr.registry.json`;
 - `data/provider-index.json`;
 - `reports/latest-verification.json`;
@@ -476,6 +477,7 @@ Required:
 - publish verification reports;
 - publish verification summaries;
 - publish release manifests with artifact checksums;
+- publish release verification reports;
 - document provenance and update cadence.
 
 Completion bar:

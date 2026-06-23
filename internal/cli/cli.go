@@ -2896,6 +2896,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
+		"schemas/datapan.release-verification.v1.schema.json",
 	}
 }
 
@@ -2990,14 +2991,15 @@ type releaseManifestArtifact struct {
 }
 
 type releaseManifestVerificationReport struct {
-	Manifest      string                              `json:"manifest"`
-	Root          string                              `json:"root"`
-	SchemaVersion string                              `json:"schema_version,omitempty"`
-	ArtifactCount int                                 `json:"artifact_count"`
-	Checked       int                                 `json:"checked"`
-	Failed        int                                 `json:"failed"`
-	OK            bool                                `json:"ok"`
-	Results       []releaseManifestVerificationResult `json:"results"`
+	Manifest              string                              `json:"manifest"`
+	Root                  string                              `json:"root"`
+	SchemaVersion         string                              `json:"schema_version"`
+	ManifestSchemaVersion string                              `json:"manifest_schema_version,omitempty"`
+	ArtifactCount         int                                 `json:"artifact_count"`
+	Checked               int                                 `json:"checked"`
+	Failed                int                                 `json:"failed"`
+	OK                    bool                                `json:"ok"`
+	Results               []releaseManifestVerificationResult `json:"results"`
 }
 
 type releaseManifestVerificationResult struct {
@@ -3050,13 +3052,14 @@ func verifyReleaseManifest(manifestPath string) (releaseManifestVerificationRepo
 		root = "."
 	}
 	report := releaseManifestVerificationReport{
-		Manifest:      manifestPath,
-		Root:          root,
-		SchemaVersion: manifest.SchemaVersion,
-		ArtifactCount: manifest.ArtifactCount,
-		Checked:       len(manifest.Artifacts),
-		OK:            true,
-		Results:       make([]releaseManifestVerificationResult, 0, len(manifest.Artifacts)+1),
+		Manifest:              manifestPath,
+		Root:                  root,
+		SchemaVersion:         "datapan.release-verification.v1",
+		ManifestSchemaVersion: manifest.SchemaVersion,
+		ArtifactCount:         manifest.ArtifactCount,
+		Checked:               len(manifest.Artifacts),
+		OK:                    true,
+		Results:               make([]releaseManifestVerificationResult, 0, len(manifest.Artifacts)+1),
 	}
 	if manifest.ArtifactCount != len(manifest.Artifacts) {
 		report.addManifestFailure(manifestPath, "artifact_count_mismatch")

@@ -166,13 +166,14 @@ with relative artifact paths, byte sizes, and SHA-256 checksums. Use
 `--provider-limit N` to bound provider report output.
 
 `datapan catalog release verify --manifest PATH --json` rereads a release
-manifest without fetching upstream data or calling provider APIs. It treats the
-manifest directory as the release root, verifies each listed relative artifact
-path, byte size, and SHA-256 checksum, and returns exit code 4 when any artifact
-is missing, outside the release root, size-mismatched, checksum-mismatched, has
-an invalid checksum format, duplicates another artifact path, references
-`manifest.json` itself, uses an unsupported manifest schema version, or when
-`artifact_count` does not match the listed artifact count.
+manifest without fetching upstream data or calling provider APIs and emits a
+`datapan.release-verification.v1` report. It treats the manifest directory as
+the release root, verifies each listed relative artifact path, byte size, and
+SHA-256 checksum, and returns exit code 4 when any artifact is missing, outside
+the release root, size-mismatched, checksum-mismatched, has an invalid checksum
+format, duplicates another artifact path, references `manifest.json` itself,
+uses an unsupported manifest schema version, or when `artifact_count` does not
+match the listed artifact count.
 
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the
