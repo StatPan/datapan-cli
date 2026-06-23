@@ -102,6 +102,10 @@ adapter at all.
 Release drafts also publish `data/provider-index.json` using
 `schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
 registered adapter ownership from backlog observations.
+They also publish `reports/error-catalog.json` using
+`schemas/datapan.error-catalog.v1.schema.json` so provider adapters can preserve
+upstream status fields instead of translating every provider error into a
+Datapan-only shape.
 
 ## First Adapter: q-net
 

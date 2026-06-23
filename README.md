@@ -75,6 +75,7 @@ datapan search --org 기상청 --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --output .datapan/catalog-diff.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
+datapan catalog errors --registry .datapan/data-go-kr.registry.json --output .datapan/error-catalog.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
@@ -142,6 +143,12 @@ Audit counts remain operation/spec scoped, while sample buckets are bounded and
 dataset-deduplicated so one multi-operation dataset does not hide other
 examples. With `--output`, it writes a `datapan.catalog-audit.v1` report for
 release or CI use.
+Use `datapan catalog errors` to inventory provider status fields declared in
+response parameters, such as `resultCode`, `resultMsg`, `returnReasonCode`,
+`returnAuthMsg`, and `errMsg`. With `--output`, it writes a
+`datapan.error-catalog.v1` report so verification, SDK, and Studio layers can
+preserve upstream error/status semantics instead of inventing a separate error
+taxonomy.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, registered adapter hosts, missing adapter hosts,
@@ -238,6 +245,7 @@ The first schema drafts live in `schemas/`:
 - `datapan.specs.v1.schema.json` for normalized registry files;
 - `datapan.provider-index.v1.schema.json` for registered provider adapter indexes;
 - `datapan.catalog-diff.v1.schema.json` for registry update diff reports;
+- `datapan.error-catalog.v1.schema.json` for upstream provider status field inventories;
 - `datapan.catalog-audit.v1.schema.json` for registry gap audit reports;
 - `datapan.providers.v1.schema.json` for provider backlog reports;
 - `datapan.verification.v1.schema.json` for runtime evidence reports;

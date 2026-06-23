@@ -696,6 +696,62 @@ func TestCatalogAuditJSONReportsCoverageGaps(t *testing.T) {
 	}
 }
 
+func TestCatalogErrorsJSONReportsProviderStatusFields(t *testing.T) {
+	dir := t.TempDir()
+	tmp := dir + "/registry.json"
+	outputPath := dir + "/error-catalog.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","response_params":[{"name":"resultCode","label":"결과코드"},{"name":"resultMsg","label":"결과메시지"},{"name":"body","label":"본문"}]}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"오류","endpoint":"https://external.example.test/api","response_params":[{"name":"returnReasonCode","label":"오류코드"},{"name":"returnAuthMsg","label":"인증오류메시지"},{"name":"errMsg","label":"오류메시지"}]}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"데이터","endpoint":"https://apis.data.go.kr/300/list","response_params":[{"name":"name","label":"이름"}]}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "errors", "--registry", tmp, "--limit", "1", "--output", outputPath, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"output": "` + jsonEscaped(outputPath) + `"`,
+		`"report":`,
+		`"operations_with_status_fields": 2`,
+		`"operations_with_result_code": 1`,
+		`"operations_with_result_message": 1`,
+		`"operations_with_reason_code": 1`,
+		`"operations_with_auth_message": 1`,
+		`"operations_with_error_message": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"limit": 1`,
+		`"truncated": true`,
+		`"name": "resultCode"`,
+		`"role": "result_code"`,
+		`"name": "returnAuthMsg"`,
+		`"role": "auth_message"`,
+		`"operations": [`,
+		`"dataset_id": "100"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in report: %s", want, data)
+		}
+	}
+	validator, available, err := loadReleaseSchemaValidator(filepath.Clean(filepath.Join("..", "..")))
+	if err != nil || !available {
+		t.Fatalf("expected schema validator: available=%v err=%v", available, err)
+	}
+	if err := validator.validate("https://schemas.datapan.dev/datapan.error-catalog.v1.schema.json", data); err != nil {
+		t.Fatalf("expected error catalog report to match schema: %v\n%s", err, data)
+	}
+}
+
 func TestCatalogProvidersJSONReportsAdapterBacklog(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
@@ -1290,7 +1346,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 18`,
+		`"artifacts": 20`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1306,12 +1362,14 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
 		outputDir + "/schemas/datapan.schema-index.v1.schema.json",
 		outputDir + "/schemas/datapan.catalog-diff.v1.schema.json",
+		outputDir + "/schemas/datapan.error-catalog.v1.schema.json",
 		outputDir + "/schemas/datapan.catalog-audit.v1.schema.json",
 		outputDir + "/schemas/datapan.provider-index.v1.schema.json",
 		outputDir + "/schemas/index.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/data/provider-index.json",
 		outputDir + "/reports/catalog-audit.json",
+		outputDir + "/reports/error-catalog.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
@@ -1342,13 +1400,15 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 10`,
+		`"count": 11`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-diff.v1.schema.json"`,
+		`"path": "schemas/datapan.error-catalog.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-audit.v1.schema.json"`,
 		`"path": "schemas/datapan.provider-index.v1.schema.json"`,
 		`"contract": "schema-index"`,
 		`"contract": "catalog-diff"`,
+		`"contract": "error-catalog"`,
 		`"contract": "catalog-audit"`,
 		`"contract": "provider-index"`,
 		`"version": "v1"`,
@@ -1363,13 +1423,15 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 18`,
+		`"artifact_count": 20`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
 		`"kind": "provider_index"`,
 		`"path": "reports/catalog-audit.json"`,
 		`"kind": "catalog_audit"`,
+		`"path": "reports/error-catalog.json"`,
+		`"kind": "error_catalog"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
 		`"sha256":`,
@@ -1388,7 +1450,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 18`,
+		`"checked": 20`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {

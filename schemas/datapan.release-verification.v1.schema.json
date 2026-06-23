@@ -69,6 +69,7 @@
             "registry",
             "provider_index",
             "catalog_audit",
+            "error_catalog",
             "provider_backlog",
             "verification",
             "verification_summary",

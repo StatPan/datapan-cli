@@ -133,6 +133,7 @@ Likely artifacts:
 - `schemas/datapan.specs.v1.schema.json`;
 - `schemas/datapan.provider-index.v1.schema.json`;
 - `schemas/datapan.catalog-diff.v1.schema.json`;
+- `schemas/datapan.error-catalog.v1.schema.json`;
 - `schemas/datapan.catalog-audit.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
@@ -145,6 +146,7 @@ Likely artifacts:
 - `data/provider-index.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
+- `reports/error-catalog.json`;
 - `reports/catalog-audit.json`;
 - `manifest.json`.
 
@@ -433,6 +435,7 @@ Required:
 - dependency backlog by host, protocol, and approval state;
 - stable audit JSON;
 - stable diff report schema;
+- stable error catalog schema;
 - stable audit report schema;
 - stable registry schema draft;
 - update workflow that can be repeated locally and in CI.
@@ -489,6 +492,7 @@ Required:
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
 - publish catalog audit reports;
+- publish error catalog reports;
 - publish verification reports;
 - publish verification summaries;
 - publish release manifests with artifact checksums;

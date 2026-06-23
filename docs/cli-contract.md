@@ -101,6 +101,16 @@ command writes a pure `datapan.catalog-audit.v1` report containing
 may wrap that report in a command envelope for agent use and must not be
 combined with `--output -`.
 
+`datapan catalog errors --registry PATH --json` inventories provider status and
+error fields declared in operation response parameters. The command should
+preserve upstream field names and labels while adding only a conservative
+Datapan `role`, such as `result_code`, `result_message`, `reason_code`,
+`auth_message`, or `error_message`. With `--output PATH|-`, the command writes
+a pure `datapan.error-catalog.v1` report containing `generated_at`, `provider`,
+`registry`, `limit`, `truncated`, `summary`, `status_fields`, and
+`operations`. `--json` may wrap that report in a command envelope for agent use
+and must not be combined with `--output -`.
+
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary
 counts for data.go.kr gateway hosts, external endpoint hosts, external guide

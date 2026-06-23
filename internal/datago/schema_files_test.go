@@ -49,6 +49,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.release-verification.v1.schema.json",
 		"datapan.schema-index.v1.schema.json",
 		"datapan.catalog-diff.v1.schema.json",
+		"datapan.error-catalog.v1.schema.json",
 		"datapan.catalog-audit.v1.schema.json",
 		"datapan.provider-index.v1.schema.json",
 	} {
@@ -76,6 +77,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
 		"schemas/datapan.catalog-diff.v1.schema.json",
+		"schemas/datapan.error-catalog.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
 		"schemas/datapan.provider-index.v1.schema.json",
 		"schemas/index.json",
@@ -145,6 +147,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
 		"schemas/datapan.catalog-diff.v1.schema.json",
+		"schemas/datapan.error-catalog.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
 		"schemas/datapan.provider-index.v1.schema.json",
 		"docs/spec-governance.md",
