@@ -119,6 +119,7 @@ Purpose:
 
 - publish normalized public-data catalogs;
 - publish dependency classifications;
+- publish adapter target work queues;
 - publish verification reports;
 - publish provider coverage status;
 - version catalog changes separately from CLI code;
@@ -136,6 +137,7 @@ Likely artifacts:
 - `schemas/datapan.error-catalog.v1.schema.json`;
 - `schemas/datapan.catalog-audit.v1.schema.json`;
 - `schemas/datapan.dependencies.v1.schema.json`;
+- `schemas/datapan.adapter-targets.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
@@ -147,6 +149,7 @@ Likely artifacts:
 - `data/provider-index.json`;
 - `reports/catalog-diff.json`;
 - `reports/dependencies.json`;
+- `reports/adapter-targets.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
 - `reports/error-catalog.json`;
@@ -414,10 +417,12 @@ Done or in progress:
 - data.go.kr import/update/diff/audit;
 - provider backlog classification with `catalog providers`;
 - operation-level dependency inventory with `catalog dependencies`;
+- adapter target prioritization with `catalog adapter-targets`;
 - bounded runtime evidence collection with `catalog verify`;
 - schema drafts for registry, provider indexes, catalog audits, provider
-  backlog, dependency inventories, verification reports, verification
-  summaries, release manifests, release verification, and schema indexes;
+  backlog, dependency inventories, adapter targets, verification reports,
+  verification summaries, release manifests, release verification, and schema
+  indexes;
 - provider error preservation;
 - access helper;
 - get/save/export basics.
@@ -437,12 +442,14 @@ Required:
 
 - `catalog providers`;
 - `catalog dependencies`;
+- `catalog adapter-targets`;
 - dependency backlog by host, protocol, and approval state;
 - stable audit JSON;
 - stable diff report schema;
 - stable error catalog schema;
 - stable audit report schema;
 - stable dependency inventory schema;
+- stable adapter target schema;
 - stable registry schema draft;
 - update workflow that can be repeated locally and in CI.
 
@@ -496,11 +503,13 @@ Required:
 - publish schemas and registry snapshots;
 - publish provider indexes;
 - publish dependency inventories;
+- publish adapter target reports;
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
 - publish catalog diff reports when a previous registry exists;
 - publish catalog audit reports;
 - publish dependency inventory reports;
+- publish adapter target reports;
 - publish error catalog reports;
 - publish verification reports;
 - publish verification summaries;

@@ -150,6 +150,23 @@ non-callable classes. With `--output PATH|-`, the command writes a pure
 operation list before limit is applied. `--json` may wrap that report in a
 command envelope for agent use and must not be combined with `--output -`.
 
+`datapan catalog adapter-targets --registry PATH --json` converts missing
+external endpoint and service-root operations into a prioritized adapter work
+queue by host. The response includes summary counts for target hosts, target
+operations, external endpoint operations, service-root operations,
+approval-required operations, missing-parameter operations, and unsupported
+protocol operations. Each target includes rank, host, inferred provider family,
+dependency kinds, operation and spec counts, organizations, source categories,
+API types, data formats, approval and missing-parameter counts, unsupported
+protocol counts, and bounded sample operations. Targets are sorted by operation
+coverage, then spec coverage, then approval-required count, then host. With
+`--output PATH|-`, the command writes a pure `datapan.adapter-targets.v1`
+report containing `generated_at`, `provider`, `registry`, `limit`,
+`truncated`, `filters`, `filtered_count`, `summary`, and `targets`.
+`--provider`, `--host`, and `--kind` narrow the target list before limit is
+applied. `--json` may wrap that report in a command envelope for agent use and
+must not be combined with `--output -`.
+
 `datapan catalog verify --registry PATH --json` collects bounded runtime
 evidence. It must not blindly call the whole catalog. By default it should
 consider a small bounded set of operations; callers may pass `--ref REF`,
@@ -197,8 +214,9 @@ registry release layout without fetching upstream data or calling provider
 APIs. It copies Datapan schema files, writes `schemas/index.json`, writes
 `data/data-go-kr.registry.json`, generates `reports/catalog-audit.json`,
 `reports/error-catalog.json`, `reports/dependencies.json`, and
-`reports/provider-backlog.json`, optionally writes `reports/catalog-diff.json`
-when `--previous-registry PATH` is provided,
+`reports/adapter-targets.json`, and `reports/provider-backlog.json`,
+optionally writes `reports/catalog-diff.json` when `--previous-registry PATH`
+is provided,
 optionally copies a verification report with `--verification PATH`, writes
 `reports/latest-verification-summary.json` from that report, and writes
 provenance under `provenance/data-go-kr.md`. It also writes `manifest.json`

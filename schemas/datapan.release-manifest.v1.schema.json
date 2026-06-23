@@ -71,6 +71,7 @@
             "catalog_audit",
             "error_catalog",
             "dependencies",
+            "adapter_targets",
             "provider_backlog",
             "verification",
             "verification_summary",

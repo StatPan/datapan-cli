@@ -196,6 +196,70 @@ func TestDependencyInventoryClassifiesOperations(t *testing.T) {
 	}
 }
 
+func TestAdapterTargetsPrioritizeMissingAdapterHosts(t *testing.T) {
+	deps := []DependencyOperationSummary{
+		{
+			DatasetID:       "100",
+			Title:           "외부 A",
+			Organization:    "기관",
+			Operation:       "목록",
+			Endpoint:        "https://missing.example.test/list",
+			EndpointHost:    "missing.example.test",
+			DependencyClass: "external_endpoint",
+			AdapterStatus:   "missing",
+			DataFormat:      "JSON",
+			MissingParams:   []string{"q"},
+		},
+		{
+			DatasetID:        "101",
+			Title:            "외부 B",
+			Organization:     "기관",
+			Operation:        "상세",
+			Endpoint:         "https://missing.example.test/detail",
+			EndpointHost:     "missing.example.test",
+			DependencyClass:  "external_endpoint",
+			AdapterStatus:    "missing",
+			ApprovalRequired: true,
+			DataFormat:       "XML",
+		},
+		{
+			DatasetID:       "200",
+			Title:           "루트",
+			Operation:       "목록",
+			SourceHost:      "root.example.test",
+			DependencyClass: "service_root",
+			AdapterStatus:   "missing",
+			APIType:         "SOAP",
+		},
+		{
+			DatasetID:       "300",
+			Title:           "등록됨",
+			Operation:       "목록",
+			EndpointHost:    "openapi.q-net.or.kr",
+			DependencyClass: "external_endpoint",
+			AdapterStatus:   "adapter",
+		},
+	}
+
+	summary, targets := AdapterTargetsFromDependencies(deps, 1)
+	if summary.TargetHosts != 2 || summary.TargetOperations != 3 || summary.ExternalEndpointOperations != 2 || summary.ServiceRootOperations != 1 {
+		t.Fatalf("unexpected target summary: %#v", summary)
+	}
+	if summary.ApprovalRequiredOperations != 1 || summary.MissingParamOperations != 1 || summary.UnsupportedProtocolOperations != 1 {
+		t.Fatalf("unexpected target gaps: %#v", summary)
+	}
+	if len(targets) != 2 || targets[0].Host != "missing.example.test" || targets[0].Rank != 1 || targets[0].Operations != 2 || targets[0].Specs != 2 {
+		t.Fatalf("unexpected top target: %#v", targets)
+	}
+	if len(targets[0].SampleOperations) != 1 || targets[0].SampleOperations[0].DatasetID != "100" {
+		t.Fatalf("unexpected samples: %#v", targets[0].SampleOperations)
+	}
+	filtered := FilterAdapterTargets(targets, &AdapterTargetFilters{Kind: "service_root"})
+	if len(filtered) != 1 || filtered[0].Host != "root.example.test" || filtered[0].Rank != 1 {
+		t.Fatalf("unexpected service_root filter: %#v", filtered)
+	}
+}
+
 func findProviderSummary(providers []ProviderSummary, host string) *ProviderSummary {
 	for i := range providers {
 		if providers[i].Host == host {

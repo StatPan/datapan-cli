@@ -43,6 +43,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 	for _, name := range []string{
 		"datapan.specs.v1.schema.json",
 		"datapan.dependencies.v1.schema.json",
+		"datapan.adapter-targets.v1.schema.json",
 		"datapan.providers.v1.schema.json",
 		"datapan.verification.v1.schema.json",
 		"datapan.verification-summary.v1.schema.json",
@@ -72,6 +73,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"schemas/datapan.specs.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
+		"schemas/datapan.adapter-targets.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
@@ -87,6 +89,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"data/provider-index.json",
 		"reports/catalog-audit.json",
 		"reports/dependencies.json",
+		"reports/adapter-targets.json",
 		"reports/provider-backlog.json",
 		"reports/latest-verification.json",
 		"reports/latest-verification-summary.json",
@@ -101,6 +104,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"datapan catalog verify --input",
 		"datapan catalog audit",
 		"datapan catalog dependencies",
+		"datapan catalog adapter-targets",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("registry release doc should reference %q", want)
@@ -148,6 +152,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"`datapan-cloud`",
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
+		"schemas/datapan.adapter-targets.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.schema-index.v1.schema.json",
@@ -158,6 +163,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"docs/spec-governance.md",
 		"reports/latest-verification-summary.json",
 		"reports/dependencies.json",
+		"reports/adapter-targets.json",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ecosystem doc should reference %q", want)
@@ -177,6 +183,7 @@ func TestProviderAdaptersDocReferencesContracts(t *testing.T) {
 		"internal/provider.Registry",
 		"type Adapter interface",
 		"datapan catalog providers",
+		"datapan catalog adapter-targets",
 		"--status missing",
 		"--status adapter",
 		"--kind external_endpoint",

@@ -77,6 +77,7 @@ datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-g
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
 datapan catalog errors --registry .datapan/data-go-kr.registry.json --output .datapan/error-catalog.json --json
 datapan catalog dependencies --registry .datapan/data-go-kr.registry.json --kind external_endpoint --status missing --output .datapan/dependencies.json --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --output .datapan/adapter-targets.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
@@ -158,6 +159,12 @@ an agent, UI, or SDK generator needs to know which exact operations are
 gateway-hosted, externally hosted, service-root-only, unsupported, missing an
 adapter, or owned by a registered adapter. With `--output`, it writes a
 `datapan.dependencies.v1` report.
+Use `datapan catalog adapter-targets` to turn missing external/service-root
+operations into a prioritized adapter work queue by host. It ranks target hosts
+by operation coverage, includes provider family, kinds, organizations, formats,
+approval and missing-parameter counts, and bounded sample operations. With
+`--output`, it writes a `datapan.adapter-targets.v1` report for release,
+planning, or issue creation.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, registered adapter hosts, missing adapter hosts,
@@ -180,9 +187,9 @@ Use `datapan catalog verify summary --input REPORT` to turn verification
 evidence into status, reason, provider, host, and dependency-class rollups.
 Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, optional previous-registry diff, provider index,
-catalog audit, error catalog, dependency inventory, provider backlog, schema, schema index,
-verification, verification summary, provenance, and manifest artifacts without
-calling upstream APIs.
+catalog audit, error catalog, dependency inventory, adapter targets, provider
+backlog, schema, schema index, verification, verification summary, provenance,
+and manifest artifacts without calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`
@@ -254,6 +261,7 @@ The first schema drafts live in `schemas/`:
 
 - `datapan.specs.v1.schema.json` for normalized registry files;
 - `datapan.dependencies.v1.schema.json` for operation-level dependency inventories;
+- `datapan.adapter-targets.v1.schema.json` for adapter work queue reports;
 - `datapan.provider-index.v1.schema.json` for registered provider adapter indexes;
 - `datapan.catalog-diff.v1.schema.json` for registry update diff reports;
 - `datapan.error-catalog.v1.schema.json` for upstream provider status field inventories;

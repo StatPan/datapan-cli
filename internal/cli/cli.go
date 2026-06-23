@@ -280,7 +280,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -297,6 +297,8 @@ func (a app) catalog(args []string, jsonOut bool) int {
 		return a.catalogProviders(args[1:], jsonOut)
 	case "dependencies":
 		return a.catalogDependencies(args[1:], jsonOut)
+	case "adapter-targets":
+		return a.catalogAdapterTargets(args[1:], jsonOut)
 	case "verify":
 		return a.catalogVerify(args[1:], jsonOut)
 	case "release":
@@ -1118,6 +1120,120 @@ func (a app) catalogDependencies(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) catalogAdapterTargets(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 20)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	sampleLimit, args, err := consumeInt(args, "--sample", 3)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	providerFilter, args, err := consumeString(args, "--provider", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	hostFilter, args, err := consumeString(args, "--host", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	kindFilter, args, err := consumeString(args, "--kind", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the adapter target report JSON to stdout")
+	}
+	filters, err := adapterTargetFilters(providerFilter, hostFilter, kindFilter)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	reg := a.reg
+	if registryPath != "" {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+	}
+	summary, targets := datago.AdapterTargetsForRegistry(reg, defaultProviderHosts(), sampleLimit)
+	filteredTargets := datago.FilterAdapterTargets(targets, filters)
+	truncated := limit > 0 && len(filteredTargets) > limit
+	limitedTargets := limitAdapterTargets(filteredTargets, limit)
+	report := datago.AdapterTargetReport{
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+		Provider:      "data.go.kr",
+		Registry:      registryPath,
+		Limit:         limit,
+		Truncated:     truncated,
+		Filters:       filters,
+		FilteredCount: len(filteredTargets),
+		Summary:       summary,
+		Targets:       limitedTargets,
+	}
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return exitOK
+		}
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":             true,
+			"output":         output,
+			"registry":       registryPath,
+			"limit":          limit,
+			"truncated":      truncated,
+			"filters":        filters,
+			"filtered_count": len(filteredTargets),
+			"summary":        summary,
+			"targets":        limitedTargets,
+			"report":         report,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Catalog adapter targets")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	}
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	if filters != nil {
+		fmt.Fprintf(a.stdout, "  filtered targets: %d\n", len(filteredTargets))
+	}
+	fmt.Fprintf(a.stdout, "  target hosts: %d\n", summary.TargetHosts)
+	fmt.Fprintf(a.stdout, "  target operations: %d\n", summary.TargetOperations)
+	for _, target := range limitedTargets {
+		fmt.Fprintf(a.stdout, "- #%d %s ops=%d specs=%d kinds=%s", target.Rank, target.Host, target.Operations, target.Specs, strings.Join(target.Kinds, ","))
+		if target.ProviderFamily != "" {
+			fmt.Fprintf(a.stdout, " provider=%s", target.ProviderFamily)
+		}
+		fmt.Fprintln(a.stdout)
+	}
+	if truncated {
+		fmt.Fprintf(a.stdout, "  output truncated to %d targets; use --limit 0 for all\n", limit)
+	}
+	return exitOK
+}
+
 func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if len(args) > 0 && args[0] == "summary" {
 		return a.catalogVerifySummary(args[1:], jsonOut)
@@ -1558,6 +1674,19 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	if err := writeJSONFile(paths.DependencyInventoryPath, dependencyReport); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
+	adapterTargetSummary, adapterTargets := datago.AdapterTargetsFromDependencies(dependencyOps, 3)
+	adapterTargetReport := datago.AdapterTargetReport{
+		GeneratedAt:   generatedAt,
+		Provider:      "data.go.kr",
+		Registry:      paths.RegistryPath,
+		Limit:         0,
+		FilteredCount: len(adapterTargets),
+		Summary:       adapterTargetSummary,
+		Targets:       adapterTargets,
+	}
+	if err := writeJSONFile(paths.AdapterTargetsPath, adapterTargetReport); err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
 	backlog := datago.ProviderBacklogForRegistryWithAdapters(reg, 3, defaultProviderHosts())
 	providers := limitProviders(backlog.Providers, providerLimit)
 	providerReport := datago.ProviderBacklogReport{
@@ -1613,6 +1742,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		"catalog_audit":                paths.CatalogAuditPath,
 		"error_catalog":                paths.ErrorCatalogPath,
 		"dependencies":                 paths.DependencyInventoryPath,
+		"adapter_targets":              paths.AdapterTargetsPath,
 		"provider_backlog":             paths.ProviderBacklogPath,
 		"verification":                 emptyIfFalse(paths.VerificationPath, verificationCopied),
 		"verification_summary":         emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
@@ -1638,6 +1768,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	fmt.Fprintf(a.stdout, "  catalog audit: %s\n", paths.CatalogAuditPath)
 	fmt.Fprintf(a.stdout, "  error catalog: %s\n", paths.ErrorCatalogPath)
 	fmt.Fprintf(a.stdout, "  dependencies: %s\n", paths.DependencyInventoryPath)
+	fmt.Fprintf(a.stdout, "  adapter targets: %s\n", paths.AdapterTargetsPath)
 	fmt.Fprintf(a.stdout, "  provider backlog: %s\n", paths.ProviderBacklogPath)
 	if verificationCopied {
 		fmt.Fprintf(a.stdout, "  verification: %s\n", paths.VerificationPath)
@@ -2107,6 +2238,13 @@ func limitDependencies(dependencies []datago.DependencyOperationSummary, limit i
 	return dependencies[:limit]
 }
 
+func limitAdapterTargets(targets []datago.AdapterTarget, limit int) []datago.AdapterTarget {
+	if limit <= 0 || len(targets) <= limit {
+		return targets
+	}
+	return targets[:limit]
+}
+
 func limitErrorFields(fields []datago.CatalogErrorFieldStat, limit int) []datago.CatalogErrorFieldStat {
 	if limit <= 0 || len(fields) <= limit {
 		return fields
@@ -2152,6 +2290,19 @@ func dependencyFilters(providerName, host, kind, status string) (*datago.Depende
 		return nil, fmt.Errorf("--kind must be one of: data_go_kr_gateway, external_endpoint, service_root, no_endpoint, malformed_endpoint, soap, wms")
 	}
 	return &datago.DependencyInventoryFilters{Provider: providerName, Host: host, Kind: kind, Status: status}, nil
+}
+
+func adapterTargetFilters(providerName, host, kind string) (*datago.AdapterTargetFilters, error) {
+	providerName = strings.TrimSpace(providerName)
+	host = strings.ToLower(strings.TrimSpace(host))
+	kind = strings.TrimSpace(kind)
+	if providerName == "" && host == "" && kind == "" {
+		return nil, nil
+	}
+	if kind != "" && kind != "external_endpoint" && kind != "service_root" {
+		return nil, fmt.Errorf("--kind must be one of: external_endpoint, service_root")
+	}
+	return &datago.AdapterTargetFilters{Provider: providerName, Host: host, Kind: kind}, nil
 }
 
 func defaultProviderHosts() []string {
@@ -2988,6 +3139,7 @@ Usage:
   datapan catalog errors [--registry PATH] [--limit N] [--output PATH|-] [--json]
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
   datapan catalog dependencies [--registry PATH] [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--output PATH|-] [--json]
+  datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
@@ -3249,6 +3401,7 @@ type releasePaths struct {
 	CatalogDiffPath         string
 	ProviderBacklogPath     string
 	DependencyInventoryPath string
+	AdapterTargetsPath      string
 	CatalogAuditPath        string
 	ErrorCatalogPath        string
 	VerificationPath        string
@@ -3270,6 +3423,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		CatalogDiffPath:         joinPath(outputDir, "reports/catalog-diff.json"),
 		ProviderBacklogPath:     joinPath(outputDir, "reports/provider-backlog.json"),
 		DependencyInventoryPath: joinPath(outputDir, "reports/dependencies.json"),
+		AdapterTargetsPath:      joinPath(outputDir, "reports/adapter-targets.json"),
 		CatalogAuditPath:        joinPath(outputDir, "reports/catalog-audit.json"),
 		ErrorCatalogPath:        joinPath(outputDir, "reports/error-catalog.json"),
 		VerificationPath:        joinPath(outputDir, "reports/latest-verification.json"),
@@ -3283,6 +3437,7 @@ func datapanSchemaFiles() []string {
 	return []string{
 		"schemas/datapan.specs.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
+		"schemas/datapan.adapter-targets.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
@@ -3746,6 +3901,7 @@ func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVer
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.CatalogAuditPath), Kind: "catalog_audit", Schema: "https://schemas.datapan.dev/datapan.catalog-audit.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ErrorCatalogPath), Kind: "error_catalog", Schema: "https://schemas.datapan.dev/datapan.error-catalog.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.DependencyInventoryPath), Kind: "dependencies", Schema: "https://schemas.datapan.dev/datapan.dependencies.v1.schema.json"},
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.AdapterTargetsPath), Kind: "adapter_targets", Schema: "https://schemas.datapan.dev/datapan.adapter-targets.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
 	)
 	if includeVerification {
@@ -3835,6 +3991,7 @@ func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verifica
 	fmt.Fprintf(&b, "datapan catalog audit --registry %s --output %s --json\n", paths.RegistryPath, paths.CatalogAuditPath)
 	fmt.Fprintf(&b, "datapan catalog errors --registry %s --output %s --json\n", paths.RegistryPath, paths.ErrorCatalogPath)
 	fmt.Fprintf(&b, "datapan catalog dependencies --registry %s --limit 0 --output %s --json\n", paths.RegistryPath, paths.DependencyInventoryPath)
+	fmt.Fprintf(&b, "datapan catalog adapter-targets --registry %s --limit 0 --output %s --json\n", paths.RegistryPath, paths.AdapterTargetsPath)
 	fmt.Fprintf(&b, "datapan catalog providers --registry %s --limit %d --output %s --json\n", paths.RegistryPath, providerLimit, paths.ProviderBacklogPath)
 	if verificationPath != "" {
 		fmt.Fprintf(&b, "datapan catalog verify --input %s --json\n", paths.VerificationPath)

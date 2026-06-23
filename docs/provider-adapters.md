@@ -72,12 +72,19 @@ Use `catalog providers` to choose adapter work by evidence:
 
 ```bash
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --limit 20 --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --limit 20 --json
 ```
+
+`catalog providers` summarizes the backlog by host. `catalog adapter-targets`
+turns missing external endpoint and service-root operations into a ranked work
+queue with operation/spec counts and sample operations, which is usually the
+better starting point for deciding the next adapter implementation.
 
 To inspect one likely provider family:
 
 ```bash
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider q-net --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider q-net --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
@@ -111,7 +118,7 @@ Datapan-only shape.
 
 The q-net adapter starts narrow, not broad:
 
-1. Pull q-net hosts from `catalog providers`.
+1. Pull q-net hosts from `catalog providers` and `catalog adapter-targets`.
 2. Inspect sample dataset IDs from the provider backlog report.
 3. Identify credential requirements and approval behavior.
 4. Identify response success and error envelopes.
