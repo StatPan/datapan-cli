@@ -321,6 +321,10 @@ func (a app) search(args []string, jsonOut bool) int {
 		if len(spec.Operations) > 0 {
 			fmt.Fprintf(a.stdout, "  default operation: %s\n", spec.Operations[0].Name)
 		}
+		fmt.Fprintf(a.stdout, "  next: %s\n", showCommand(spec))
+		if example := exampleGetCommand(spec); example != "" {
+			fmt.Fprintf(a.stdout, "  try: %s\n", example)
+		}
 	}
 	return exitOK
 }
@@ -2669,10 +2673,7 @@ func showPayload(spec datago.Spec) map[string]any {
 		"spec":       spec,
 		"access":     showAccessSummary(spec),
 		"operations": showOperationSummaries(spec),
-		"examples": map[string]string{
-			"access": "datapan access " + spec.ID + " --start",
-			"get":    exampleGetCommand(spec),
-		},
+		"examples":   specExampleCommands(spec),
 	}
 }
 
@@ -2755,7 +2756,7 @@ func nonAuthParams(params []datago.Param) []datago.Param {
 
 func isAuthParam(name string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "_", ""))
-	return normalized == "servicekey" || normalized == "apikey" || normalized == "authkey"
+	return normalized == "servicekey" || normalized == "apikey" || normalized == "authapikey" || normalized == "authkey"
 }
 
 func paramSummaries(params []datago.Param) []map[string]string {
@@ -2811,6 +2812,62 @@ func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
 		}
 	}
 	args = append(args, "--json")
+	return datago.CommandString(args)
+}
+
+func specExampleCommands(spec datago.Spec) map[string]string {
+	examples := map[string]string{
+		"show":    showCommand(spec),
+		"access":  "datapan access " + spec.ID + " --start",
+		"get":     exampleGetCommand(spec),
+		"curl":    exampleExportCommand(spec, "curl"),
+		"postman": exampleExportCommand(spec, "postman"),
+		"openapi": exampleExportCommand(spec, "openapi"),
+	}
+	for key, value := range examples {
+		if strings.TrimSpace(value) == "" {
+			delete(examples, key)
+		}
+	}
+	return examples
+}
+
+func showCommand(spec datago.Spec) string {
+	return datago.CommandString([]string{"datapan", "show", spec.ID})
+}
+
+func exampleExportCommand(spec datago.Spec, format string) string {
+	if len(spec.Operations) == 0 {
+		return ""
+	}
+	op := spec.Operations[0]
+	if op.Endpoint == "" {
+		return ""
+	}
+	args := []string{"datapan"}
+	switch format {
+	case "curl":
+		args = append(args, "curl", spec.ID)
+	case "postman", "openapi":
+		args = append(args, "export", "--format", format, spec.ID)
+	default:
+		return ""
+	}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	for _, param := range nonAuthParams(op.RequestParams) {
+		name := strings.TrimSpace(param.Name)
+		if name != "" {
+			args = append(args, name+"=VALUE")
+		}
+	}
+	switch format {
+	case "postman":
+		args = append(args, "--output", spec.ID+".postman_collection.json")
+	case "openapi":
+		args = append(args, "--output", spec.ID+".openapi.json")
+	}
 	return datago.CommandString(args)
 }
 
@@ -2872,6 +2929,7 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 		if spec.Description != "" {
 			item["description"] = spec.Description
 		}
+		item["examples"] = specExampleCommands(spec)
 		out = append(out, item)
 	}
 	return out

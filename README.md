@@ -119,6 +119,10 @@ Search can be narrowed with source metadata such as `--org`, `--category`,
 `data.go.kr`; `org` is the public agency or institution that provides the data.
 `category` maps to the upstream source category only when that value is present
 in the imported catalog; Datapan should not invent source categories.
+Search and show results include copyable next-step examples for `show`, `get`,
+`curl`, Postman export, and OpenAPI export when an operation has an endpoint.
+Credential parameters such as `serviceKey` and `authApiKey` stay out of those
+examples because Datapan reads the key from environment variables.
 
 To move beyond the embedded seed catalog, install the latest released
 `datapan-registry` snapshot. This is the normal consumer path: it downloads the

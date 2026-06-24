@@ -206,6 +206,34 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 	if !strings.Contains(stdout, `"id": "15126469"`) {
 		t.Fatalf("expected apartment trade spec in output: %s", stdout)
 	}
+	for _, want := range []string{
+		`"examples":`,
+		`"show": "datapan show 15126469"`,
+		`"curl": "datapan curl 15126469`,
+		`"openapi": "datapan export --format openapi 15126469`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in search output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `serviceKey=VALUE`) {
+		t.Fatalf("search examples should not ask for serviceKey: %s", stdout)
+	}
+}
+
+func TestSearchHumanOutputShowsNextCommands(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"search", "실거래", "--org", "국토교통부", "--limit", "1"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	for _, want := range []string{
+		`next: datapan show 15126469`,
+		`try: datapan get 15126469`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in search output: %s", want, stdout)
+		}
+	}
 }
 
 func TestSearchAllowsFilterOnly(t *testing.T) {
@@ -255,6 +283,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 					"endpoint": "https://example.test/api",
 					"request_params": [
 						{"name": "serviceKey", "label": "인증키"},
+						{"name": "authApiKey", "label": "인증키2"},
 						{"name": "PAGE", "label": "페이지"},
 						{"name": "ROWS", "label": "행수"}
 					],
@@ -290,17 +319,21 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"request_params":`,
 		`"auth_params":`,
 		`"name": "serviceKey"`,
+		`"name": "authApiKey"`,
 		`"name": "PAGE"`,
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
 		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
+		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE"`,
+		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
+		`"openapi": "datapan export --format openapi 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.openapi.json"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
 	}
-	if strings.Contains(stdout, `serviceKey=VALUE`) {
-		t.Fatalf("show example should not ask users to pass serviceKey: %s", stdout)
+	if strings.Contains(stdout, `serviceKey=VALUE`) || strings.Contains(stdout, `authApiKey=VALUE`) {
+		t.Fatalf("show examples should not ask users to pass auth params: %s", stdout)
 	}
 }
 

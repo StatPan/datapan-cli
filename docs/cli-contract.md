@@ -71,6 +71,14 @@ datapan search "실거래" --org 국토교통부 --json
 path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
+`datapan search --json` must include per-result `examples` for immediate next
+steps: `show`, `get`, `curl`, `postman`, and `openapi` when those commands can
+be generated from the selected operation. Human search output should include at
+least a `next: datapan show <id>` line and, when callable, a `try: datapan get
+...` line. Generated examples must omit auth parameters such as `serviceKey`,
+`apiKey`, `authApiKey`, and `authKey`; Datapan supplies credentials from
+environment variables.
+
 ## Registry Import
 
 `datapan catalog import data-go-kr` imports the upstream data.go.kr open-data
@@ -360,8 +368,8 @@ datapan export --input - --format csv
 `get` and `save` also accept positional `KEY=VALUE` parameters for the common
 case where a user or agent has the required parameter names from `show`.
 `show` may expose provider auth parameters under `auth_params`, but generated
-examples must not ask the user to pass `serviceKey`; Datapan supplies that from
-the accepted environment variables.
+examples must not ask the user to pass `serviceKey`, `apiKey`, `authApiKey`, or
+`authKey`; Datapan supplies those from the accepted environment variables.
 
 `datapan curl <ref>` and `datapan export --format curl <ref>` emit a copyable
 `curl -fsS ...` command without making a provider request. The generated URL
