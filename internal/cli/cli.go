@@ -1063,7 +1063,7 @@ func catalogOverviewNext(registryPath string) []catalogOverviewNextStep {
 		{Label: "search", Command: "datapan search \"실거래\" --org 국토교통부 --json"},
 		{Label: "dependencies", Command: "datapan catalog dependencies" + registryArg + " --status missing --kind external_endpoint --limit 20 --json"},
 		{Label: "adapter targets", Command: "datapan catalog adapter-targets" + registryArg + " --limit 20 --json"},
-		{Label: "verify adapters", Command: "datapan catalog verify" + registryArg + " --provider ekape --kind external_endpoint --limit 5 --json"},
+		{Label: "verify adapters", Command: "datapan catalog verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --json"},
 	}
 }
 

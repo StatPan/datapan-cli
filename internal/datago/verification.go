@@ -413,7 +413,14 @@ func isProbablyOptionalParam(name string) bool {
 
 func isAuthParam(name string) bool {
 	normalized := normalizeParamName(name)
-	return normalized == "servicekey" || normalized == "service_key" || normalized == "apikey" || normalized == "api_key"
+	return normalized == "servicekey" ||
+		normalized == "service_key" ||
+		normalized == "apikey" ||
+		normalized == "api_key" ||
+		normalized == "authapikey" ||
+		normalized == "auth_api_key" ||
+		normalized == "authkey" ||
+		normalized == "auth_key"
 }
 
 func normalizeParamName(name string) string {

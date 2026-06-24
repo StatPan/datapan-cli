@@ -128,6 +128,30 @@ func TestProviderBacklogMarksRegisteredAdapterHosts(t *testing.T) {
 	}
 }
 
+func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:       "400",
+			Title:    "산림청_외부",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
+				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
+			},
+		},
+	})
+
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr"})
+	forest := findProviderSummary(backlog.Providers, "api.forest.go.kr")
+	if forest == nil || forest.AdapterStatus != "adapter" || forest.Provider != "forest" {
+		t.Fatalf("unexpected forest summary: %#v", forest)
+	}
+	ekape := findProviderSummary(backlog.Providers, "data.ekape.or.kr")
+	if ekape == nil || ekape.AdapterStatus != "adapter" || ekape.Provider != "ekape" {
+		t.Fatalf("unexpected ekape summary: %#v", ekape)
+	}
+}
+
 func TestDependencyInventoryClassifiesOperations(t *testing.T) {
 	reg := NewRegistry([]Spec{
 		{

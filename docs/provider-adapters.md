@@ -89,6 +89,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider epost --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider ekape --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider ekape --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider forest --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider forest --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
@@ -97,6 +99,7 @@ To inspect hosts that already have an observation-stage adapter registered:
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider q-net --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider epost --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ekape --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 ```
 
 The current imported registry shows q-net as a strong early adapter family:
@@ -118,6 +121,8 @@ adapter family.
 EKAPE host ownership for `data.ekape.or.kr` adds a third adapter family and
 captures upstream key-registration failures as provider evidence rather than
 leaving those operations as generic missing-adapter skips.
+The forest adapter owns `api.forest.go.kr` and verifies a small but real
+external provider family with observed `NORMAL SERVICE` XML responses.
 Release drafts also publish `data/provider-index.json` using
 `schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
 registered adapter ownership from backlog observations.
@@ -235,6 +240,28 @@ redacted URLs, stable provider-specific reasons such as
 `resultMsg` under `provider_status`. A failed EKAPE verification is still useful
 evidence when it proves that the request reached the external provider and the
 provider rejected the credential registration state.
+
+## Fourth Adapter: forest
+
+The forest adapter covers Korea Forest Service culture information APIs hosted
+at `api.forest.go.kr`. It is intentionally small: the current registry contains
+four external operations across two datasets. The value is evidence quality.
+Those operations need search terms, so the adapter supplies conservative
+read-only defaults such as `searchWrd=소나무`, `searchMtNm=북한산`,
+`searchArNm=서울`, `pageNo=1`, and `numOfRows=1`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider forest --kind external_endpoint --limit 4 --output .datapan/forest-verification.json --json
+datapan catalog verify summary --input .datapan/forest-verification.json --json
+```
+
+Expected evidence shape: `provider=forest`, `endpoint_host=api.forest.go.kr`,
+redacted URLs, XML response shapes, `semantic_status=provider_ok` for working
+operations, and stable provider-specific reasons such as
+`forest_service_key_not_registered` when upstream rejects a key.
 
 ## Adapter Readiness Bar
 

@@ -190,6 +190,8 @@ Adapter status:
 - `epost`: registered observation-stage adapter for postal APIs;
 - `ekape`: registered observation-stage adapter for livestock quality
   evaluation APIs, including provider key-registration error evidence;
+- `forest`: registered observation-stage adapter for Korea Forest Service
+  culture information APIs with verified XML response evidence;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;

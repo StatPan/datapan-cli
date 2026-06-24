@@ -327,6 +327,75 @@ func TestEKAPEAdapterClassifiesServiceKeyFailures(t *testing.T) {
 	}
 }
 
+func TestForestAdapterOwnsKnownHostsConservatively(t *testing.T) {
+	adapter := NewForestAdapter()
+	if !adapter.MatchHost("api.forest.go.kr") {
+		t.Fatal("expected forest adapter to match api.forest.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("forest adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "500", Title: "Forest 샘플", Provider: "data.go.kr"}
+	op := datago.Operation{Name: "숲 이야기", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in provider request")
+		}
+		if req.URL.Query().Get("searchWrd") != "소나무" || req.URL.Query().Get("pageNo") != "1" {
+			t.Fatalf("unexpected forest query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><fsname>소나무</fsname></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		MissingParams: []string{"searchWrd", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "forest" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected forest verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted forest URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["searchWrd"] != "소나무" || result.Params["pageNo"] != "1" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected forest public params: %#v", result.Params)
+	}
+}
+
+func TestForestAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewForestAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("searchMtNm") != "북한산" || req.URL.Query().Get("searchArNm") != "서울" {
+			t.Fatalf("unexpected forest trail query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>30</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "501", Title: "Forest key", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "키 오류", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/gdTrailInfoOpenAPI"},
+		MissingParams: []string{"searchMtNm", "searchArNm"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "forest_service_key_not_registered" {
+		t.Fatalf("unexpected forest service key result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "30" {
+		t.Fatalf("unexpected forest provider status: %#v", result.ProviderStatus)
+	}
+}
+
 func TestQNetAdapterSkipsUnknownRequiredParams(t *testing.T) {
 	adapter := NewQNetAdapter()
 	result := adapter.Verify(context.Background(), VerificationRequest{
