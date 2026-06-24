@@ -63,6 +63,12 @@ Tagged `v*` releases build Linux, macOS, and Windows archives containing both
 `checksums.txt` so install scripts and agents can verify downloaded binaries.
 Release binaries stamp `datapan version --json` with the tag name.
 
+Maintainers can smoke-test the public first-run path from a release archive:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke-first-run.ps1 -Version latest
+```
+
 See `.env.example` for local key names, `docs/cli-contract.md` for the
 agent-facing command contract, `docs/ecosystem.md` for the spec-first Datapan
 repository map, `docs/registry-release.md` for registry artifact release

@@ -45,7 +45,9 @@ jobs:
       - name: Check Windows install script help
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .\scripts\install.ps1 -Help
+        run: |
+          .\scripts\install.ps1 -Help
+          .\scripts\smoke-first-run.ps1 -Help
 
       - name: Build datapan
         run: go build ./cmd/datapan
