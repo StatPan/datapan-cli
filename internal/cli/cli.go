@@ -145,6 +145,8 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
+	case "catalog":
+		return len(args) > 1 && args[1] == "overview"
 	default:
 		return false
 	}
@@ -327,7 +329,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -336,6 +338,8 @@ func (a app) catalog(args []string, jsonOut bool) int {
 		return a.catalogUpdate(args[1:], jsonOut)
 	case "install":
 		return a.catalogInstall(args[1:], jsonOut)
+	case "overview":
+		return a.catalogOverview(args[1:], jsonOut)
 	case "diff":
 		return a.catalogDiff(args[1:], jsonOut)
 	case "audit":
@@ -839,6 +843,273 @@ func (a app) catalogInstallFailure(jsonOut bool, err error) int {
 		return exitRequest
 	}
 	return a.fail(exitRequest, "%v", err)
+}
+
+type catalogOverviewReport struct {
+	GeneratedAt string                    `json:"generated_at"`
+	Provider    string                    `json:"provider"`
+	Registry    string                    `json:"registry,omitempty"`
+	Source      string                    `json:"source,omitempty"`
+	Limit       int                       `json:"limit"`
+	Summary     catalogOverviewSummary    `json:"summary"`
+	Top         catalogOverviewTop        `json:"top"`
+	Adapters    providers.IndexReport     `json:"adapters"`
+	Next        []catalogOverviewNextStep `json:"next"`
+}
+
+type catalogOverviewSummary struct {
+	Specs                       int `json:"specs"`
+	Operations                  int `json:"operations"`
+	Organizations               int `json:"organizations"`
+	Categories                  int `json:"categories"`
+	CallableOperations          int `json:"callable_operations"`
+	DataGoKrGatewayOperations   int `json:"data_go_kr_gateway_operations"`
+	ExternalEndpointOperations  int `json:"external_endpoint_operations"`
+	RegisteredAdapterOperations int `json:"registered_adapter_operations"`
+	MissingAdapterOperations    int `json:"missing_adapter_operations"`
+	ApprovalRequiredOperations  int `json:"approval_required_operations"`
+	MissingAdapterHosts         int `json:"missing_adapter_hosts"`
+	RegisteredAdapterHosts      int `json:"registered_adapter_hosts"`
+}
+
+type catalogOverviewTop struct {
+	Organizations       []nameCount              `json:"organizations,omitempty"`
+	Categories          []nameCount              `json:"categories,omitempty"`
+	ExternalHosts       []datago.HostCount       `json:"external_hosts,omitempty"`
+	AdapterHosts        []datago.ProviderSummary `json:"adapter_hosts,omitempty"`
+	MissingAdapterHosts []datago.ProviderSummary `json:"missing_adapter_hosts,omitempty"`
+}
+
+type catalogOverviewNextStep struct {
+	Label   string `json:"label"`
+	Command string `json:"command"`
+}
+
+type nameCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+func (a app) catalogOverview(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 10)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the catalog overview report JSON to stdout")
+	}
+	reg := a.reg
+	source := a.registrySource
+	if registryPath == "" {
+		registryPath = a.registryPath
+	} else {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+		source = "flag"
+	}
+	report, err := a.buildCatalogOverview(reg, registryPath, source, limit)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return exitOK
+		}
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":       true,
+			"output":   output,
+			"registry": registryPath,
+			"source":   source,
+			"report":   report,
+			"summary":  report.Summary,
+			"top":      report.Top,
+			"adapters": report.Adapters,
+			"next":     report.Next,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Catalog overview")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s", registryPath)
+		if source != "" {
+			fmt.Fprintf(a.stdout, " (%s)", source)
+		}
+		fmt.Fprintln(a.stdout)
+	}
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	fmt.Fprintf(a.stdout, "  specs: %d\n", report.Summary.Specs)
+	fmt.Fprintf(a.stdout, "  operations: %d\n", report.Summary.Operations)
+	fmt.Fprintf(a.stdout, "  organizations: %d\n", report.Summary.Organizations)
+	fmt.Fprintf(a.stdout, "  categories: %d\n", report.Summary.Categories)
+	fmt.Fprintf(a.stdout, "  data.go.kr gateway operations: %d\n", report.Summary.DataGoKrGatewayOperations)
+	fmt.Fprintf(a.stdout, "  external endpoint operations: %d\n", report.Summary.ExternalEndpointOperations)
+	fmt.Fprintf(a.stdout, "  registered adapter operations: %d\n", report.Summary.RegisteredAdapterOperations)
+	fmt.Fprintf(a.stdout, "  missing adapter operations: %d\n", report.Summary.MissingAdapterOperations)
+	fmt.Fprintf(a.stdout, "  adapters: %d hosts=%d\n", report.Adapters.AdapterCount, report.Adapters.HostCount)
+	if len(report.Top.Organizations) > 0 {
+		fmt.Fprintln(a.stdout, "Top organizations")
+		for _, item := range report.Top.Organizations {
+			fmt.Fprintf(a.stdout, "- %s: %d specs\n", item.Name, item.Count)
+		}
+	}
+	if len(report.Top.MissingAdapterHosts) > 0 {
+		fmt.Fprintln(a.stdout, "Top missing adapter hosts")
+		for _, provider := range report.Top.MissingAdapterHosts {
+			fmt.Fprintf(a.stdout, "- %s: %d ops", provider.Host, provider.Operations)
+			if provider.Provider != "" {
+				fmt.Fprintf(a.stdout, " provider=%s", provider.Provider)
+			}
+			if len(provider.SampleIDs) > 0 {
+				fmt.Fprintf(a.stdout, " samples=%s", strings.Join(provider.SampleIDs, ","))
+			}
+			fmt.Fprintln(a.stdout)
+		}
+	}
+	if len(report.Next) > 0 {
+		fmt.Fprintln(a.stdout, "Next")
+		for _, step := range report.Next {
+			fmt.Fprintf(a.stdout, "- %s: %s\n", step.Label, step.Command)
+		}
+	}
+	return exitOK
+}
+
+func (a app) buildCatalogOverview(reg datago.Registry, registryPath, source string, limit int) (catalogOverviewReport, error) {
+	if limit < 0 {
+		limit = 0
+	}
+	specs := reg.Specs()
+	orgCounts := map[string]int{}
+	categoryCounts := map[string]int{}
+	for _, spec := range specs {
+		if value := strings.TrimSpace(spec.Organization); value != "" {
+			orgCounts[value]++
+		}
+		if value := strings.TrimSpace(spec.SourceCategory); value != "" {
+			categoryCounts[value]++
+		}
+	}
+	audit := datago.AuditRegistry(reg, 0)
+	dependencySummary, _ := datago.DependencyInventoryForRegistry(reg, defaultProviderHosts())
+	backlog := datago.ProviderBacklogForRegistryWithAdapters(reg, 3, defaultProviderHosts())
+	providerRegistry, err := providers.DefaultRegistry()
+	if err != nil {
+		return catalogOverviewReport{}, err
+	}
+	generatedAt := time.Now().UTC().Format(time.RFC3339)
+	return catalogOverviewReport{
+		GeneratedAt: generatedAt,
+		Provider:    "data.go.kr",
+		Registry:    registryPath,
+		Source:      source,
+		Limit:       limit,
+		Summary: catalogOverviewSummary{
+			Specs:                       len(specs),
+			Operations:                  dependencySummary.OperationsTotal,
+			Organizations:               len(orgCounts),
+			Categories:                  len(categoryCounts),
+			CallableOperations:          audit.CallableOperations,
+			DataGoKrGatewayOperations:   dependencySummary.DataGoKrGatewayOperations,
+			ExternalEndpointOperations:  dependencySummary.ExternalEndpointOps,
+			RegisteredAdapterOperations: dependencySummary.RegisteredAdapterOps,
+			MissingAdapterOperations:    dependencySummary.MissingAdapterOps,
+			ApprovalRequiredOperations:  dependencySummary.ApprovalRequiredOps,
+			MissingAdapterHosts:         backlog.Summary.MissingAdapterHosts,
+			RegisteredAdapterHosts:      backlog.Summary.RegisteredAdapterHosts,
+		},
+		Top: catalogOverviewTop{
+			Organizations:       topNameCounts(orgCounts, limit),
+			Categories:          topNameCounts(categoryCounts, limit),
+			ExternalHosts:       limitHostCounts(audit.Dependency.TopExternalEndpointHosts, limit),
+			AdapterHosts:        filterProviderSummaries(backlog.Providers, "adapter", limit),
+			MissingAdapterHosts: filterProviderSummaries(backlog.Providers, "missing", limit),
+		},
+		Adapters: providerRegistry.IndexReport(generatedAt, version),
+		Next:     catalogOverviewNext(registryPath),
+	}, nil
+}
+
+func catalogOverviewNext(registryPath string) []catalogOverviewNextStep {
+	registryArg := ""
+	if strings.TrimSpace(registryPath) != "" {
+		registryArg = " --registry " + quoteShellArg(registryPath)
+	}
+	return []catalogOverviewNextStep{
+		{Label: "search", Command: "datapan search \"실거래\" --org 국토교통부 --json"},
+		{Label: "dependencies", Command: "datapan catalog dependencies" + registryArg + " --status missing --kind external_endpoint --limit 20 --json"},
+		{Label: "adapter targets", Command: "datapan catalog adapter-targets" + registryArg + " --limit 20 --json"},
+		{Label: "verify adapters", Command: "datapan catalog verify" + registryArg + " --provider ekape --kind external_endpoint --limit 5 --json"},
+	}
+}
+
+func topNameCounts(counts map[string]int, limit int) []nameCount {
+	items := make([]nameCount, 0, len(counts))
+	for name, count := range counts {
+		items = append(items, nameCount{Name: name, Count: count})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count != items[j].Count {
+			return items[i].Count > items[j].Count
+		}
+		return items[i].Name < items[j].Name
+	})
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
+}
+
+func limitHostCounts(hosts []datago.HostCount, limit int) []datago.HostCount {
+	if limit > 0 && len(hosts) > limit {
+		return hosts[:limit]
+	}
+	return hosts
+}
+
+func filterProviderSummaries(providers []datago.ProviderSummary, status string, limit int) []datago.ProviderSummary {
+	out := make([]datago.ProviderSummary, 0)
+	for _, provider := range providers {
+		if provider.AdapterStatus != status {
+			continue
+		}
+		out = append(out, provider)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func quoteShellArg(value string) string {
+	if value == "" || strings.ContainsAny(value, " \t\"'") {
+		return strconv.Quote(value)
+	}
+	return value
 }
 
 func (a app) catalogDiff(args []string, jsonOut bool) int {
@@ -4273,6 +4544,7 @@ Usage:
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
+  datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]
   datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json]
   datapan catalog audit [--registry PATH] [--sample N] [--output PATH|-] [--json]
   datapan catalog errors [--registry PATH] [--limit N] [--output PATH|-] [--json]

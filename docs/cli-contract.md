@@ -131,6 +131,17 @@ a pure `datapan.error-catalog.v1` report containing `generated_at`, `provider`,
 `operations`. `--json` may wrap that report in a command envelope for agent use
 and must not be combined with `--output -`.
 
+`datapan catalog overview --registry PATH --json` emits a compact registry
+dashboard for humans, agents, and future Studio consumers. It combines
+registry counts, dependency coverage, provider-adapter ownership, top
+organizations/categories, top external hosts, top registered-adapter hosts,
+top missing-adapter hosts, and suggested next commands. With `--output PATH|-`,
+the command writes a pure overview report containing `generated_at`, `provider`,
+`registry`, `source`, `limit`, `summary`, `top`, `adapters`, and `next`.
+`--json` may wrap that report in a command envelope for agent use and must not
+be combined with `--output -`. When no `--registry` is supplied, it follows the
+same default installed registry discovery used by consumer commands.
+
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary
 counts for data.go.kr gateway hosts, external endpoint hosts, external guide

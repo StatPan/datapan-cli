@@ -112,6 +112,52 @@ func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
 	}
 }
 
+func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","source_category":"교통물류","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","source_category":"교통물류","operations":[{"name":"외부","endpoint":"https://external.example.test/api"}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"다른기관","source_category":"환경기상","operations":[{"name":"EKAPE","endpoint":"http://data.ekape.or.kr/openapi-data/service/user/confirm/eggCoustomer"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "overview.json")
+	code, stdout, stderr := runTest([]string{"catalog", "overview", "--limit", "2", "--output", output, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "default"`,
+		`"specs": 3`,
+		`"operations": 3`,
+		`"organizations": 2`,
+		`"categories": 2`,
+		`"data_go_kr_gateway_operations": 1`,
+		`"external_endpoint_operations": 2`,
+		`"registered_adapter_operations": 1`,
+		`"missing_adapter_operations": 1`,
+		`"adapter_count": 3`,
+		`"name": "기관"`,
+		`"host": "external.example.test"`,
+		`datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --limit 20 --json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in overview output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"provider": "data.go.kr"`) || !strings.Contains(string(data), `"missing_adapter_hosts"`) {
+		t.Fatalf("unexpected overview report file: %s", data)
+	}
+}
+
 func TestDoctorJSONSuggestsInstallAndAuth(t *testing.T) {
 	t.Chdir(t.TempDir())
 	code, stdout, stderr := runTest([]string{"doctor", "--json"}, nil, nil)
