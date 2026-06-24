@@ -116,9 +116,11 @@ datapan catalog release draft --registry data/data-go-kr.registry.json --output-
 ```
 
 The provider index lists provider adapters registered in the Datapan runtime,
-their owned hosts, and their declared capabilities. The provider backlog says
-which host families still need work; the provider index says which host families
-Datapan currently claims as adapter-owned.
+their owned hosts, declared capabilities, and `split_readiness` for deciding
+whether the adapter boundary is ready to move into a separate
+`datapan-providers` package. The provider backlog says which host families
+still need work; the provider index says which host families Datapan currently
+claims as adapter-owned.
 
 ### Catalog Audit
 

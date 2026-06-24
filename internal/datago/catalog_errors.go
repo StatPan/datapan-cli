@@ -125,7 +125,19 @@ func AnalyzeCatalogErrors(reg Registry, limit int) CatalogErrorReport {
 		if a.Name != b.Name {
 			return strings.Compare(a.Name, b.Name)
 		}
-		return strings.Compare(a.Role, b.Role)
+		if a.Role != b.Role {
+			return strings.Compare(a.Role, b.Role)
+		}
+		if a.Source != b.Source {
+			return strings.Compare(a.Source, b.Source)
+		}
+		if a.Label != b.Label {
+			return strings.Compare(a.Label, b.Label)
+		}
+		if a.Specs != b.Specs {
+			return b.Specs - a.Specs
+		}
+		return strings.Compare(strings.Join(a.SampleIDs, ","), strings.Join(b.SampleIDs, ","))
 	})
 	report.StatusFields = stats
 	report.Summary.DistinctStatusFieldNames = len(nameSet)

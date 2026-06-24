@@ -73,6 +73,15 @@ func (a namedFakeAdapter) Call(ctx context.Context, req CallRequest) (datago.Res
 	return datago.ResponseEnvelope{OK: true, Provider: req.Spec.Provider, Dataset: req.Spec.ID, Operation: req.Operation.Name}, nil
 }
 
+type capabilityFakeAdapter struct {
+	namedFakeAdapter
+	capabilities []string
+}
+
+func (a capabilityFakeAdapter) Capabilities() []string {
+	return a.capabilities
+}
+
 func TestStaticHostMatcher(t *testing.T) {
 	matcher := StaticHostMatcher{Hosts: []string{"OPENAPI.Q-NET.OR.KR", " c.q-net.or.kr "}}
 	for _, host := range []string{"openapi.q-net.or.kr", "C.Q-NET.OR.KR"} {

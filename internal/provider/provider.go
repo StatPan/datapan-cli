@@ -43,6 +43,10 @@ type Adapter interface {
 	Call(ctx context.Context, req CallRequest) (datago.ResponseEnvelope, error)
 }
 
+type CapabilityReporter interface {
+	Capabilities() []string
+}
+
 type CatalogImporter interface {
 	ImportCatalog(ctx context.Context) ([]datago.Spec, error)
 }

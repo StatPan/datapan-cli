@@ -112,3 +112,38 @@ func TestAuditSamplesDeduplicateDatasetIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogErrorStatusFieldsUseDeterministicTieBreakers(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:       "200",
+			Title:    "B",
+			Provider: "data.go.kr",
+			Operations: []Operation{{
+				Name: "목록",
+				ResponseParams: []Param{
+					{Name: "resultCode", Label: "응답결과 코드"},
+				},
+			}},
+		},
+		{
+			ID:       "100",
+			Title:    "A",
+			Provider: "data.go.kr",
+			Operations: []Operation{{
+				Name: "목록",
+				ResponseParams: []Param{
+					{Name: "resultCode", Label: "결과 코드"},
+				},
+			}},
+		},
+	})
+
+	report := AnalyzeCatalogErrors(reg, 0)
+	if len(report.StatusFields) != 2 {
+		t.Fatalf("status fields=%#v", report.StatusFields)
+	}
+	if report.StatusFields[0].Label != "결과 코드" || report.StatusFields[1].Label != "응답결과 코드" {
+		t.Fatalf("status fields not deterministically ordered by label: %#v", report.StatusFields)
+	}
+}

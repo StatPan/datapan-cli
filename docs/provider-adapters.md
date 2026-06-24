@@ -341,3 +341,10 @@ Keep adapters inside `datapan-cli` until at least two external providers have
 real verification and at least one provider has call behavior. Move to
 `datapan-providers` only when the interface has been exercised by multiple
 providers and the release boundary is worth maintaining separately.
+
+The provider index now makes that decision explicit under `split_readiness`.
+Consumers and maintainers should treat `split_readiness.status=not_ready` as a
+deliberate boundary decision, not a failure. The current adapter set has enough
+registered verification-capable providers, but no adapter has declared stable
+`call` capability yet, so the recommendation remains to keep provider adapters
+inside `datapan-cli` while the call surface is proven.

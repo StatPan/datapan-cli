@@ -49,6 +49,26 @@ func TestRegistryRejectsEmptyAdapterName(t *testing.T) {
 	}
 }
 
+func TestRegistryIndexMergesDeclaredCapabilitiesWithVerification(t *testing.T) {
+	registry, err := NewRegistry(
+		capabilityFakeAdapter{
+			namedFakeAdapter: namedFakeAdapter{name: "callish", hosts: []string{"call.example.test"}},
+			capabilities:     []string{"call", " verification ", "call"},
+		},
+		namedFakeAdapter{name: "plain", hosts: []string{"plain.example.test"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
+	if strings.Join(report.Adapters[0].Capabilities, ",") != "call,verification" {
+		t.Fatalf("unexpected merged capabilities: %#v", report.Adapters[0].Capabilities)
+	}
+	if !report.SplitReadiness.Ready || report.SplitReadiness.CallCapableAdapters != 1 || report.SplitReadiness.VerificationCapableAdapters != 2 {
+		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
+	}
+}
+
 func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	registry, err := DefaultRegistry()
 	if err != nil {
@@ -73,6 +93,15 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
 	if report.AdapterCount != 6 || report.HostCount != 9 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
+	}
+	if report.SplitReadiness.Ready {
+		t.Fatalf("provider split should not be ready before call capability is declared: %#v", report.SplitReadiness)
+	}
+	if report.SplitReadiness.Status != "not_ready" || report.SplitReadiness.AdapterCount != 6 || report.SplitReadiness.VerificationCapableAdapters != 6 || report.SplitReadiness.CallCapableAdapters != 0 {
+		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
+	}
+	if strings.Join(report.SplitReadiness.Reasons, ",") != "need_at_least_one_call_capable_adapter" {
+		t.Fatalf("unexpected split readiness reasons: %#v", report.SplitReadiness.Reasons)
 	}
 	if len(report.Adapters) != 6 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "ekape" || report.Adapters[2].Name != "epost" || report.Adapters[3].Name != "folk" || report.Adapters[4].Name != "forest" || report.Adapters[5].Name != "q-net" {
 		t.Fatalf("unexpected provider index adapter: %#v", report)
