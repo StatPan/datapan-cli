@@ -41,6 +41,12 @@ go run ./cmd/datapan search "아파트" --json
 go test ./...
 ```
 
+## Binary Releases
+
+Tagged `v*` releases build Linux, macOS, and Windows archives containing both
+`datapan` and the optional `dp` alias. Each release also includes
+`checksums.txt` so install scripts and agents can verify downloaded binaries.
+
 See `.env.example` for local key names, `docs/cli-contract.md` for the
 agent-facing command contract, `docs/ecosystem.md` for the spec-first Datapan
 repository map, `docs/registry-release.md` for registry artifact release
