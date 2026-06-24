@@ -38,6 +38,15 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
+      - name: Check Unix install script syntax
+        if: runner.os != 'Windows'
+        run: sh -n scripts/install.sh
+
+      - name: Check Windows install script help
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\install.ps1 -Help
+
       - name: Build datapan
         run: go build ./cmd/datapan
 

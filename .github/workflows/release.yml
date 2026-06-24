@@ -63,6 +63,8 @@ jobs:
           go build -trimpath -ldflags="${ldflags}" -o "${outdir}/datapan${suffix}" ./cmd/datapan
           go build -trimpath -ldflags="${ldflags}" -o "${outdir}/dp${suffix}" ./cmd/dp
           cp README.md LICENSE "${outdir}/"
+          mkdir -p "${outdir}/scripts"
+          cp scripts/install.sh scripts/install.ps1 "${outdir}/scripts/"
 
           if [ "${{ matrix.archive }}" = "zip" ]; then
             (cd dist && zip -r "${name}.zip" "${name}")

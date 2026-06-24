@@ -22,15 +22,30 @@ a stable surface before any UI exists:
 - local API keys owned by the user;
 - browser automation only for explicit `datapan access login` and `--apply` workflows.
 
-## Install From Source
+## Install
+
+Windows PowerShell:
+
+```powershell
+$script = "$env:TEMP\datapan-install.ps1"; iwr https://raw.githubusercontent.com/StatPan/datapan-cli/main/scripts/install.ps1 -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
+```
+
+Linux/macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/StatPan/datapan-cli/main/scripts/install.sh | sh
+```
+
+The installers download the latest GitHub Release archive, verify
+`checksums.txt`, install `datapan` and the optional `dp` alias into
+`$HOME/.datapan/bin`, and print `datapan version --json`.
+To pin a specific release, download the script first and pass `-Version v0.1.1`
+on PowerShell, or set `DATAPAN_VERSION=v0.1.1` for the shell installer.
+
+From source:
 
 ```bash
 go install github.com/StatPan/datapan-cli/cmd/datapan@latest
-```
-
-Optional short alias:
-
-```bash
 go install github.com/StatPan/datapan-cli/cmd/dp@latest
 ```
 
