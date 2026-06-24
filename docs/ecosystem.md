@@ -206,6 +206,8 @@ Adapter status:
   Corporation APIs with provider key-registration error evidence;
 - `jeonju`: registered adapter for Jeonju city APIs with exact `ServiceKey` /
   `authApiKey` handling and upstream `HTTP 405` evidence;
+- `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
+  verified XML list evidence, ID-only detail skips, and call behavior;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;
@@ -218,9 +220,9 @@ Creation trigger:
   interface has stabilized inside `datapan-cli`.
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
-code boundary lives in `internal/provider`; epost and forest now prove two call
-paths, while jeonju expands high-impact external host ownership. The split
-should wait for sustained maintenance pressure.
+code boundary lives in `internal/provider`; epost, forest, and geoje now prove
+multiple external call paths, while jeonju expands high-impact external host
+ownership. The split should wait for sustained maintenance pressure.
 
 ### datapan-spec
 

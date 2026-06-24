@@ -603,6 +603,164 @@ func TestJeonjuAdapterOwnsKnownHostAndAuthParam(t *testing.T) {
 	}
 }
 
+func TestGeojeAdapterOwnsKnownHostAndVerifiesList(t *testing.T) {
+	adapter := NewGeojeAdapter()
+	if !adapter.MatchHost("data.geoje.go.kr") {
+		t.Fatal("expected geoje adapter to match data.geoje.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("geoje adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "650", Title: "Geoje 의료", Provider: "data.go.kr"}
+	op := datago.Operation{
+		Name:     "거제시 의료기관 목록정보",
+		Endpoint: "http://data.geoje.go.kr/rfcapi/rest/geojemedical/getGeojemedicalList",
+		RequestParams: []datago.Param{
+			{Name: "geojemedicalNm"},
+			{Name: "geojemedicalCd"},
+			{Name: "pageSize"},
+			{Name: "startPage"},
+		},
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in geoje request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("startPage") != "1" || req.URL.Query().Get("pageSize") != "1" {
+			t.Fatalf("unexpected geoje paging query: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Has("geojemedicalNm") || req.URL.Query().Has("geojemedicalCd") {
+			t.Fatalf("empty optional geoje filters should not be sent: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0"?><rfcOpenApi><header><resultCode>00</resultCode><resultMsg>success</resultMsg></header><body><pageSize>1</pageSize><data><list><geojemedicalNm>다임치과의원</geojemedicalNm></list></data></body></rfcOpenApi>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		MissingParams: []string{"geojemedicalNm", "geojemedicalCd", "pageSize", "startPage"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "geoje" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected geoje verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted geoje URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["startPage"] != "1" || result.Params["pageSize"] != "1" || result.BodyShape != "xml_list" {
+		t.Fatalf("unexpected geoje public params: %#v", result.Params)
+	}
+}
+
+func TestGeojeAdapterSkipsDetailIDsWithoutInventingValues(t *testing.T) {
+	adapter := NewGeojeAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "651", Title: "Geoje 상세", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "거제시 의료기관 상세정보", Endpoint: "http://data.geoje.go.kr/rfcapi/rest/geojemedical/getGeojemedicalList"},
+		MissingParams: []string{"geojemedicalId"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "geoje_missing_required_params" || len(result.MissingParams) != 1 {
+		t.Fatalf("unexpected geoje skip result: %#v", result)
+	}
+}
+
+func TestGeojeAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewGeojeAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.geoje.go.kr" {
+			t.Fatalf("expected geoje host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in geoje call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("startPage") != "1" || req.URL.Query().Get("pageSize") != "1" {
+			t.Fatalf("unexpected geoje call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<rfcOpenApi><header><resultCode>00</resultCode><resultMsg>success</resultMsg></header><body><data><list><goodshopNm>착한식당</goodshopNm></list></data></body></rfcOpenApi>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "652", Title: "Geoje 착한가격업소", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "거제시 착한가격업소 목록정보",
+			Endpoint: "http://data.geoje.go.kr/rfcapi/rest/geojegoodshop/getGeojegoodshopList",
+			RequestParams: []datago.Param{
+				{Name: "goodshopNm"},
+				{Name: "pageSize"},
+				{Name: "startPage"},
+			},
+		},
+		MissingParams: []string{"goodshopNm", "pageSize", "startPage"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "geoje" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected geoje call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected geoje provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "착한식당") {
+		t.Fatalf("unexpected geoje call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestGeojeAdapterClassifiesCommonErrors(t *testing.T) {
+	adapter := NewGeojeAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0"?><rfcOpenApi><header><resultCode>99</resultCode><resultMsg>Common Error</resultMsg></header></rfcOpenApi>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "653", Title: "Geoje error", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "거제시 의료기관 목록정보", Endpoint: "http://data.geoje.go.kr/rfcapi/rest/geojemedical/getGeojemedicalList"},
+		MissingParams: []string{"startPage"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "geoje_common_error" {
+		t.Fatalf("unexpected geoje common error result: %#v", result)
+	}
+}
+
+func TestGeojeAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewGeojeAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "654", Title: "Geoje transport", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "거제시 의료기관 목록정보",
+			Endpoint: "http://data.geoje.go.kr/rfcapi/rest/geojemedical/getGeojemedicalList",
+		},
+		MissingParams: []string{"startPage"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted geoje transport error, got %v", err)
+	}
+}
+
 func TestJeonjuAdapterCallExecutesProviderRequest(t *testing.T) {
 	adapter := NewJeonjuAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

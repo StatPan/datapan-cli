@@ -95,6 +95,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider airport --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider airport --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider geoje --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider jeonju --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider jeonju --json
 ```
@@ -108,6 +110,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeonju --json
 ```
 
@@ -138,6 +141,11 @@ The airport adapter owns `openapi.airport.co.kr` and captures Korea Airports
 Corporation low-visibility API credential-registration responses as
 provider-specific evidence instead of leaving those operations as generic
 missing-adapter gaps.
+The geoje adapter owns `data.geoje.go.kr`, a high-priority local-government
+external host. It uses the normal `serviceKey` credential, proves
+`resultCode=00` XML list responses, skips ID-only detail operations rather than
+inventing identifiers, and declares call capability for operations whose
+parameters are supplied or safely defaultable.
 The jeonju adapter owns `openapi.jeonju.go.kr`, currently the largest missing
 external host family in the imported registry. It preserves the upstream
 credential parameter name (`ServiceKey` or `authApiKey`) and only fills
@@ -365,6 +373,34 @@ available, and `jeonju_missing_required_params` for operations whose required
 domain filters are not safe to guess. Current upstream method failures are
 preserved as stable reasons such as `jeonju_http_405_method_not_allowed`.
 
+## Eighth Adapter: geoje
+
+The geoje adapter covers Geoje city APIs hosted at `data.geoje.go.kr`. The host
+is the next high-coverage local-government family after Jeonju in the current
+registry. Geoje APIs use the normal `serviceKey` parameter and return XML
+`rfcOpenApi` envelopes with `resultCode` / `resultMsg` provider status fields.
+
+The adapter supplies only conservative list defaults such as `startPage=1` and
+`pageSize=1`. Search filters are not sent unless the user provides values, and
+opaque detail IDs such as `geojemedicalId` remain missing so Datapan records a
+`geoje_missing_required_params` skip instead of generating bad provider calls.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider geoje --kind external_endpoint --limit 6 --output .datapan/geoje-verification.json --json
+datapan catalog verify summary --input .datapan/geoje-verification.json --json
+datapan get <geoje-dataset-id> startPage=1 pageSize=1 --operation <geoje-list-operation> --json
+```
+
+Expected evidence shape: `provider=geoje`,
+`endpoint_host=data.geoje.go.kr`, redacted URLs with `serviceKey=REDACTED`, XML
+`rfcOpenApi` response bodies, `provider_status.code=00` for working list
+operations, `geoje_missing_required_params` for ID-only detail operations, and
+stable provider failures such as `geoje_common_error` or
+`geoje_provider_sql_error` when upstream returns those bodies.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -388,7 +424,7 @@ providers and the release boundary is worth maintaining separately.
 The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
-registered verification-capable providers, and both epost and forest declare
+registered verification-capable providers, and epost, forest, and geoje declare
 stable `call` capability, so the boundary is ready to consider. Keep adapters
 inside `datapan-cli` until release cadence or maintenance cost makes a separate
 `datapan-providers` repository clearly worth it.
