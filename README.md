@@ -208,6 +208,7 @@ datapan ready --limit 10 --json
 datapan try "단기예보" base_date=20260622 --org 기상청 --json
 datapan coverage --json
 datapan studio --output-dir .datapan/studio --limit 200 --json
+datapan providers --split --json
 datapan providers --adapters --json
 datapan providers --gaps --limit 10 --json
 datapan targets --limit 10 --json
@@ -232,6 +233,10 @@ remembering the longer `catalog providers --status missing --kind
 external_endpoint` form. The JSON envelope includes `next_commands` so an
 agent or human can jump directly from a provider host to `datapan targets`,
 `datapan ops`, or bounded `datapan verify` commands.
+Use `datapan providers --split --json` when you want the narrower split
+decision: registered adapter counts, verification/call-capable adapter
+readiness, external adapter coverage, optional verification evidence, and the
+next provider commands. It does not call upstream providers.
 Use `datapan targets --json` when you want the ranked adapter work queue
 directly: target host, operation/spec counts, organizations, categories, formats,
 and sample operations for the next external provider adapter decision.

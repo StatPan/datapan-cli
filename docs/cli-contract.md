@@ -260,16 +260,21 @@ installed registry discovery used by consumer commands. The command may accept
 `--query`, `--org`, `--category`, `--provider`, `--priority`, and `--limit` to
 build a focused bundle.
 
-`datapan providers [--adapters|--gaps] --json` is the consumer-facing shortcut
-for external provider ownership and backlog discovery. It uses the default
-installed registry when no `--registry` is supplied and delegates to the same
-provider backlog contract as `catalog providers`. `--adapters` is equivalent
-to `--status adapter`; `--gaps` and `--missing` are equivalent to `--status
-missing --kind external_endpoint`. These shortcuts must not be combined with
-explicit conflicting `--status` or `--kind` filters. The command envelope may
-include `next_commands` entries keyed by host; these are convenience commands
-for inspecting `datapan targets`, `datapan ops`, or bounded `datapan verify`
-without changing the pure provider backlog report schema.
+`datapan providers [--split|--adapters|--gaps] --json` is the consumer-facing
+shortcut for external provider ownership, backlog discovery, and provider
+package split decisions. It uses the default installed registry when no
+`--registry` is supplied. `--adapters` is equivalent to `--status adapter`;
+`--gaps` and `--missing` are equivalent to `--status missing --kind
+external_endpoint`; both delegate to the same provider backlog contract as
+`catalog providers`. `--split` accepts `--registry`, `--verification`, and
+`--limit`, does not call upstream providers, and emits `split_readiness`,
+`summary`, `evidence`, `gaps`, `adapters`, `report`, and `next`. These
+shortcuts must not be combined with each other or with explicit conflicting
+`--status` or `--kind` filters. The command envelope may include
+`next_commands` entries keyed by host for backlog output, or `next` entries for
+split output; these are convenience commands for inspecting `datapan targets`,
+`datapan ops`, bounded `datapan verify`, or provider adapter/gap reports
+without changing the pure provider backlog or coverage report schemas.
 
 `datapan catalog providers [--registry PATH] --json` converts dependency
 classification into a host/provider backlog. When `--registry` is omitted, it

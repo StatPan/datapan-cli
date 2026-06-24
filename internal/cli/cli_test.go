@@ -344,6 +344,35 @@ func TestCoverageTopLevelLoadsDefaultInstalledRegistry(t *testing.T) {
 	}
 }
 
+func TestCatalogCoverageLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"외부","endpoint":"https://external.example.test/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"catalog", "coverage", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "default"`,
+		`"registry": ".datapan/data-go-kr.registry.json"`,
+		`"specs": 2`,
+		`"missing_adapter_operations": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in catalog coverage output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogProvidersLoadsDefaultInstalledRegistry(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
@@ -415,6 +444,83 @@ func TestProvidersTopLevelShortcutsLoadDefaultInstalledRegistry(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in provider gap output: %s", want, stdout)
 		}
+	}
+}
+
+func TestProvidersSplitJSONUsesDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"500","title":"산림청_숲 이야기","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}]},
+		{"id":"600","title":"외부_미등록 API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://missing.example.test/openapi/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"providers", "--split", "--limit", "1", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "default"`,
+		`"registry": ".datapan/data-go-kr.registry.json"`,
+		`"split_readiness":`,
+		`"status": "ready"`,
+		`"provider_split_ready": true`,
+		`"registered_adapter_operations": 1`,
+		`"missing_adapter_operations": 1`,
+		`"external_adapter_coverage_percent": 50`,
+		`"host": "missing.example.test"`,
+		`"label": "provider adapters"`,
+		`"command": "datapan providers --registry .datapan/data-go-kr.registry.json --adapters --json"`,
+		`"label": "provider gaps"`,
+		`"command": "datapan providers --registry .datapan/data-go-kr.registry.json --gaps --limit 20 --json"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in provider split output: %s", want, stdout)
+		}
+	}
+}
+
+func TestProvidersSplitHumanOutput(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"500","title":"산림청_숲 이야기","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}]},
+		{"id":"600","title":"외부_미등록 API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://missing.example.test/openapi/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"providers", "--split", "--registry", registryPath, "--limit", "1"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"Provider split readiness",
+		"status: ready",
+		"ready: true",
+		"external adapter coverage: 1/2 operations (50.0%)",
+		"Top missing adapter hosts",
+		"missing.example.test: 1 ops",
+		"recommendation: adapter boundary has enough exercised surface to consider a datapan-providers split",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in human provider split output: %s", want, stdout)
+		}
+	}
+}
+
+func TestProvidersSplitRejectsConflictingShortcut(t *testing.T) {
+	code, _, stderr := runTest([]string{"providers", "--split", "--gaps"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "use only one of --split, --adapters, --gaps, or --missing") {
+		t.Fatalf("unexpected stderr: %s", stderr)
 	}
 }
 

@@ -156,7 +156,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 
 func defaultRegistryCatalogCommand(command string) bool {
 	switch command {
-	case "overview", "studio", "audit", "errors", "providers", "dependencies", "adapter-targets", "verify":
+	case "overview", "coverage", "studio", "audit", "errors", "providers", "dependencies", "adapter-targets", "verify":
 		return true
 	default:
 		return false
@@ -566,11 +566,15 @@ func (a app) studio(args []string, jsonOut bool) int {
 }
 
 func (a app) providers(args []string, jsonOut bool) int {
+	splitOnly, args := consumeBool(args, "--split")
 	adaptersOnly, args := consumeBool(args, "--adapters")
 	gapsOnly, args := consumeBool(args, "--gaps")
 	missingOnly, args := consumeBool(args, "--missing")
-	if adaptersOnly && (gapsOnly || missingOnly) {
-		return a.fail(exitUsage, "use only one of --adapters, --gaps, or --missing")
+	if boolCount(splitOnly, adaptersOnly, gapsOnly, missingOnly) > 1 {
+		return a.fail(exitUsage, "use only one of --split, --adapters, --gaps, or --missing")
+	}
+	if splitOnly {
+		return a.providerSplit(args, jsonOut)
 	}
 	if adaptersOnly {
 		if hasAnyArg(args, "--status") {
@@ -1540,6 +1544,20 @@ type catalogCoverageReport struct {
 	Next         []catalogOverviewNextStep `json:"next"`
 }
 
+type providerSplitReport struct {
+	GeneratedAt    string                    `json:"generated_at"`
+	Provider       string                    `json:"provider"`
+	Registry       string                    `json:"registry,omitempty"`
+	Source         string                    `json:"source,omitempty"`
+	Verification   string                    `json:"verification,omitempty"`
+	SplitReadiness providers.SplitReadiness  `json:"split_readiness"`
+	Summary        catalogCoverageSummary    `json:"summary"`
+	Evidence       catalogCoverageEvidence   `json:"evidence"`
+	Gaps           catalogCoverageGaps       `json:"gaps"`
+	Adapters       providers.IndexReport     `json:"adapters"`
+	Next           []catalogOverviewNextStep `json:"next"`
+}
+
 type catalogCoverageSummary struct {
 	Specs                          int     `json:"specs"`
 	Operations                     int     `json:"operations"`
@@ -1854,6 +1872,135 @@ func (a app) catalogCoverage(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) providerSplit(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	verificationPath, args, err := consumeString(args, "--verification", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 10)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if hasAnyArg(args, "--status", "--kind", "--provider", "--host", "--output") || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan providers --split [--registry PATH] [--verification REPORT] [--limit N] [--json]")
+	}
+	reg := a.reg
+	source := a.registrySource
+	if registryPath == "" {
+		registryPath = a.registryPath
+	} else {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+		source = "flag"
+	}
+	var verification *datago.VerificationReport
+	if strings.TrimSpace(verificationPath) != "" {
+		report, err := readVerificationReport(verificationPath)
+		if err != nil {
+			return a.fail(exitUsage, "verification report must be JSON: %v", err)
+		}
+		verification = &report
+	}
+	coverage, err := a.buildCatalogCoverage(reg, registryPath, source, verificationPath, verification, limit)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	report := buildProviderSplitReport(coverage)
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":              true,
+			"registry":        registryPath,
+			"source":          source,
+			"verification":    verificationPath,
+			"split_readiness": report.SplitReadiness,
+			"summary":         report.Summary,
+			"evidence":        report.Evidence,
+			"gaps":            report.Gaps,
+			"adapters":        report.Adapters,
+			"report":          report,
+			"next":            report.Next,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Provider split readiness")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s", registryPath)
+		if source != "" {
+			fmt.Fprintf(a.stdout, " (%s)", source)
+		}
+		fmt.Fprintln(a.stdout)
+	}
+	if verificationPath != "" {
+		fmt.Fprintf(a.stdout, "  verification: %s\n", verificationPath)
+	}
+	fmt.Fprintf(a.stdout, "  status: %s\n", report.SplitReadiness.Status)
+	fmt.Fprintf(a.stdout, "  ready: %t\n", report.SplitReadiness.Ready)
+	fmt.Fprintf(a.stdout, "  adapters: %d total, %d verification-capable, %d call-capable\n",
+		report.SplitReadiness.AdapterCount,
+		report.SplitReadiness.VerificationCapableAdapters,
+		report.SplitReadiness.CallCapableAdapters,
+	)
+	fmt.Fprintf(a.stdout, "  external adapter coverage: %d/%d operations (%.1f%%)\n",
+		report.Summary.RegisteredAdapterOperations,
+		report.Summary.RegisteredAdapterOperations+report.Summary.MissingAdapterOperations,
+		report.Summary.ExternalAdapterCoveragePercent,
+	)
+	fmt.Fprintf(a.stdout, "  verification evidence: %d verified / %d total (%.1f%% of operations sampled)\n",
+		report.Evidence.Verified,
+		report.Evidence.Total,
+		report.Evidence.EvidenceOperationPercent,
+	)
+	if len(report.SplitReadiness.Reasons) > 0 {
+		fmt.Fprintf(a.stdout, "  reasons: %s\n", strings.Join(report.SplitReadiness.Reasons, ", "))
+	}
+	if report.SplitReadiness.Recommendation != "" {
+		fmt.Fprintf(a.stdout, "  recommendation: %s\n", report.SplitReadiness.Recommendation)
+	}
+	if len(report.Gaps.MissingAdapterHosts) > 0 {
+		fmt.Fprintln(a.stdout, "Top missing adapter hosts")
+		for _, provider := range report.Gaps.MissingAdapterHosts {
+			fmt.Fprintf(a.stdout, "- %s: %d ops", provider.Host, provider.Operations)
+			if provider.Provider != "" {
+				fmt.Fprintf(a.stdout, " provider=%s", provider.Provider)
+			}
+			fmt.Fprintln(a.stdout)
+		}
+	}
+	if len(report.Next) > 0 {
+		fmt.Fprintln(a.stdout, "Next")
+		for _, step := range report.Next {
+			fmt.Fprintf(a.stdout, "- %s: %s\n", step.Label, step.Command)
+		}
+	}
+	return exitOK
+}
+
+func buildProviderSplitReport(coverage catalogCoverageReport) providerSplitReport {
+	next := append([]catalogOverviewNextStep{
+		{Label: "provider adapters", Command: "datapan providers" + registryArgForCommand(coverage.Registry) + " --adapters --json"},
+		{Label: "provider gaps", Command: "datapan providers" + registryArgForCommand(coverage.Registry) + " --gaps --limit 20 --json"},
+	}, coverage.Next...)
+	return providerSplitReport{
+		GeneratedAt:    coverage.GeneratedAt,
+		Provider:       coverage.Provider,
+		Registry:       coverage.Registry,
+		Source:         coverage.Source,
+		Verification:   coverage.Verification,
+		SplitReadiness: coverage.Adapters.SplitReadiness,
+		Summary:        coverage.Summary,
+		Evidence:       coverage.Evidence,
+		Gaps:           coverage.Gaps,
+		Adapters:       coverage.Adapters,
+		Next:           dedupeNextSteps(next),
+	}
+}
+
 func (a app) catalogStudio(args []string, jsonOut bool) int {
 	registryPath, args, err := consumeString(args, "--registry", "")
 	if err != nil {
@@ -2164,6 +2311,27 @@ func catalogCoverageNext(registryPath, verificationPath string) []catalogOvervie
 		{Label: "coverage report", Command: "datapan coverage" + registryArg + verificationArg + " --json"},
 		{Label: "verify forest", Command: "datapan verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --timeout 10s --json"},
 	}
+}
+
+func registryArgForCommand(registryPath string) string {
+	if strings.TrimSpace(registryPath) == "" {
+		return ""
+	}
+	return " --registry " + quoteShellArg(registryPath)
+}
+
+func dedupeNextSteps(steps []catalogOverviewNextStep) []catalogOverviewNextStep {
+	seen := map[string]bool{}
+	out := make([]catalogOverviewNextStep, 0, len(steps))
+	for _, step := range steps {
+		key := step.Command
+		if step.Command == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, step)
+	}
+	return out
 }
 
 func studioNextSteps(registryPath string) []catalogOverviewNextStep {
@@ -7646,6 +7814,7 @@ Usage:
   datapan try [query] [KEY=VALUE ...] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--operation NAME] [--any] [--params-output PATH] [--output-dir DIR] [--json]
   datapan coverage [--registry PATH] [--verification REPORT] [--limit N] [--json]
   datapan studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]
+  datapan providers --split [--registry PATH] [--verification REPORT] [--limit N] [--json]
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
   datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]
@@ -7731,6 +7900,16 @@ func consumeBool(args []string, name string) (bool, []string) {
 		out = append(out, arg)
 	}
 	return found, out
+}
+
+func boolCount(values ...bool) int {
+	count := 0
+	for _, value := range values {
+		if value {
+			count++
+		}
+	}
+	return count
 }
 
 func hasAnyArg(args []string, names ...string) bool {
