@@ -1463,6 +1463,9 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if len(args) > 0 && args[0] == "summary" {
 		return a.catalogVerifySummary(args[1:], jsonOut)
 	}
+	if len(args) > 0 && args[0] == "merge" {
+		return a.catalogVerifyMerge(args[1:], jsonOut)
+	}
 	input, args, err := consumeString(args, "--input", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -2216,6 +2219,86 @@ func (a app) catalogVerifySummary(args []string, jsonOut bool) int {
 		fmt.Fprintf(a.stdout, "- reason %s: %d\n", group.Key, group.Count)
 	}
 	return exitOK
+}
+
+func (a app) catalogVerifyMerge(args []string, jsonOut bool) int {
+	inputs, args, err := consumeStrings(args, "--input")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(inputs) < 2 || output == "" || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog verify merge --input REPORT --input REPORT [--input REPORT ...] --output PATH|- [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the merged verification report JSON to stdout")
+	}
+	reports := make([]datago.VerificationReport, 0, len(inputs))
+	for _, input := range inputs {
+		report, err := readVerificationReport(input)
+		if err != nil {
+			return a.fail(exitUsage, "verification report %s must be JSON: %v", input, err)
+		}
+		reports = append(reports, report)
+	}
+	merged := mergeVerificationReports(reports, inputs)
+	data, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	data = append(data, '\n')
+	if err := writeOutput(output, data, a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":      true,
+			"inputs":  inputs,
+			"output":  output,
+			"results": len(merged.Results),
+			"summary": merged.Summary,
+		})
+	}
+	if output == "-" {
+		return exitOK
+	}
+	fmt.Fprintln(a.stdout, "Merged verification reports.")
+	fmt.Fprintf(a.stdout, "  inputs: %d\n", len(inputs))
+	fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	fmt.Fprintf(a.stdout, "  results: %d\n", len(merged.Results))
+	fmt.Fprintf(a.stdout, "  verified: %d\n", merged.Summary.Verified)
+	fmt.Fprintf(a.stdout, "  failed: %d\n", merged.Summary.Failed)
+	fmt.Fprintf(a.stdout, "  skipped: %d\n", merged.Summary.Skipped)
+	return exitOK
+}
+
+func mergeVerificationReports(reports []datago.VerificationReport, inputs []string) datago.VerificationReport {
+	merged := datago.VerificationReport{
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Provider:    "data.go.kr",
+	}
+	if len(reports) > 0 {
+		merged.Registry = reports[0].Registry
+	}
+	for _, report := range reports {
+		if report.Provider != "" {
+			merged.Provider = report.Provider
+		}
+		if merged.Registry == "" {
+			merged.Registry = report.Registry
+		} else if report.Registry != "" && report.Registry != merged.Registry {
+			merged.Registry = ""
+		}
+		merged.Limit += report.Limit
+		merged.Truncated = merged.Truncated || report.Truncated
+		merged.Results = append(merged.Results, report.Results...)
+	}
+	merged.FilteredCount = len(merged.Results)
+	merged.Summary = datago.SummarizeVerification(merged.Results)
+	return merged
 }
 
 func (a app) info(args []string, jsonOut bool) int {
@@ -4199,6 +4282,7 @@ Usage:
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify merge --input REPORT --input REPORT [--input REPORT ...] --output PATH|- [--json]
   datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
@@ -4286,6 +4370,28 @@ func consumeString(args []string, name, fallback string) (string, []string, erro
 		out = append(out, arg)
 	}
 	return value, out, nil
+}
+
+func consumeStrings(args []string, name string) ([]string, []string, error) {
+	out := make([]string, 0, len(args))
+	var values []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == name {
+			if i+1 >= len(args) {
+				return nil, nil, fmt.Errorf("%s requires a value", name)
+			}
+			values = append(values, args[i+1])
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, name+"=") {
+			values = append(values, strings.TrimPrefix(arg, name+"="))
+			continue
+		}
+		out = append(out, arg)
+	}
+	return values, out, nil
 }
 
 func consumeInt(args []string, name string, fallback int) (int, []string, error) {

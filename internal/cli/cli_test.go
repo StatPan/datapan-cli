@@ -1405,6 +1405,53 @@ func TestCatalogVerifyMissingAuthKeepsExitAuth(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyMergeReports(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.json")
+	second := filepath.Join(dir, "second.json")
+	output := filepath.Join(dir, "merged.json")
+	if err := osWriteFile(first, []byte(`{
+		"generated_at":"2026-06-24T00:00:00Z",
+		"provider":"data.go.kr",
+		"registry":"registry.json",
+		"limit":1,
+		"filtered_count":1,
+		"summary":{"total":1,"verified":1,"failed":0,"skipped":0,"unknown":0},
+		"results":[{"dataset_id":"100","title":"A","operation":"목록","provider":"data.go.kr","dependency_class":"data_go_kr_gateway","status":"verified"}]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(second, []byte(`{
+		"generated_at":"2026-06-24T00:01:00Z",
+		"provider":"data.go.kr",
+		"registry":"registry.json",
+		"limit":1,
+		"filtered_count":1,
+		"summary":{"total":1,"verified":0,"failed":0,"skipped":1,"unknown":0},
+		"results":[{"dataset_id":"200","title":"B","operation":"상세","provider":"epost","endpoint_host":"openapi.epost.go.kr","dependency_class":"external_endpoint","status":"skipped","reason":"epost_missing_required_params"}]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "merge", "--input", first, "--input", second, "--output", output, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"results": 2`, `"verified": 1`, `"skipped": 1`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"filtered_count": 2`, `"dataset_id": "100"`, `"dataset_id": "200"`, `"reason": "epost_missing_required_params"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in merged report: %s", want, string(data))
+		}
+	}
+}
+
 func TestCatalogUpdateDryRunDoesNotReplaceRegistry(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	oldData := []byte(`[{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[]}]`)

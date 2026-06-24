@@ -317,6 +317,15 @@ addition to the normalized `spec`, it returns:
   parameter counts, and a generated `datapan get ...` example when callable.
 - `examples`: top-level `access` and `get` commands for the selected dataset.
 
+## Verification Evidence
+
+`datapan catalog verify merge --input A --input B --output REPORT --json`
+combines existing verification reports without making provider calls. It is a
+pure evidence-accumulation command: provider failures and skipped results remain
+in the merged report, and the command itself succeeds when the input reports
+are valid JSON and the output is written. `--json` must not be combined with
+`--output -`.
+
 ## Exit Codes
 
 | Code | Meaning |
