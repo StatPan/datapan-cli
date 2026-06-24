@@ -257,19 +257,21 @@ evidence. It must not blindly call the whole catalog. By default it should
 consider a small bounded set of operations; when `--registry` is omitted, it
 uses the default installed registry. Callers may pass `--ref REF`,
 `--operation NAME`, `--limit N`, `--provider NAME`, `--host HOST`, `--kind
-KIND`, and `--output PATH|-`. Provider, host, and kind filters apply before the
-limit, so `--provider q-net --limit 5` means five q-net candidates, not the
-first five catalog operations. The command should call only conservative
-candidates: data.go.kr gateway operations with concrete endpoints and enough
-known parameters from smoke metadata, operation defaults, or safe paging/format
-defaults, plus external endpoints owned by registered provider adapters when
-the adapter can supply conservative provider-specific defaults. External
-endpoints without adapters, service-root-only entries, unsupported protocols,
-malformed endpoints, approval-gated entries, and operations missing required
-parameters should be returned as `skipped` with a clear reason.
+KIND`, `--timeout DURATION`, and `--output PATH|-`. Provider, host, and kind
+filters apply before the limit, so `--provider q-net --limit 5` means five
+q-net candidates, not the first five catalog operations. `--timeout` bounds
+each eligible provider call; it accepts Go durations such as `500ms` or `10s`,
+or bare seconds, and defaults to 30 seconds. The command should call only
+conservative candidates: data.go.kr gateway operations with concrete endpoints
+and enough known parameters from smoke metadata, operation defaults, or safe
+paging/format defaults, plus external endpoints owned by registered provider
+adapters when the adapter can supply conservative provider-specific defaults.
+External endpoints without adapters, service-root-only entries, unsupported
+protocols, malformed endpoints, approval-gated entries, and operations missing
+required parameters should be returned as `skipped` with a clear reason.
 
 Verification JSON includes a `report` with `generated_at`, `provider`,
-`registry`, `ref`, `operation`, `limit`, `truncated`, `filters`,
+`registry`, `ref`, `operation`, `limit`, `timeout`, `truncated`, `filters`,
 `filtered_count`, `summary`, and `results`. Each result includes dataset ID,
 operation, dependency class, status,
 timestamp when a call was attempted, HTTP status, semantic status, provider
@@ -286,7 +288,7 @@ report without making new provider calls. It may be combined with `--status`
 to filter results to `verified`, `failed`, `skipped`, or `unknown`, with
 `--limit N` to bound the returned result list, and with `--output PATH|-` to
 write the filtered report. Input mode must not be combined with `--registry`,
-`--ref`, or `--operation`.
+`--ref`, `--operation`, `--provider`, `--host`, `--kind`, or `--timeout`.
 
 `datapan catalog verify summary --input REPORT --json` reads an existing
 verification report and emits a pure `datapan.verification-summary.v1` rollup.

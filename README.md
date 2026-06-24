@@ -87,7 +87,7 @@ datapan catalog errors --registry .datapan/data-go-kr.registry.json --output .da
 datapan catalog dependencies --registry .datapan/data-go-kr.registry.json --kind external_endpoint --status missing --output .datapan/dependencies.json --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --output .datapan/adapter-targets.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
-datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --timeout 10s --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider airport --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ekape --kind external_endpoint --limit 5 --json
@@ -261,9 +261,10 @@ Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
 only operations Datapan can call conservatively with known smoke/default/safe
 paging parameters or a registered provider adapter, then records `verified`,
 `failed`, or `skipped` with provider status, HTTP status, dependency class,
-redacted URL, and skip reasons. Q-Net has a narrow verification path for proven
-XML endpoints. Use `--provider`, `--host`, and `--kind` to collect bounded
-adapter evidence without blindly calling the whole catalog.
+redacted URL, skip reasons, and the per-call timeout used for the run. Q-Net has
+a narrow verification path for proven XML endpoints. Use `--timeout` to bound
+each provider call, and use `--provider`, `--host`, and `--kind` to collect
+bounded adapter evidence without blindly calling the whole catalog.
 Use `datapan catalog verify --input REPORT` to reread an existing verification
 artifact and filter results by status without making new provider calls.
 Use `datapan catalog verify summary --input REPORT` to turn verification

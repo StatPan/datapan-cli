@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
 )
@@ -2106,6 +2107,48 @@ func TestCatalogVerifyUsesQNetAdapter(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyAdapterUsesTimeout(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"15025329",
+			"title":"한국산업인력공단_산업인력 국가기술자격 통계 정보",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"연도별 등급별 실기 합격률 조회","endpoint":"http://openapi.q-net.or.kr/api/service/rest/InquiryStatSVC/getGradSiPassList","request_params":[{"name":"serviceKey"},{"name":"baseYY"}]}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(time.Second):
+			t.Fatal("request was not cancelled by catalog verify timeout")
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "--registry", tmp, "--ref", "15025329", "--timeout", "1ms", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"timeout": "1ms"`,
+		`"failed": 1`,
+		`"status": "failed"`,
+		`context deadline exceeded`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogVerifyFiltersRegisteredProviderBeforeLimit(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
@@ -2215,6 +2258,48 @@ func TestCatalogVerifyCallsEligibleSmokeCandidate(t *testing.T) {
 	}
 	if strings.Contains(stdout, "secret-value") {
 		t.Fatalf("secret leaked in output: %s", stdout)
+	}
+}
+
+func TestCatalogVerifyGatewayUsesTimeout(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"100",
+			"title":"기관_A",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"base_date"}],"default_params":{"base_date":"20260624"}}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(time.Second):
+			t.Fatal("request was not cancelled by catalog verify timeout")
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "--registry", tmp, "--ref", "100", "--timeout", "1ms", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"timeout": "1ms"`,
+		`"failed": 1`,
+		`"status": "failed"`,
+		`context deadline exceeded`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
 	}
 }
 
@@ -2525,6 +2610,13 @@ func TestCatalogVerifyInputRejectsRegistryArgs(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--input cannot be combined") {
 		t.Fatalf("expected input conflict message: %s", stderr)
+	}
+	code, _, stderr = runTest([]string{"catalog", "verify", "--input", "report.json", "--timeout", "1s"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--timeout") {
+		t.Fatalf("expected input timeout conflict message: %s", stderr)
 	}
 }
 

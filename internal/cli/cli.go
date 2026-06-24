@@ -384,7 +384,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -2322,6 +2322,11 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	timeoutProvided := hasAnyArg(args, "--timeout")
+	timeout, args, err := consumeDuration(args, "--timeout", defaultCallTimeout)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if ref == "" && len(args) > 0 {
 		ref = args[0]
 		args = args[1:]
@@ -2330,7 +2335,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
@@ -2339,8 +2344,8 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--status must be one of: verified, failed, skipped, unknown")
 	}
 	if input != "" {
-		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || hostFilter != "" || kindFilter != "" {
-			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --host, or --kind")
+		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || hostFilter != "" || kindFilter != "" || timeoutProvided {
+			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --host, --kind, or --timeout")
 		}
 		return a.catalogVerifyInput(input, output, statusFilter, limit, jsonOut)
 	}
@@ -2379,7 +2384,8 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				results = append(results, datago.NewSkippedVerificationResult(candidate, "missing_auth"))
 				continue
 			}
-			results = append(results, adapter.Verify(context.Background(), providers.VerificationRequest{
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			results = append(results, adapter.Verify(ctx, providers.VerificationRequest{
 				Spec:          candidate.Spec,
 				Operation:     candidate.Operation,
 				Params:        candidate.Params,
@@ -2388,6 +2394,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				HTTP:          a.http,
 				VerifiedAt:    generatedAt,
 			}))
+			cancel()
 			continue
 		}
 		if candidate.SkipReason != "" {
@@ -2415,6 +2422,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 			})
 			continue
 		}
+		plan.Timeout = timeout
 		envelope, err := a.execute(plan)
 		if err != nil {
 			results = append(results, datago.VerificationResult{
@@ -2463,6 +2471,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		Ref:           ref,
 		Operation:     operation,
 		Limit:         limit,
+		Timeout:       timeout.String(),
 		Truncated:     truncated,
 		Filters:       reportFilters,
 		FilteredCount: len(results),
@@ -6349,7 +6358,7 @@ Usage:
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
   datapan catalog dependencies [--registry PATH] [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--output PATH|-] [--json]
   datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
-  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog verify merge --input REPORT --input REPORT [--input REPORT ...] --output PATH|- [--json]

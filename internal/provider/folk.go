@@ -81,13 +81,13 @@ func (a FolkAdapter) Verify(ctx context.Context, req VerificationRequest) datago
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.url, nil)
 	if err != nil {
 		result.Status = "failed"
-		result.Reason = err.Error()
+		result.Reason = redactProviderError(err, plan, req.Credential.Value)
 		return result
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		result.Status = "failed"
-		result.Reason = err.Error()
+		result.Reason = redactProviderError(err, plan, req.Credential.Value)
 		return result
 	}
 	defer resp.Body.Close()

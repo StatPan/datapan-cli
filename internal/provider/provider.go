@@ -74,3 +74,17 @@ func (m StaticHostMatcher) MatchHost(host string) bool {
 func normalizeHost(host string) string {
 	return strings.ToLower(strings.TrimSpace(host))
 }
+
+func redactProviderError(err error, plan providerRequestPlan, credential string) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	if plan.url != "" && plan.redacted != "" {
+		message = strings.ReplaceAll(message, plan.url, plan.redacted)
+	}
+	if strings.TrimSpace(credential) != "" {
+		message = strings.ReplaceAll(message, credential, "REDACTED")
+	}
+	return message
+}

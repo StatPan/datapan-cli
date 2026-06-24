@@ -441,6 +441,26 @@ func TestForestAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestForestAdapterVerifyRedactsTransportErrors(t *testing.T) {
+	adapter := NewForestAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "500", Title: "Forest 샘플", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "숲 이야기", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
+		MissingParams: []string{"searchWrd", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" {
+		t.Fatalf("expected failed transport result: %#v", result)
+	}
+	if strings.Contains(result.Reason, "secret") || !strings.Contains(result.Reason, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted transport reason, got %s", result.Reason)
+	}
+}
+
 func TestForestAdapterClassifiesServiceKeyFailures(t *testing.T) {
 	adapter := NewForestAdapter()
 	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

@@ -12,6 +12,7 @@ type VerificationReport struct {
 	Ref           string                     `json:"ref,omitempty"`
 	Operation     string                     `json:"operation,omitempty"`
 	Limit         int                        `json:"limit"`
+	Timeout       string                     `json:"timeout,omitempty"`
 	Truncated     bool                       `json:"truncated"`
 	Filters       *VerificationReportFilters `json:"filters,omitempty"`
 	FilteredCount int                        `json:"filtered_count"`
