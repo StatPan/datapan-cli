@@ -131,6 +131,10 @@ func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
 	if payload["ready_for_search"] != true || payload["ready_for_calls"] != true {
 		t.Fatalf("unexpected readiness: %#v", payload)
 	}
+	nextSteps := fmt.Sprint(payload["next_steps"])
+	if !strings.Contains(nextSteps, "datapan ready --limit 10 --json") {
+		t.Fatalf("expected ready next step: %#v", payload["next_steps"])
+	}
 }
 
 func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
@@ -618,6 +622,34 @@ func TestSearchReadyAlias(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"id": "200"`) || strings.Contains(stdout, `"id": "100"`) {
 		t.Fatalf("expected --ready alias to filter call-ready specs: %s", stdout)
+	}
+}
+
+func TestReadyCommandFiltersCallReadySpecs(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"Generic External API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://partner.example.test/api"}]},
+		{"id":"200","title":"Ready Gateway API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"300","title":"Ready Provider API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"요금","endpoint":"http://openapi.epost.go.kr/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"ready", "--limit", "1", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"call_ready_only": true`,
+		`"count": 1`,
+		`"id": "200"`,
+		`"call_ready": true`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in ready output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"id": "100"`) {
+		t.Fatalf("ready should filter generic external specs: %s", stdout)
 	}
 }
 
@@ -1659,6 +1691,7 @@ func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
 		`"operations": 1`,
 		`"credential_present": true`,
 		`"adapter_count": 6`,
+		`datapan ready --limit 10 --json`,
 		`datapan search \"실거래\" --org 국토교통부 --json`,
 		`datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json`,
 	} {

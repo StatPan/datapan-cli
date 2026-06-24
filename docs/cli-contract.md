@@ -48,6 +48,7 @@ is present in the imported catalog.
 
 ```bash
 datapan list --limit 10 --json
+datapan ready --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
 datapan search "실거래" --org 국토교통부 --json
@@ -74,6 +75,7 @@ Catalog mutation and release commands such as `import`, `update`, `install`,
 
 ```bash
 datapan init --json
+datapan ready --limit 10 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -106,9 +108,11 @@ bounded dataset list. `--callable` is also accepted by `search`, `list`, and
 `ls`; it filters results to specs with at least one operation endpoint and may
 be used without a search query. `--call-ready` is also accepted by `search`,
 `list`, and `ls`; it filters to specs with at least one `call_ready` operation.
-`--ready` is a short human-friendly alias for `--call-ready`. JSON output must
-include `callable_only` and `call_ready_only` so agents can tell which filters
-were applied. Human output should include `callable: yes|no`,
+`--ready` is a short human-friendly alias for `--call-ready`. `datapan ready`
+is a top-level shortcut for `datapan list --call-ready` and should accept the
+same query and source metadata filters as `list`. JSON output must include
+`callable_only` and `call_ready_only` so agents can tell which filters were
+applied. Human output should include `callable: yes|no`,
 `call ready: yes|no (...)`, and at least a
 `next: datapan show <id>` line and, when callable, a
 `try: datapan get ...` line plus a `kit: datapan kit ... --json` line.
@@ -403,7 +407,9 @@ that install path for first-run setup. JSON output must include `install`,
 `registry`, `auth`, `providers`, `ready_for_search`, `ready_for_calls`, and
 `next_steps`. `ready_for_calls` is true only when a registry was installed and a
 data.go.kr key is present. `--registry -` is not allowed for `init`; callers who
-want raw registry JSON on stdout should use `catalog install`.
+want raw registry JSON on stdout should use `catalog install`. `next_steps`
+should include `datapan ready --limit 10 --json` after a successful install so
+new users can immediately find APIs with stable call routes.
 
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the

@@ -70,6 +70,7 @@ if the variable is not already present in the process environment.
 
 ```bash
 datapan init --json
+datapan ready --limit 10 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -170,6 +171,7 @@ returns next commands.
 
 ```bash
 datapan init --json
+datapan ready --limit 10 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -190,7 +192,8 @@ least one operation endpoint, so it is the quickest path when you want
 something Datapan can turn into `get`, `curl`, Postman, OpenAPI, or generated
 client code. Check `call_ready` and `call_route` when you need the stronger
 "Datapan has a stable call route" signal, or use `--call-ready` directly.
-`--ready` is the shorter alias for interactive use.
+`--ready` is the shorter alias for interactive use, and `datapan ready` is a
+top-level shortcut for `datapan list --call-ready`.
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top

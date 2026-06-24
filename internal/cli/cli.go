@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "ready", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -230,6 +230,8 @@ func (a app) run() int {
 		return a.init(args[1:], jsonOut)
 	case "search":
 		return a.search(args[1:], jsonOut)
+	case "ready":
+		return a.ready(args[1:], jsonOut)
 	case "list", "ls":
 		return a.list(args[1:], jsonOut)
 	case "info":
@@ -276,6 +278,12 @@ func (a app) search(args []string, jsonOut bool) int {
 }
 
 func (a app) list(args []string, jsonOut bool) int {
+	return a.searchOrList(args, jsonOut, true)
+}
+
+func (a app) ready(args []string, jsonOut bool) int {
+	readyArgs := append([]string{"--ready"}, args...)
+	args = readyArgs
 	return a.searchOrList(args, jsonOut, true)
 }
 
@@ -940,6 +948,7 @@ func initNextSteps(registryPath string, credentialPresent bool) []string {
 		steps = append(steps, "set DATAPAN_DATA_GO_KR_KEY or DATA_PORTAL_API_KEY before calling approved APIs")
 	}
 	steps = append(steps,
+		"datapan ready --limit 10 --json",
 		"datapan list --org 국토교통부 --json",
 		"datapan search \"실거래\" --org 국토교통부 --json",
 		"datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json",
@@ -5189,6 +5198,10 @@ func doctorNextSteps(registrySource string, credentialPresent bool) []string {
 	if !credentialPresent {
 		steps = append(steps, "set DATAPAN_DATA_GO_KR_KEY or DATA_PORTAL_API_KEY before calling approved APIs")
 	}
+	steps = append(steps,
+		"datapan ready --limit 10 --json",
+		"datapan search \"실거래\" --org 국토교통부 --json",
+	)
 	return steps
 }
 
@@ -7111,6 +7124,7 @@ func (a app) printHelp() {
 Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
+  datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
