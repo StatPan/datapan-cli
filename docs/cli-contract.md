@@ -162,6 +162,17 @@ the command writes a pure overview report containing `generated_at`, `provider`,
 be combined with `--output -`. When no `--registry` is supplied, it follows the
 same default installed registry discovery used by consumer commands.
 
+`datapan catalog studio --output-dir DIR --json` writes a static consumer
+bundle for Studio-like tools. It must create `overview.json`, `datasets.json`,
+and `studio.json`. `overview.json` reuses the catalog overview report;
+`datasets.json` contains bounded dataset cards with operation summaries,
+access metadata, and the same `examples` map used by search/show; `studio.json`
+wraps the bundle manifest, overview, dataset cards, provider readiness, and
+next-step commands. With no `--registry`, it follows the default installed
+registry discovery used by consumer commands. The command may accept `--query`,
+`--org`, `--category`, `--provider`, `--priority`, and `--limit` to build a
+focused bundle.
+
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary
 counts for data.go.kr gateway hosts, external endpoint hosts, external guide

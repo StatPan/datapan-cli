@@ -146,7 +146,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 	case "access":
 		return len(args) < 2 || args[1] != "login"
 	case "catalog":
-		return len(args) > 1 && args[1] == "overview"
+		return len(args) > 1 && (args[1] == "overview" || args[1] == "studio")
 	default:
 		return false
 	}
@@ -344,7 +344,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -355,6 +355,8 @@ func (a app) catalog(args []string, jsonOut bool) int {
 		return a.catalogInstall(args[1:], jsonOut)
 	case "overview":
 		return a.catalogOverview(args[1:], jsonOut)
+	case "studio":
+		return a.catalogStudio(args[1:], jsonOut)
 	case "diff":
 		return a.catalogDiff(args[1:], jsonOut)
 	case "audit":
@@ -1033,6 +1035,29 @@ type catalogOverviewNextStep struct {
 	Command string `json:"command"`
 }
 
+type catalogStudioBundle struct {
+	SchemaVersion  string                    `json:"schema_version"`
+	GeneratedAt    string                    `json:"generated_at"`
+	DatapanVersion string                    `json:"datapan_version"`
+	Provider       string                    `json:"provider"`
+	Registry       string                    `json:"registry,omitempty"`
+	Source         string                    `json:"source,omitempty"`
+	OutputDir      string                    `json:"output_dir"`
+	Limit          int                       `json:"limit"`
+	Filters        datago.SearchFilters      `json:"filters"`
+	Query          string                    `json:"query,omitempty"`
+	Files          []catalogStudioFile       `json:"files"`
+	Summary        catalogOverviewSummary    `json:"summary"`
+	Overview       catalogOverviewReport     `json:"overview"`
+	Datasets       []map[string]any          `json:"datasets"`
+	Next           []catalogOverviewNextStep `json:"next"`
+}
+
+type catalogStudioFile struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+}
+
 type nameCount struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
@@ -1147,6 +1172,150 @@ func (a app) catalogOverview(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) catalogStudio(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	outputDir, args, err := consumeString(args, "--output-dir", ".datapan/studio")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 200)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	provider, args, err := consumeString(args, "--provider", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	organization, args, err := consumeString(args, "--org", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if organization == "" {
+		organization, args, err = consumeString(args, "--organization", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
+	category, args, err := consumeString(args, "--category", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	priority, args, err := consumeString(args, "--priority", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	query, args, err := consumeString(args, "--query", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		if query != "" {
+			return a.fail(exitUsage, "usage: datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]")
+		}
+		query = strings.TrimSpace(strings.Join(args, " "))
+	}
+	if strings.TrimSpace(outputDir) == "" {
+		return a.fail(exitUsage, "--output-dir must not be empty")
+	}
+	reg := a.reg
+	source := a.registrySource
+	if registryPath == "" {
+		registryPath = a.registryPath
+	} else {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+		source = "flag"
+	}
+	filters := datago.SearchFilters{
+		Provider:       provider,
+		Organization:   organization,
+		SourceCategory: category,
+		Priority:       priority,
+	}
+	overview, err := a.buildCatalogOverview(reg, registryPath, source, 10)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	specs := studioSpecs(reg, query, limit, filters)
+	datasets := studioDatasetCards(specs)
+	generatedAt := time.Now().UTC().Format(time.RFC3339)
+	files := []catalogStudioFile{
+		{Kind: "overview", Path: joinPath(outputDir, "overview.json")},
+		{Kind: "datasets", Path: joinPath(outputDir, "datasets.json")},
+		{Kind: "bundle", Path: joinPath(outputDir, "studio.json")},
+	}
+	bundle := catalogStudioBundle{
+		SchemaVersion:  "datapan.studio-bundle.v1",
+		GeneratedAt:    generatedAt,
+		DatapanVersion: version,
+		Provider:       "data.go.kr",
+		Registry:       registryPath,
+		Source:         source,
+		OutputDir:      outputDir,
+		Limit:          limit,
+		Filters:        filters,
+		Query:          query,
+		Files:          files,
+		Summary:        overview.Summary,
+		Overview:       overview,
+		Datasets:       datasets,
+		Next:           studioNextSteps(registryPath),
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeJSONFile(files[0].Path, overview); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeJSONFile(files[1].Path, map[string]any{
+		"schema_version": "datapan.studio-datasets.v1",
+		"generated_at":   generatedAt,
+		"provider":       "data.go.kr",
+		"registry":       registryPath,
+		"source":         source,
+		"limit":          limit,
+		"query":          query,
+		"filters":        filters,
+		"count":          len(datasets),
+		"datasets":       datasets,
+	}); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeJSONFile(files[2].Path, bundle); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":         true,
+			"output_dir": outputDir,
+			"registry":   registryPath,
+			"source":     source,
+			"limit":      limit,
+			"query":      query,
+			"filters":    filters,
+			"count":      len(datasets),
+			"files":      files,
+			"summary":    overview.Summary,
+			"next":       bundle.Next,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Studio bundle")
+	fmt.Fprintf(a.stdout, "  output: %s\n", outputDir)
+	fmt.Fprintf(a.stdout, "  datasets: %d\n", len(datasets))
+	fmt.Fprintf(a.stdout, "  specs: %d\n", overview.Summary.Specs)
+	fmt.Fprintf(a.stdout, "  operations: %d\n", overview.Summary.Operations)
+	for _, file := range files {
+		fmt.Fprintf(a.stdout, "  %s: %s\n", file.Kind, file.Path)
+	}
+	return exitOK
+}
+
 func (a app) buildCatalogOverview(reg datago.Registry, registryPath, source string, limit int) (catalogOverviewReport, error) {
 	if limit < 0 {
 		limit = 0
@@ -1213,6 +1382,59 @@ func catalogOverviewNext(registryPath string) []catalogOverviewNextStep {
 		{Label: "adapter targets", Command: "datapan catalog adapter-targets" + registryArg + " --limit 20 --json"},
 		{Label: "verify adapters", Command: "datapan catalog verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --json"},
 	}
+}
+
+func studioNextSteps(registryPath string) []catalogOverviewNextStep {
+	steps := catalogOverviewNext(registryPath)
+	steps = append([]catalogOverviewNextStep{
+		{Label: "search kit", Command: "datapan search \"실거래\" --org 국토교통부 --json"},
+	}, steps...)
+	return steps
+}
+
+func studioSpecs(reg datago.Registry, query string, limit int, filters datago.SearchFilters) []datago.Spec {
+	if strings.TrimSpace(query) != "" || filters != (datago.SearchFilters{}) {
+		return reg.Search(query, limit, filters)
+	}
+	return limitSpecs(reg.Specs(), limit)
+}
+
+func studioDatasetCards(specs []datago.Spec) []map[string]any {
+	cards := make([]map[string]any, 0, len(specs))
+	for _, spec := range specs {
+		card := map[string]any{
+			"id":               spec.ID,
+			"title":            spec.Title,
+			"provider":         spec.Provider,
+			"organization":     spec.Organization,
+			"source_category":  spec.SourceCategory,
+			"priority":         spec.Priority,
+			"description":      spec.Description,
+			"operations_count": len(spec.Operations),
+			"callable":         specHasCallableOperation(spec),
+			"application_url":  spec.ApplicationURL(),
+			"examples":         specExampleCommands(spec),
+			"operations":       showOperationSummaries(spec),
+		}
+		access := showAccessSummary(spec)
+		if len(access) > 1 {
+			card["access"] = access
+		}
+		if len(spec.SourceKeywords) > 0 {
+			card["source_keywords"] = spec.SourceKeywords
+		}
+		cards = append(cards, card)
+	}
+	return cards
+}
+
+func specHasCallableOperation(spec datago.Spec) bool {
+	for _, op := range spec.Operations {
+		if strings.TrimSpace(op.Endpoint) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func topNameCounts(counts map[string]int, limit int) []nameCount {
@@ -5839,6 +6061,7 @@ Usage:
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]
+  datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]
   datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json]
   datapan catalog audit [--registry PATH] [--sample N] [--output PATH|-] [--json]
   datapan catalog errors [--registry PATH] [--limit N] [--output PATH|-] [--json]
@@ -6205,6 +6428,8 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.error-catalog.v1.schema.json",
 		"schemas/datapan.catalog-audit.v1.schema.json",
 		"schemas/datapan.provider-index.v1.schema.json",
+		"schemas/datapan.studio-datasets.v1.schema.json",
+		"schemas/datapan.studio-bundle.v1.schema.json",
 	}
 }
 

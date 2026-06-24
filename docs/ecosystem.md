@@ -143,6 +143,8 @@ Likely artifacts:
 - `schemas/datapan.dependencies.v1.schema.json`;
 - `schemas/datapan.adapter-targets.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
+- `schemas/datapan.studio-datasets.v1.schema.json`;
+- `schemas/datapan.studio-bundle.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
 - `schemas/datapan.release-manifest.v1.schema.json`;

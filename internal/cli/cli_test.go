@@ -160,6 +160,63 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 	}
 }
 
+func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	outputDir := filepath.Join(dir, "studio")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"기관_A API","provider":"data.go.kr","priority":"P2","organization":"기관_A","source_category":"환경기상","description":"테스트 설명","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list","request_params":[{"name":"pageNo","label":"페이지"}],"response_params":[{"name":"resultCode","label":"결과코드"}]}]},
+		{"id":"200","title":"기관_B API","provider":"data.go.kr","priority":"P2","organization":"기관_B","operations":[]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "studio", "--registry", registryPath, "--output-dir", outputDir, "--query", "기관_A", "--limit", "5", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"output_dir": "` + jsonEscaped(outputDir) + `"`,
+		`"count": 1`,
+		`"kind": "overview"`,
+		`"kind": "datasets"`,
+		`"kind": "bundle"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in studio output: %s", want, stdout)
+		}
+	}
+	for _, name := range []string{"overview.json", "datasets.json", "studio.json"} {
+		if _, err := os.Stat(filepath.Join(outputDir, name)); err != nil {
+			t.Fatalf("expected %s: %v", name, err)
+		}
+	}
+	data, err := osReadFile(filepath.Join(outputDir, "datasets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`"schema_version": "datapan.studio-datasets.v1"`,
+		`"id": "100"`,
+		`"callable": true`,
+		`"kit": "datapan use 100 --operation \"목록\" pageNo=VALUE --output-dir 100-kit --json"`,
+		`"request_params":`,
+		`"response_params_count": 1`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in studio datasets: %s", want, text)
+		}
+	}
+	bundle, err := osReadFile(filepath.Join(outputDir, "studio.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(bundle), `"schema_version": "datapan.studio-bundle.v1"`) || !strings.Contains(string(bundle), `"split_readiness"`) {
+		t.Fatalf("unexpected studio bundle: %s", bundle)
+	}
+}
+
 func TestDoctorJSONSuggestsInstallAndAuth(t *testing.T) {
 	t.Chdir(t.TempDir())
 	code, stdout, stderr := runTest([]string{"doctor", "--json"}, nil, nil)
@@ -2160,7 +2217,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 26`,
+		`"artifacts": 28`,
 		`"provenance":`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -2182,6 +2239,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.error-catalog.v1.schema.json",
 		outputDir + "/schemas/datapan.catalog-audit.v1.schema.json",
 		outputDir + "/schemas/datapan.provider-index.v1.schema.json",
+		outputDir + "/schemas/datapan.studio-datasets.v1.schema.json",
+		outputDir + "/schemas/datapan.studio-bundle.v1.schema.json",
 		outputDir + "/schemas/index.json",
 		outputDir + "/data/data-go-kr.registry.json",
 		outputDir + "/data/provider-index.json",
@@ -2272,7 +2331,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 14`,
+		`"count": 16`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
 		`"path": "schemas/datapan.release-readiness.v1.schema.json"`,
@@ -2281,6 +2340,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"path": "schemas/datapan.error-catalog.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-audit.v1.schema.json"`,
 		`"path": "schemas/datapan.provider-index.v1.schema.json"`,
+		`"path": "schemas/datapan.studio-datasets.v1.schema.json"`,
+		`"path": "schemas/datapan.studio-bundle.v1.schema.json"`,
 		`"contract": "dependencies"`,
 		`"contract": "adapter-targets"`,
 		`"contract": "release-readiness"`,
@@ -2289,6 +2350,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"contract": "error-catalog"`,
 		`"contract": "catalog-audit"`,
 		`"contract": "provider-index"`,
+		`"contract": "studio-datasets"`,
+		`"contract": "studio-bundle"`,
 		`"version": "v1"`,
 	} {
 		if !strings.Contains(string(schemaIndex), want) {
@@ -2301,7 +2364,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 26`,
+		`"artifact_count": 28`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -2334,7 +2397,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 26`,
+		`"checked": 28`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -2443,7 +2506,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 26`,
+		`"artifacts": 28`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
 	} {

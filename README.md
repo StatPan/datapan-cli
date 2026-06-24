@@ -76,6 +76,7 @@ datapan search --org 기상청 --json
 datapan catalog install datapan-registry --json
 datapan doctor --json
 datapan catalog overview --json
+datapan catalog studio --output-dir .datapan/studio --limit 200 --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --output .datapan/catalog-diff.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
@@ -164,6 +165,10 @@ for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top
 organizations, top external hosts, missing adapter hosts, registered adapter
 hosts, and suggested next commands.
+Use `datapan catalog studio --output-dir DIR --json` when you want a static
+consumer bundle for a future Studio or local viewer. It writes `overview.json`,
+`datasets.json`, and `studio.json` with the same search examples, starter-kit
+commands, provider readiness, and registry summary used by the CLI.
 
 For registry maintainers and bounded upstream checks, import the upstream
 data.go.kr open-data list into a normalized Datapan registry:
