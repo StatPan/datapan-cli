@@ -305,13 +305,25 @@ func commandArg(arg string) string {
 }
 
 func QueryWithServiceKey(values url.Values, key string) string {
-	values.Del("serviceKey")
-	query := values.Encode()
-	serviceKey := "serviceKey=" + serviceKeyQueryValue(key)
-	if query == "" {
-		return serviceKey
+	return QueryWithCredentialParam(values, "serviceKey", key)
+}
+
+func QueryWithCredentialParam(values url.Values, name, key string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "serviceKey"
 	}
-	return query + "&" + serviceKey
+	for existing := range values {
+		if strings.EqualFold(existing, name) {
+			values.Del(existing)
+		}
+	}
+	query := values.Encode()
+	credential := url.QueryEscape(name) + "=" + serviceKeyQueryValue(key)
+	if query == "" {
+		return credential
+	}
+	return query + "&" + credential
 }
 
 func serviceKeyQueryValue(key string) string {

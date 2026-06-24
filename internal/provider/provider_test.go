@@ -552,6 +552,175 @@ func TestForestAdapterClassifiesServiceKeyFailures(t *testing.T) {
 	}
 }
 
+func TestJeonjuAdapterOwnsKnownHostAndAuthParam(t *testing.T) {
+	adapter := NewJeonjuAdapter()
+	if !adapter.MatchHost("openapi.jeonju.go.kr") {
+		t.Fatal("expected jeonju adapter to match openapi.jeonju.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("jeonju adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "600", Title: "Jeonju 샘플", Provider: "data.go.kr"}
+	op := datago.Operation{
+		Name:     "무선인터넷존",
+		Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone",
+		RequestParams: []datago.Param{
+			{Name: "authApiKey"},
+			{Name: "posy"},
+			{Name: "posx"},
+			{Name: "searchDts"},
+		},
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("authApiKey") != "secret" {
+			t.Fatalf("expected authApiKey in jeonju request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("posy") != "35.8242" || req.URL.Query().Get("posx") != "127.1480" || req.URL.Query().Get("searchDts") != "1000" {
+			t.Fatalf("unexpected jeonju query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"items":[{"name":"wifi"}],"resultCode":"00","resultMsg":"NORMAL SERVICE."}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		MissingParams: []string{"posy", "posx", "searchDts"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "jeonju" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected jeonju verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "authApiKey=REDACTED") {
+		t.Fatalf("expected redacted jeonju URL: %s", result.URL)
+	}
+	if result.Params["authApiKey"] != "" || result.Params["posy"] != "35.8242" || result.Params["posx"] != "127.1480" || result.Params["searchDts"] != "1000" || result.BodyShape != "json_items" {
+		t.Fatalf("unexpected jeonju public params: %#v", result.Params)
+	}
+}
+
+func TestJeonjuAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewJeonjuAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.jeonju.go.kr" {
+			t.Fatalf("expected jeonju host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("ServiceKey") != "secret" {
+			t.Fatalf("expected ServiceKey in jeonju call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("loadResult") != "백제대로" {
+			t.Fatalf("unexpected jeonju call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><name>백제대로</name></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "601", Title: "Jeonju 도로", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "도로별 현황 상세 정보",
+			Endpoint: "http://openapi.jeonju.go.kr/jeonjubus/openApi/traffic",
+			RequestParams: []datago.Param{
+				{Name: "ServiceKey"},
+				{Name: "loadResult"},
+			},
+		},
+		MissingParams: []string{"loadResult"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "jeonju" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected jeonju call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected jeonju provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "ServiceKey=REDACTED") || !strings.Contains(envelope.Body, "<name>백제대로</name>") {
+		t.Fatalf("unexpected jeonju call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestJeonjuAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewJeonjuAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "602", Title: "Jeonju 상세", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "상세", Endpoint: "http://openapi.jeonju.go.kr/rest/detail"},
+		MissingParams: []string{"unknownRequired"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "jeonju_missing_required_params" || len(result.MissingParams) != 1 {
+		t.Fatalf("unexpected jeonju skip result: %#v", result)
+	}
+}
+
+func TestJeonjuAdapterClassifiesHTTPMethodFailures(t *testing.T) {
+	adapter := NewJeonjuAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 405,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "604", Title: "Jeonju method", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "무선인터넷존",
+			Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone",
+			RequestParams: []datago.Param{
+				{Name: "authApiKey"},
+				{Name: "posy"},
+				{Name: "posx"},
+				{Name: "searchDts"},
+			},
+		},
+		MissingParams: []string{"posy", "posx", "searchDts"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "http_error" || result.Reason != "jeonju_http_405_method_not_allowed" {
+		t.Fatalf("unexpected jeonju method failure: %#v", result)
+	}
+}
+
+func TestJeonjuAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewJeonjuAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "603", Title: "Jeonju error", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "무선인터넷존",
+			Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone",
+			RequestParams: []datago.Param{
+				{Name: "authApiKey"},
+				{Name: "posy"},
+				{Name: "posx"},
+				{Name: "searchDts"},
+			},
+		},
+		MissingParams: []string{"posy", "posx", "searchDts"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "authApiKey=REDACTED") {
+		t.Fatalf("expected redacted jeonju transport error, got %v", err)
+	}
+}
+
 func TestFolkAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewFolkAdapter()
 	if !adapter.MatchHost("folkency.nfm.go.kr") {

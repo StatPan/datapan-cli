@@ -139,11 +139,12 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
 				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
+				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 			},
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr", "openapi.jeonju.go.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -159,6 +160,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	folk := findProviderSummary(backlog.Providers, "folkency.nfm.go.kr")
 	if folk == nil || folk.AdapterStatus != "adapter" || folk.Provider != "folk" {
 		t.Fatalf("unexpected folk summary: %#v", folk)
+	}
+	jeonju := findProviderSummary(backlog.Providers, "openapi.jeonju.go.kr")
+	if jeonju == nil || jeonju.AdapterStatus != "adapter" || jeonju.Provider != "jeonju" {
+		t.Fatalf("unexpected jeonju summary: %#v", jeonju)
 	}
 }
 

@@ -204,6 +204,8 @@ Adapter status:
   multimedia APIs with provider-specific JSON result evidence;
 - `airport`: registered observation-stage adapter for Korea Airports
   Corporation APIs with provider key-registration error evidence;
+- `jeonju`: registered adapter for Jeonju city APIs with exact `ServiceKey` /
+  `authApiKey` handling and upstream `HTTP 405` evidence;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;
@@ -217,7 +219,8 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; epost and forest now prove two call
-paths, and the split should wait for sustained maintenance pressure.
+paths, while jeonju expands high-impact external host ownership. The split
+should wait for sustained maintenance pressure.
 
 ### datapan-spec
 

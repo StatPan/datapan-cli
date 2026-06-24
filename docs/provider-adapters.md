@@ -95,6 +95,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider airport --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider airport --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider jeonju --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider jeonju --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
@@ -106,6 +108,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeonju --json
 ```
 
 The current imported registry shows q-net as a strong early adapter family:
@@ -135,6 +138,14 @@ The airport adapter owns `openapi.airport.co.kr` and captures Korea Airports
 Corporation low-visibility API credential-registration responses as
 provider-specific evidence instead of leaving those operations as generic
 missing-adapter gaps.
+The jeonju adapter owns `openapi.jeonju.go.kr`, currently the largest missing
+external host family in the imported registry. It preserves the upstream
+credential parameter name (`ServiceKey` or `authApiKey`) and only fills
+conservative paging/location/search defaults; any unknown required parameter
+remains an explicit `jeonju_missing_required_params` skip instead of a guessed
+call. The current upstream REST endpoints return `HTTP 405` to normal GET/POST
+checks, so the adapter is verification-capable but does not declare call
+capability yet.
 Release drafts also publish `data/provider-index.json` using
 `schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
 registered adapter ownership from backlog observations.
@@ -329,6 +340,30 @@ status bodies, and stable provider-specific reasons such as
 current data.go.kr key registration state. A failed airport verification can
 still be useful evidence when it proves that the request reached the external
 provider and the provider rejected credential registration.
+
+## Seventh Adapter: jeonju
+
+The jeonju adapter covers Jeonju city APIs hosted at `openapi.jeonju.go.kr`.
+The host is high-impact because the current full registry exposes dozens of
+Jeonju operations across transport, administration, tourism, safety, health, and
+environment categories. These APIs mix `ServiceKey` and `authApiKey`, so the
+adapter preserves the exact credential parameter requested by each operation
+instead of blindly sending `serviceKey`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeonju --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider jeonju --kind external_endpoint --limit 5 --output .datapan/jeonju-verification.json --json
+datapan catalog verify summary --input .datapan/jeonju-verification.json --json
+```
+
+Expected evidence shape: `provider=jeonju`,
+`endpoint_host=openapi.jeonju.go.kr`, redacted URLs with `ServiceKey=REDACTED`
+or `authApiKey=REDACTED`, XML/JSON response shapes, provider status when
+available, and `jeonju_missing_required_params` for operations whose required
+domain filters are not safe to guess. Current upstream method failures are
+preserved as stable reasons such as `jeonju_http_405_method_not_allowed`.
 
 ## Adapter Readiness Bar
 

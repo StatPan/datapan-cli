@@ -56,6 +56,27 @@ func TestQueryWithServiceKeyEncodesDecodedKey(t *testing.T) {
 	}
 }
 
+func TestQueryWithCredentialParamPreservesEncodedPortalKey(t *testing.T) {
+	raw := QueryWithCredentialParam(url.Values{"authApiKey": {"old"}, "page": {"1"}}, "authApiKey", "abc%2Bdef%2Fghi%3D")
+	if !strings.Contains(raw, "authApiKey=abc%2Bdef%2Fghi%3D") {
+		t.Fatalf("expected encoded authApiKey to be preserved: %s", raw)
+	}
+	if strings.Contains(raw, "%252B") || strings.Contains(raw, "%252F") || strings.Contains(raw, "%253D") {
+		t.Fatalf("authApiKey was double encoded: %s", raw)
+	}
+	parsed, err := url.ParseQuery(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Get("authApiKey"); got != "abc+def/ghi=" {
+		t.Fatalf("authApiKey=%q", got)
+	}
+	values := parsed["authApiKey"]
+	if len(values) != 1 {
+		t.Fatalf("expected one authApiKey value, got %#v", values)
+	}
+}
+
 func TestOperationEndpointSkipsServiceRootWithoutOperationURL(t *testing.T) {
 	got := operationEndpoint("http://openapi.tour.go.kr/openapi/service", "")
 	if got != "" {

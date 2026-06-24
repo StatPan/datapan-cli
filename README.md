@@ -127,9 +127,10 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ekape --kind external_endpoint --limit 5 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider forest --kind external_endpoint --limit 4 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider folk --kind external_endpoint --limit 3 --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider jeonju --kind external_endpoint --limit 5 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
-datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --output .datapan/latest-verification.json --json
+datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/jeonju-verification.json --output .datapan/latest-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 datapan catalog release readiness --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-readiness.json --json
@@ -348,8 +349,8 @@ is the command to run before deciding which external provider adapter should be
 built next. With `--output`, it writes a `datapan.providers.v1` report that can
 be published by `datapan-registry`. Use `--status`, `--kind`, and
 `--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
-registered external adapters such as airport, q-net, epost, ekape, forest, and
-folk.
+registered external adapters such as airport, q-net, epost, ekape, forest,
+folk, and jeonju.
 EPost and forest are call-capable external adapters, so `datapan get` can route
 their matching operations through the provider boundary instead of treating them
 as generic data.go.kr gateway calls.
