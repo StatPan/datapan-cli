@@ -88,13 +88,16 @@ provider adapters, and next-step hints. It should not print credential values.
 include per-result `examples` for immediate next steps: `show`, `use`, `kit`,
 `params`, `get`, `curl`, `postman`, `openapi`, `codegen_go`, `codegen_node`,
 and `codegen_python` when those commands can be generated from the selected
-operation. `list` and `ls` accept the same source metadata filters as `search`;
+operation. Each result should also expose decision metadata such as `callable`,
+`default_operation`, `data_format`, approval state, register status,
+`updated_at`, and `application_url` when those upstream values are available.
+`list` and `ls` accept the same source metadata filters as `search`;
 unlike `search`, they may run with no query or filters and should return a
 bounded dataset list. `--callable` is also accepted by `search`, `list`, and
 `ls`; it filters results to specs with at least one operation endpoint and may
 be used without a search query. JSON output must include `callable_only` so
 agents can tell whether the callable filter was applied. Human output should
-include at least a
+include `callable: yes|no` and at least a
 `next: datapan show <id>` line and, when callable, a
 `try: datapan get ...` line plus a `kit: datapan kit ... --json` line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,

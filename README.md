@@ -149,6 +149,9 @@ in the imported catalog; Datapan should not invent source categories.
 Search and show results include copyable next-step examples for `show`, `use`,
 starter-kit generation, `get`, `curl`, Postman export, OpenAPI export, and
 Go/Node/Python codegen when an operation has an endpoint.
+Search JSON also includes quick decision fields such as `callable`,
+`default_operation`, approval metadata, data format, update date, and the
+data.go.kr application URL when the registry has those upstream values.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 

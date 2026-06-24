@@ -87,6 +87,9 @@ func TestSearchLoadsDefaultInstalledRegistry(t *testing.T) {
 	if !strings.Contains(stdout, `"id": "local-1"`) {
 		t.Fatalf("expected default installed registry result: %s", stdout)
 	}
+	if !strings.Contains(stdout, `"callable": false`) {
+		t.Fatalf("expected non-callable search metadata: %s", stdout)
+	}
 }
 
 func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
@@ -402,6 +405,8 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 		t.Fatalf("expected apartment trade spec in output: %s", stdout)
 	}
 	for _, want := range []string{
+		`"callable": true`,
+		`"default_operation":`,
 		`"examples":`,
 		`"show": "datapan show 15126469"`,
 		`"kit": "datapan kit 15126469`,
@@ -428,6 +433,7 @@ func TestSearchHumanOutputShowsNextCommands(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	for _, want := range []string{
+		`callable: yes`,
 		`next: datapan show 15126469`,
 		`try: datapan get 15126469`,
 		`kit: datapan kit 15126469`,

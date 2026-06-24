@@ -370,6 +370,7 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 		if len(spec.Operations) > 0 {
 			fmt.Fprintf(a.stdout, "  default operation: %s\n", spec.Operations[0].Name)
 		}
+		fmt.Fprintf(a.stdout, "  callable: %s\n", yesNo(specHasCallableOperation(spec)))
 		fmt.Fprintf(a.stdout, "  next: %s\n", showCommand(spec))
 		if example := exampleGetCommand(spec); example != "" {
 			fmt.Fprintf(a.stdout, "  try: %s\n", example)
@@ -4559,6 +4560,7 @@ func sourceURL(spec datago.Spec) string {
 func specSummaries(specs []datago.Spec) []map[string]any {
 	out := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
+		access := showAccessSummary(spec)
 		item := map[string]any{
 			"id":               spec.ID,
 			"title":            spec.Title,
@@ -4567,6 +4569,15 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 			"source_category":  spec.SourceCategory,
 			"priority":         spec.Priority,
 			"operations_count": len(spec.Operations),
+			"callable":         specHasCallableOperation(spec),
+		}
+		if len(spec.Operations) > 0 {
+			item["default_operation"] = spec.Operations[0].Name
+		}
+		for _, key := range []string{"data_format", "dev_approval", "prod_approval", "register_status", "updated_at", "application_url"} {
+			if value, ok := access[key]; ok && fmt.Sprint(value) != "" {
+				item[key] = value
+			}
 		}
 		if len(spec.SourceKeywords) > 0 {
 			item["source_keywords"] = spec.SourceKeywords
@@ -4588,6 +4599,13 @@ func limitSpecs(specs []datago.Spec, limit int) []datago.Spec {
 		return specs
 	}
 	return specs[:limit]
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
 }
 
 func filterCallableSpecs(specs []datago.Spec) []datago.Spec {
