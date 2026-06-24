@@ -229,6 +229,12 @@ envelope for agent use and must not be combined with `--output -`. When no
 `--registry` is supplied, it follows the same default installed registry
 discovery used by consumer commands.
 
+`datapan studio --output-dir DIR --json` is the consumer-facing shortcut for
+the static Studio bundle. It accepts the same `--registry`, `--output-dir`,
+`--limit`, `--query`, `--org`, `--category`, `--provider`, and `--priority`
+filters as `catalog studio`, uses the default installed registry when no
+`--registry` is supplied, and returns the same JSON envelope.
+
 `datapan catalog studio --output-dir DIR --json` writes a static consumer
 bundle for Studio-like tools. It must create `overview.json`, `datasets.json`,
 `studio.json`, and `index.html`. `overview.json` reuses the catalog overview

@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "ready", "coverage", "providers", "targets", "ops", "verify", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -234,6 +234,8 @@ func (a app) run() int {
 		return a.ready(args[1:], jsonOut)
 	case "coverage":
 		return a.coverage(args[1:], jsonOut)
+	case "studio":
+		return a.studio(args[1:], jsonOut)
 	case "providers":
 		return a.providers(args[1:], jsonOut)
 	case "targets":
@@ -299,6 +301,10 @@ func (a app) ready(args []string, jsonOut bool) int {
 
 func (a app) coverage(args []string, jsonOut bool) int {
 	return a.catalogCoverage(args, jsonOut)
+}
+
+func (a app) studio(args []string, jsonOut bool) int {
+	return a.catalogStudio(args, jsonOut)
 }
 
 func (a app) providers(args []string, jsonOut bool) int {
@@ -7370,6 +7376,7 @@ Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan coverage [--registry PATH] [--verification REPORT] [--limit N] [--json]
+  datapan studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
   datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]

@@ -549,6 +549,43 @@ func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
 	}
 }
 
+func TestStudioTopLevelLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A API","provider":"data.go.kr","priority":"P2","organization":"기관_A","source_category":"환경기상","description":"테스트 설명","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list","request_params":[{"name":"pageNo","label":"페이지"}],"response_params":[{"name":"resultCode","label":"결과코드"}]}]},
+		{"id":"200","title":"기관_B API","provider":"data.go.kr","priority":"P2","organization":"기관_B","operations":[]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	outputDir := filepath.Join(t.TempDir(), "studio")
+
+	code, stdout, stderr := runTest([]string{"studio", "--output-dir", outputDir, "--query", "기관_A", "--limit", "5", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "default"`,
+		`"registry": ".datapan/data-go-kr.registry.json"`,
+		`"count": 1`,
+		`"kind": "viewer"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in studio output: %s", want, stdout)
+		}
+	}
+	viewer, err := osReadFile(filepath.Join(outputDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(viewer), `Datapan Studio Bundle`) || !strings.Contains(string(viewer), `기관_A API`) {
+		t.Fatalf("unexpected studio viewer: %s", viewer)
+	}
+}
+
 func TestDoctorJSONSuggestsInstallAndAuth(t *testing.T) {
 	t.Chdir(t.TempDir())
 	code, stdout, stderr := runTest([]string{"doctor", "--json"}, nil, nil)

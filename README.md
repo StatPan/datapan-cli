@@ -176,6 +176,7 @@ returns next commands.
 datapan init --json
 datapan ready --limit 10 --json
 datapan coverage --json
+datapan studio --output-dir .datapan/studio --limit 200 --json
 datapan providers --adapters --json
 datapan providers --gaps --limit 10 --json
 datapan targets --limit 10 --json
@@ -233,7 +234,8 @@ Use `datapan coverage --json` or `datapan catalog coverage --json` when you want
 and gap report. It combines registry coverage, callable operations, adapter
 coverage, provider split readiness, top missing adapter hosts, and optional
 runtime evidence from `--verification REPORT` into one agent-friendly response.
-Use `datapan catalog studio --output-dir DIR --json` when you want a static
+Use `datapan studio --output-dir DIR --json` or `datapan catalog studio
+--output-dir DIR --json` when you want a static
 consumer bundle for a future Studio or local viewer. It writes `overview.json`,
 `datasets.json`, `studio.json`, and `index.html` with the same search examples,
 starter-kit commands, provider readiness, and registry summary used by the CLI.
