@@ -2739,6 +2739,10 @@ func (a app) params(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	overrides, args, err := consumeParams(args)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	output, args, err := consumeString(args, "--output", "-")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -2746,8 +2750,15 @@ func (a app) params(args []string, jsonOut bool) int {
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes params JSON to stdout")
 	}
-	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan params <ref> [--operation NAME] [--output PATH|-] [--json]")
+	if len(args) < 1 {
+		return a.fail(exitUsage, "usage: datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]")
+	}
+	positionalParams, err := parseKeyValueArgs(args[1:])
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	for k, v := range positionalParams {
+		overrides[k] = v
 	}
 	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
@@ -2760,7 +2771,7 @@ func (a app) params(args []string, jsonOut bool) int {
 		}
 		return a.mapError(fmt.Errorf("unknown operation %q for %s", operation, spec.ID), jsonOut)
 	}
-	template, fields := paramsTemplateForOperation(spec, op)
+	template, fields := paramsTemplateForOperation(spec, op, overrides)
 	var out bytes.Buffer
 	enc := json.NewEncoder(&out)
 	enc.SetEscapeHTML(false)
@@ -2800,7 +2811,7 @@ func paramsNextCommand(specID, operation, output string, dryRun bool) string {
 	return datago.CommandString(args)
 }
 
-func paramsTemplateForOperation(spec datago.Spec, op datago.Operation) (map[string]string, []map[string]string) {
+func paramsTemplateForOperation(spec datago.Spec, op datago.Operation, overrides map[string]string) (map[string]string, []map[string]string) {
 	values := map[string]string{}
 	for key, value := range op.DefaultParams {
 		if strings.TrimSpace(key) != "" && !isAuthParam(key) {
@@ -2812,6 +2823,11 @@ func paramsTemplateForOperation(spec datago.Spec, op datago.Operation) (map[stri
 			if strings.TrimSpace(key) != "" && !isAuthParam(key) {
 				values[key] = value
 			}
+		}
+	}
+	for key, value := range overrides {
+		if strings.TrimSpace(key) != "" && !isAuthParam(key) {
+			values[key] = value
 		}
 	}
 	fields := make([]map[string]string, 0)
@@ -5166,7 +5182,7 @@ Usage:
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
-  datapan params <ref> [--operation NAME] [--output PATH|-] [--json]
+  datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
   datapan auth check [--json]
   datapan doctor [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]

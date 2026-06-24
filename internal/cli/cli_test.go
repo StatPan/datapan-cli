@@ -376,7 +376,7 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := runTest(
-		[]string{"params", "999", "--operation", "목록 조회", "--output", paramsPath, "--json"},
+		[]string{"params", "999", "keyword=해운대", "serviceKey=should-not-write", "--operation", "목록 조회", "--param", "numOfRows=5", "--output", paramsPath, "--json"},
 		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath},
 		nil,
 	)
@@ -401,8 +401,8 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
-		`"keyword": "소나무"`,
-		`"numOfRows": "1"`,
+		`"keyword": "해운대"`,
+		`"numOfRows": "5"`,
 		`"pageNo": "1"`,
 	} {
 		if !strings.Contains(text, want) {
@@ -423,8 +423,8 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"dry_run": true`,
-		`"keyword": "소나무"`,
-		`"numOfRows": "1"`,
+		`"keyword": "해운대"`,
+		`"numOfRows": "5"`,
 		`"pageNo": "1"`,
 		`serviceKey=REDACTED`,
 	} {
