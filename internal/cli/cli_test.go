@@ -90,6 +90,14 @@ func TestSearchLoadsDefaultInstalledRegistry(t *testing.T) {
 	if !strings.Contains(stdout, `"callable": false`) {
 		t.Fatalf("expected non-callable search metadata: %s", stdout)
 	}
+	for _, want := range []string{
+		`"call_ready": false`,
+		`"call_route": "not_callable"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in non-callable search metadata: %s", want, stdout)
+		}
+	}
 }
 
 func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
@@ -406,6 +414,9 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"callable": true`,
+		`"call_ready": true`,
+		`"call_route": "data_go_kr_gateway"`,
+		`"call_provider": "data.go.kr"`,
 		`"default_operation":`,
 		`"examples":`,
 		`"show": "datapan show 15126469"`,
@@ -434,6 +445,7 @@ func TestSearchHumanOutputShowsNextCommands(t *testing.T) {
 	}
 	for _, want := range []string{
 		`callable: yes`,
+		`call ready: yes (data.go.kr gateway)`,
 		`next: datapan show 15126469`,
 		`try: datapan get 15126469`,
 		`kit: datapan kit 15126469`,
@@ -441,6 +453,39 @@ func TestSearchHumanOutputShowsNextCommands(t *testing.T) {
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in search output: %s", want, stdout)
+		}
+	}
+}
+
+func TestSearchJSONShowsCallRouteMetadata(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"epost-route","title":"EPost Route API","provider":"data.go.kr","priority":"P2","organization":"우정사업본부","operations":[{"name":"요금제","endpoint":"http://openapi.epost.go.kr/api"}]},
+		{"id":"qnet-route","title":"QNet Route API","provider":"data.go.kr","priority":"P2","organization":"한국산업인력공단","operations":[{"name":"자격","endpoint":"http://openapi.q-net.or.kr/api"}]},
+		{"id":"external-route","title":"External Route API","provider":"data.go.kr","priority":"P2","organization":"외부기관","operations":[{"name":"목록","endpoint":"https://partner.example.test/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"search", "Route", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"id": "epost-route"`,
+		`"call_ready": true`,
+		`"call_route": "provider_adapter"`,
+		`"call_provider": "epost"`,
+		`"endpoint_host": "openapi.epost.go.kr"`,
+		`"id": "qnet-route"`,
+		`"call_route": "provider_adapter_verification_only"`,
+		`"call_provider": "q-net"`,
+		`"endpoint_host": "openapi.q-net.or.kr"`,
+		`"id": "external-route"`,
+		`"call_route": "generic_external"`,
+		`"endpoint_host": "partner.example.test"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in call route metadata: %s", want, stdout)
 		}
 	}
 }
@@ -596,6 +641,9 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"dev_approval": "신청가능"`,
+		`"call_ready": false`,
+		`"call_route": "generic_external"`,
+		`"endpoint_host": "example.test"`,
 		`"request_count": 421`,
 		`"request_params":`,
 		`"auth_params":`,

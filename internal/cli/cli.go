@@ -370,7 +370,9 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 		if len(spec.Operations) > 0 {
 			fmt.Fprintf(a.stdout, "  default operation: %s\n", spec.Operations[0].Name)
 		}
+		callRoute := specCallRoute(spec)
 		fmt.Fprintf(a.stdout, "  callable: %s\n", yesNo(specHasCallableOperation(spec)))
+		fmt.Fprintf(a.stdout, "  call ready: %s (%s)\n", yesNo(callRoute.Ready), formatCallRoute(callRoute))
 		fmt.Fprintf(a.stdout, "  next: %s\n", showCommand(spec))
 		if example := exampleGetCommand(spec); example != "" {
 			fmt.Fprintf(a.stdout, "  try: %s\n", example)
@@ -1860,6 +1862,7 @@ func studioDatasetCards(specs []datago.Spec) []map[string]any {
 			"examples":         specExampleCommands(spec),
 			"operations":       showOperationSummaries(spec),
 		}
+		addCallRouteFields(card, specCallRoute(spec))
 		access := showAccessSummary(spec)
 		if len(access) > 1 {
 			card["access"] = access
@@ -1879,6 +1882,106 @@ func specHasCallableOperation(spec datago.Spec) bool {
 		}
 	}
 	return false
+}
+
+type callRouteMetadata struct {
+	Ready    bool
+	Route    string
+	Provider string
+	Host     string
+}
+
+func specCallRoute(spec datago.Spec) callRouteMetadata {
+	for _, op := range spec.Operations {
+		if strings.TrimSpace(op.Endpoint) != "" {
+			return operationCallRoute(spec, op)
+		}
+	}
+	for _, op := range spec.Operations {
+		if datago.OperationDependencyClass(spec, op) == "service_root" {
+			return callRouteMetadata{Route: "service_root"}
+		}
+	}
+	return callRouteMetadata{Route: "not_callable"}
+}
+
+func operationCallRoute(spec datago.Spec, op datago.Operation) callRouteMetadata {
+	if strings.TrimSpace(op.Endpoint) == "" {
+		if datago.OperationDependencyClass(spec, op) == "service_root" {
+			return callRouteMetadata{Route: "service_root"}
+		}
+		return callRouteMetadata{Route: "not_callable"}
+	}
+	u, err := url.Parse(strings.TrimSpace(op.Endpoint))
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		return callRouteMetadata{Route: "malformed_endpoint"}
+	}
+	host := strings.ToLower(strings.TrimSpace(u.Host))
+	dependencyClass := datago.OperationDependencyClass(spec, op)
+	if dependencyClass == "data_go_kr_gateway" {
+		return callRouteMetadata{Ready: true, Route: "data_go_kr_gateway", Provider: "data.go.kr", Host: host}
+	}
+	if dependencyClass == "soap" || dependencyClass == "wms" {
+		return callRouteMetadata{Route: dependencyClass, Provider: "data.go.kr", Host: host}
+	}
+	if registry, err := providers.DefaultRegistry(); err == nil {
+		if adapter, ok := registry.MatchHost(host); ok {
+			if adapterHasCapability(adapter, "call") {
+				return callRouteMetadata{Ready: true, Route: "provider_adapter", Provider: adapter.Name(), Host: host}
+			}
+			return callRouteMetadata{Route: "provider_adapter_verification_only", Provider: adapter.Name(), Host: host}
+		}
+	}
+	switch dependencyClass {
+	case "external_endpoint":
+		return callRouteMetadata{Route: "generic_external", Host: host}
+	case "malformed_endpoint":
+		return callRouteMetadata{Route: "malformed_endpoint", Host: host}
+	default:
+		return callRouteMetadata{Route: dependencyClass, Host: host}
+	}
+}
+
+func addCallRouteFields(item map[string]any, route callRouteMetadata) {
+	item["call_ready"] = route.Ready
+	item["call_route"] = route.Route
+	if route.Provider != "" {
+		item["call_provider"] = route.Provider
+	}
+	if route.Host != "" {
+		item["endpoint_host"] = route.Host
+	}
+}
+
+func formatCallRoute(route callRouteMetadata) string {
+	switch route.Route {
+	case "data_go_kr_gateway":
+		return "data.go.kr gateway"
+	case "provider_adapter":
+		if route.Provider != "" {
+			return route.Provider + " adapter"
+		}
+		return "provider adapter"
+	case "provider_adapter_verification_only":
+		if route.Provider != "" {
+			return route.Provider + " adapter, verification only"
+		}
+		return "provider adapter, verification only"
+	case "generic_external":
+		return "generic external endpoint"
+	case "service_root":
+		return "service root only"
+	case "malformed_endpoint":
+		return "malformed endpoint"
+	case "soap":
+		return "SOAP endpoint"
+	case "wms":
+		return "WMS endpoint"
+	case "not_callable", "no_endpoint", "":
+		return "not callable"
+	default:
+		return route.Route
+	}
 }
 
 func studioViewerHTML(bundle catalogStudioBundle) (string, error) {
@@ -3948,6 +4051,7 @@ func showOperationSummaries(spec datago.Spec) []map[string]any {
 			"response_params_count": len(op.ResponseParams),
 			"example":               exampleCommandForOperation(spec, op),
 		}
+		addCallRouteFields(item, operationCallRoute(spec, op))
 		if len(authParams) > 0 {
 			item["auth_params"] = authParams
 			item["auth_env_vars"] = datago.KeyEnvNames
@@ -4571,6 +4675,7 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 			"operations_count": len(spec.Operations),
 			"callable":         specHasCallableOperation(spec),
 		}
+		addCallRouteFields(item, specCallRoute(spec))
 		if len(spec.Operations) > 0 {
 			item["default_operation"] = spec.Operations[0].Name
 		}

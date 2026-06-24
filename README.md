@@ -150,8 +150,12 @@ Search and show results include copyable next-step examples for `show`, `use`,
 starter-kit generation, `get`, `curl`, Postman export, OpenAPI export, and
 Go/Node/Python codegen when an operation has an endpoint.
 Search JSON also includes quick decision fields such as `callable`,
+`call_ready`, `call_route`, `call_provider`, `endpoint_host`,
 `default_operation`, approval metadata, data format, update date, and the
 data.go.kr application URL when the registry has those upstream values.
+`callable` means at least one endpoint exists; `call_ready` is stricter and
+marks routes Datapan currently treats as stable for `get`, such as the
+data.go.kr gateway or a call-capable provider adapter.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 
@@ -181,7 +185,9 @@ without inventing a search term. They accept the same `--org`, `--category`,
 `--priority`, `--provider`, `--callable`, `--limit`, and `--json` options as
 `search`. `--callable` returns only specs that have at least one operation
 endpoint, so it is the quickest path when you want something Datapan can turn
-into `get`, `curl`, Postman, OpenAPI, or generated client code.
+into `get`, `curl`, Postman, OpenAPI, or generated client code. Check
+`call_ready` and `call_route` when you need the stronger "Datapan has a stable
+call route" signal.
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top
