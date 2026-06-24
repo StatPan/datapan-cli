@@ -3306,6 +3306,59 @@ func TestExportInputCSV(t *testing.T) {
 	}
 }
 
+func TestPreviewInputJSON(t *testing.T) {
+	tmp := t.TempDir() + "/response.json"
+	if err := osWriteFile(tmp, []byte(`{"response":{"body":{"items":{"item":[{"name":"alpha","count":1},{"name":"beta","count":2}]}}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"preview", "--input", tmp, "--limit", "1", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"format": "json"`,
+		`"count": 2`,
+		`"limit": 1`,
+		`"truncated": true`,
+		`"columns":`,
+		`"count"`,
+		`"name"`,
+		`"name": "alpha"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in preview JSON: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"name": "beta"`) {
+		t.Fatalf("preview should limit returned rows: %s", stdout)
+	}
+}
+
+func TestPreviewInputCSVHumanTable(t *testing.T) {
+	tmp := t.TempDir() + "/rows.csv"
+	if err := osWriteFile(tmp, []byte("name,count\nalpha,1\nbeta,2\n")); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"head", "--input", tmp, "--format", "csv", "--limit", "2"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`Preview `,
+		`format: csv`,
+		`rows: 2`,
+		`count`,
+		`name`,
+		`alpha`,
+		`beta`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in preview table: %s", want, stdout)
+		}
+	}
+}
+
 func jsonEscaped(value string) string {
 	data, _ := json.Marshal(value)
 	return string(data[1 : len(data)-1])

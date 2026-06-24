@@ -344,6 +344,7 @@ datapan export --format openapi 15084084 base_date=20260622 base_time=0500 --out
 datapan codegen go 15084084 base_date=20260622 base_time=0500 --package forecastclient --output forecast_client.go
 datapan codegen node 15084084 base_date=20260622 base_time=0500 --output forecast_client.js
 datapan codegen python 15084084 base_date=20260622 base_time=0500 --output forecast_client.py
+datapan preview --input response.json --limit 10
 ```
 
 `datapan show <ref> --json` should be the stable handoff from search to use. In
@@ -405,6 +406,7 @@ Parameter and export flows should accept `-` for stdin where practical:
 datapan call 15084084 --params-file - --json
 datapan params 15084084 base_date=20260622 | datapan get 15084084 --params-file - --dry-run --json
 datapan export --input - --format csv
+datapan preview --input - --format json --json
 ```
 
 `get` and `save` also accept positional `KEY=VALUE` parameters for the common
@@ -427,6 +429,14 @@ parameter, response-field, and `serviceKey` apiKey security-scheme metadata. It
 must represent the service key as an environment-variable placeholder such as
 `${DATAPAN_DATA_GO_KR_KEY}` or `${DATA_PORTAL_API_KEY}`, never as the
 credential value.
+`datapan preview --input PATH|- [--format auto|json|csv] [--limit N] --json`
+and its alias `datapan head` inspect saved data without making provider calls.
+Input format `json` accepts data.go.kr response envelopes or Datapan row JSON;
+input format `csv` treats the first row as headers; `auto` tries JSON first and
+then CSV. JSON output must include `ok`, `input`, detected `format`, total
+`count`, requested `limit`, `truncated`, `columns`, and limited `rows`. Human
+output should be a compact fixed-width table suitable for quick terminal
+inspection.
 `datapan codegen go <ref>` writes a small compilable Go client for the same
 request plan. The generated file must use a caller-provided service key or
 `NewFromEnv`, must expose operation parameters as `map[string]string` so

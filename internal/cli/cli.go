@@ -249,6 +249,8 @@ func (a app) run() int {
 		return a.codegen(args[1:], jsonOut)
 	case "save":
 		return a.save(args[1:], jsonOut)
+	case "preview", "head":
+		return a.preview(args[1:], jsonOut)
 	default:
 		return a.fail(exitUsage, "unknown command %q\n\nRun `datapan help`.", args[0])
 	}
@@ -4255,6 +4257,61 @@ func (a app) export(args []string, jsonOut bool) int {
 	return a.writeRows(rows, format, jsonOut)
 }
 
+func (a app) preview(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	input, args, err := consumeString(args, "--input", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	format, args, err := consumeString(args, "--format", "auto")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 10)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if input == "" || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan preview --input PATH|- [--format auto|json|csv] [--limit N] [--json]")
+	}
+	data, err := readAllInput(input, os.Stdin)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	rows, detected, err := rowsFromPreviewInput(data, format, input)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	columns := rowColumns(rows)
+	shown := limitRows(rows, limit)
+	payload := map[string]any{
+		"ok":        true,
+		"input":     input,
+		"format":    detected,
+		"count":     len(rows),
+		"limit":     limit,
+		"truncated": limit > 0 && len(rows) > limit,
+		"columns":   columns,
+		"rows":      shown,
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	fmt.Fprintf(a.stdout, "Preview %s\n", input)
+	fmt.Fprintf(a.stdout, "  format: %s\n", detected)
+	fmt.Fprintf(a.stdout, "  rows: %d\n", len(rows))
+	if len(rows) == 0 {
+		fmt.Fprintln(a.stdout, "No rows.")
+		return exitOK
+	}
+	writePreviewTable(a.stdout, shown, columns)
+	if limit > 0 && len(rows) > limit {
+		fmt.Fprintf(a.stdout, "... %d more rows\n", len(rows)-limit)
+	}
+	return exitOK
+}
+
 func (a app) codegen(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -4452,6 +4509,151 @@ func (a app) writeRows(rows []map[string]any, format string, jsonOut bool) int {
 	default:
 		return a.fail(exitUsage, "unsupported export format %q; use csv or json", format)
 	}
+}
+
+func rowsFromPreviewInput(data []byte, format, input string) ([]map[string]any, string, error) {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" || format == "auto" {
+		if rows, err := datago.RowsFromJSON(data); err == nil {
+			return rows, "json", nil
+		}
+		if rows, err := rowsFromCSV(data); err == nil {
+			return rows, "csv", nil
+		}
+		return nil, "", fmt.Errorf("preview input must be data.go.kr JSON/XML response JSON or CSV")
+	}
+	switch format {
+	case "json":
+		rows, err := datago.RowsFromJSON(data)
+		return rows, "json", err
+	case "csv":
+		rows, err := rowsFromCSV(data)
+		return rows, "csv", err
+	default:
+		return nil, "", fmt.Errorf("unsupported preview format %q; use auto, json, or csv", format)
+	}
+}
+
+func rowsFromCSV(data []byte) ([]map[string]any, error) {
+	reader := csv.NewReader(bytes.NewReader(data))
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("parse CSV: %w", err)
+	}
+	if len(records) == 0 {
+		return []map[string]any{}, nil
+	}
+	headers := records[0]
+	rows := make([]map[string]any, 0, len(records)-1)
+	for _, record := range records[1:] {
+		row := map[string]any{}
+		for i, header := range headers {
+			key := strings.TrimSpace(header)
+			if key == "" {
+				key = fmt.Sprintf("column_%d", i+1)
+			}
+			value := ""
+			if i < len(record) {
+				value = record[i]
+			}
+			row[key] = value
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func rowColumns(rows []map[string]any) []string {
+	seen := map[string]bool{}
+	columns := make([]string, 0)
+	for _, row := range rows {
+		keys := make([]string, 0, len(row))
+		for key := range row {
+			if !seen[key] {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			seen[key] = true
+			columns = append(columns, key)
+		}
+	}
+	return columns
+}
+
+func limitRows(rows []map[string]any, limit int) []map[string]any {
+	if limit > 0 && len(rows) > limit {
+		return rows[:limit]
+	}
+	return rows
+}
+
+func writePreviewTable(w io.Writer, rows []map[string]any, columns []string) {
+	if len(columns) == 0 {
+		return
+	}
+	widths := make([]int, len(columns))
+	for i, column := range columns {
+		widths[i] = len(previewCell(column))
+	}
+	for _, row := range rows {
+		for i, column := range columns {
+			if n := len(previewCell(row[column])); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	for i := range widths {
+		if widths[i] > 32 {
+			widths[i] = 32
+		}
+	}
+	writePreviewRecord(w, columns, widths)
+	separators := make([]string, len(columns))
+	for i, width := range widths {
+		separators[i] = strings.Repeat("-", width)
+	}
+	writePreviewRecord(w, separators, widths)
+	for _, row := range rows {
+		values := make([]string, len(columns))
+		for i, column := range columns {
+			values[i] = previewCell(row[column])
+		}
+		writePreviewRecord(w, values, widths)
+	}
+}
+
+func writePreviewRecord(w io.Writer, values []string, widths []int) {
+	for i, value := range values {
+		if i > 0 {
+			fmt.Fprint(w, "  ")
+		}
+		fmt.Fprintf(w, "%-*s", widths[i], truncatePreviewCell(value, widths[i]))
+	}
+	fmt.Fprintln(w)
+}
+
+func previewCell(value any) string {
+	if value == nil {
+		return ""
+	}
+	text := fmt.Sprint(value)
+	text = strings.ReplaceAll(text, "\r", " ")
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.Join(strings.Fields(text), " ")
+	return text
+}
+
+func truncatePreviewCell(value string, width int) string {
+	if width <= 0 || len(value) <= width {
+		return value
+	}
+	if width <= 3 {
+		return value[:width]
+	}
+	return value[:width-3] + "..."
 }
 
 type requestPlan struct {
@@ -5468,6 +5670,7 @@ Usage:
   datapan save <ref> [KEY=VALUE ...] [--format csv|json] [--output PATH|-] [--json]
   datapan call <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
+  datapan preview --input PATH|- [--format auto|json|csv] [--limit N] [--json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]

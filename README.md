@@ -115,6 +115,8 @@ datapan codegen go 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --pac
 datapan codegen node 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast_client.js
 datapan codegen python 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast_client.py
 datapan export --input response.json --format csv
+datapan preview --input response.json --limit 10
+datapan head --input forecast.csv --format csv --limit 5
 ```
 
 `datapan access <list-id> --start` is the fast path for usage applications: it
@@ -310,6 +312,10 @@ Use `datapan codegen python <ref> --output client.py` for a dependency-free
 Python client using `urllib`. It keeps upstream parameter names exact, reads
 the service key through `DatapanClient.from_env()`, and does not embed
 credential values.
+Use `datapan preview --input response.json` or `datapan head --input rows.csv`
+to inspect saved data without leaving the CLI. It accepts data.go.kr response
+JSON, Datapan row JSON, or CSV, prints a compact table by default, and returns
+`columns`, `count`, limited `rows`, and `truncated` under `--json`.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
