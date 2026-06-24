@@ -624,7 +624,7 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	}
 
 	code, stdout, stderr = runTest(
-		[]string{"get", "999", "--operation", "목록 조회", "--params-file", paramsPath, "--dry-run", "--json"},
+		[]string{"get", "999", "--operation", "목록 조회", "--params-file", paramsPath, "--timeout", "5s", "--dry-run", "--json"},
 		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
 		nil,
 	)
@@ -636,6 +636,7 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 		`"keyword": "해운대"`,
 		`"numOfRows": "5"`,
 		`"pageNo": "1"`,
+		`"timeout": "5s"`,
 		`serviceKey=REDACTED`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -709,6 +710,48 @@ func TestGetUsesCallCapableForestAdapter(t *testing.T) {
 	}
 	if strings.Contains(stdout, "secret-value") {
 		t.Fatalf("forest get output should not leak key: %s", stdout)
+	}
+}
+
+func TestGetTimeoutCancelsRequest(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"slow-1","title":"느린 API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/slow/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "slow-1", "--operation", "목록", "--timeout", "1ms", "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"error": "request_failed"`,
+		`"dataset": "slow-1"`,
+		`"timeout": "1ms"`,
+		`context deadline exceeded`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in timeout output: %s", want, stdout)
+		}
+	}
+}
+
+func TestGetRejectsInvalidTimeout(t *testing.T) {
+	code, _, stderr := runTest([]string{"get", "15084084", "--timeout", "0", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--timeout requires a positive duration") {
+		t.Fatalf("expected timeout usage error: %s", stderr)
 	}
 }
 

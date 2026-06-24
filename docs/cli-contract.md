@@ -381,7 +381,7 @@ datapan show "국토교통부_아파트 매매 실거래가 자료" --json
 datapan use 15084084 base_date=20260622 base_time=0500 --json
 datapan params 15084084 base_date=20260622 base_time=0500 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 --json
-datapan get 15084084 --params-file forecast.params.json --dry-run --json
+datapan get 15084084 --params-file forecast.params.json --timeout 5s --dry-run --json
 datapan curl 15084084 base_date=20260622 base_time=0500
 datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
 datapan export --format curl 15084084 base_date=20260622 base_time=0500
@@ -429,6 +429,12 @@ operation default or smoke values where known, apply user-supplied overrides,
 and use `VALUE` for unknown user-editable fields. With `--json`, it must
 require `--output PATH` and return `params`, field labels, `next_get`, and
 `next_dry_run` without mixing the raw params object into stdout.
+
+`datapan get` and its calling aliases (`call`, `save`, and CSV/JSON
+`export`) accept `--timeout DURATION`. Durations follow Go-style values such as
+`5s` and `500ms`; a bare integer is interpreted as seconds. The default is
+`30s`. Dry-run JSON must include the selected `timeout`, and actual provider
+calls must cancel through the request context when the timeout expires.
 
 ## Verification Evidence
 

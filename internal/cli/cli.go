@@ -42,6 +42,7 @@ const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 const defaultDiffLimit = 20
+const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
 const datapanRegistryZipAssetSuffix = ".zip"
 const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
@@ -4643,12 +4644,16 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	timeout, args, err := consumeDuration(args, "--timeout", defaultCallTimeout)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) < 1 {
-		return a.fail(exitUsage, "usage: datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]")
+		return a.fail(exitUsage, "usage: datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]")
 	}
 	positionalParams, err := parseKeyValueArgs(args[1:])
 	if err != nil {
@@ -4663,6 +4668,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		return a.mapError(err, jsonOut || exportMode)
 	}
+	reqPlan.Timeout = timeout
 	if dryRun {
 		payload := map[string]any{
 			"ok":           true,
@@ -4672,6 +4678,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 			"method":       http.MethodGet,
 			"url":          reqPlan.RedactedURL,
 			"env_var":      keyName,
+			"timeout":      reqPlan.Timeout.String(),
 			"query_params": reqPlan.PublicParams,
 		}
 		if jsonOut || exportMode {
@@ -4689,6 +4696,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 				"error":     "request_failed",
 				"dataset":   reqPlan.Spec.ID,
 				"operation": reqPlan.Operation.Name,
+				"timeout":   reqPlan.Timeout.String(),
 				"message":   err.Error(),
 			}); code != exitOK {
 				return code
@@ -5263,6 +5271,7 @@ type requestPlan struct {
 	PublicParams  map[string]string
 	Params        map[string]string
 	MissingParams []string
+	Timeout       time.Duration
 	Adapter       providers.Adapter
 	Credential    providers.Credential
 }
@@ -6137,13 +6146,18 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 		PublicParams:  publicParams,
 		Params:        effectiveParams,
 		MissingParams: missingParams,
+		Timeout:       defaultCallTimeout,
 		Adapter:       adapter,
 		Credential:    providers.Credential{Name: keyName, Value: key},
 	}, keyName, nil
 }
 
 func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	timeout := plan.Timeout
+	if timeout <= 0 {
+		timeout = defaultCallTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if plan.Adapter != nil {
 		return plan.Adapter.Call(ctx, providers.CallRequest{
@@ -6351,15 +6365,16 @@ Usage:
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
   datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
-  datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
+  datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
   datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
-  datapan save <ref> [KEY=VALUE ...] [--format csv|json] [--output PATH|-] [--json]
-  datapan call <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
+  datapan save <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--format csv|json] [--output PATH|-] [--timeout DURATION] [--json]
+  datapan call <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan preview --input PATH|- [--format auto|json|csv] [--limit N] [--json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan export [--format csv|json] <ref> [KEY=VALUE ...] [--timeout DURATION]
   datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
   datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
@@ -6466,6 +6481,36 @@ func consumeInt(args []string, name string, fallback int) (int, []string, error)
 		return 0, nil, fmt.Errorf("%s requires a non-negative integer", name)
 	}
 	return value, out, nil
+}
+
+func consumeDuration(args []string, name string, fallback time.Duration) (time.Duration, []string, error) {
+	raw, out, err := consumeString(args, name, fallback.String())
+	if err != nil {
+		return 0, nil, err
+	}
+	value, err := parseDuration(raw)
+	if err != nil {
+		return 0, nil, fmt.Errorf("%s requires a positive duration such as 5s or 500ms", name)
+	}
+	return value, out, nil
+}
+
+func parseDuration(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		if seconds <= 0 {
+			return 0, fmt.Errorf("duration must be positive")
+		}
+		return time.Duration(seconds) * time.Second, nil
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("duration must be positive")
+	}
+	return value, nil
 }
 
 func consumeParams(args []string) (map[string]string, []string, error) {

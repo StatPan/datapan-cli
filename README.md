@@ -110,7 +110,7 @@ datapan kit 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json
 datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output-dir forecast-kit --json
 datapan params 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 nx=60 ny=127 --json
-datapan get 15084084 --params-file forecast.params.json --dry-run --json
+datapan get 15084084 --params-file forecast.params.json --timeout 5s --dry-run --json
 datapan get 15084084 --dry-run --json
 datapan curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan save 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --format csv --output forecast.csv
@@ -318,6 +318,9 @@ one small file instead of memorizing long command lines.
 provider error fields under `provider_status`, including `resultCode/resultMsg`
 or `OpenAPI_ServiceResponse` fields such as `returnReasonCode`,
 `returnAuthMsg`, and `errMsg` when they appear in the response body.
+Use `--timeout 5s` or `--timeout 500ms` on `get`, `call`, `save`, and
+CSV/JSON `export` when an external provider is slow or unstable. A bare integer
+such as `--timeout 5` is interpreted as seconds.
 Use `datapan curl <ref>` when you want a copyable request without making a
 provider call. It emits a `curl -fsS ...` command with `serviceKey=${ENV_VAR}`
 instead of printing credential values. `datapan export --format curl <ref>` is
