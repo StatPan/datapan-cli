@@ -69,6 +69,7 @@ if the variable is not already present in the process environment.
 ## MVP Commands
 
 ```bash
+datapan init --json
 datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
@@ -132,21 +133,23 @@ an operation has an endpoint.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 
-To move beyond the embedded seed catalog, install the latest released
-`datapan-registry` snapshot. This is the normal consumer path: it downloads the
-published release zip, extracts `data/data-go-kr.registry.json`, validates that
-the registry decodes, and writes it to `.datapan/data-go-kr.registry.json`.
+To move beyond the embedded seed catalog, run `datapan init`. This is the
+normal consumer path: it downloads the latest released `datapan-registry` zip,
+extracts `data/data-go-kr.registry.json`, validates that the registry decodes,
+writes it to `.datapan/data-go-kr.registry.json`, checks local credential
+presence, reports registered provider adapters, and returns next commands.
 
 ```bash
-datapan catalog install datapan-registry --json
-datapan doctor --json
+datapan init --json
 datapan catalog overview --json
 datapan search "실거래" --org 국토교통부 --json
 ```
 
-Use `datapan doctor --json` after install to verify which registry is active,
-how many specs and operations it contains, whether a data.go.kr API key is
-present, and which external provider adapters are registered.
+Use `datapan catalog install datapan-registry --json` when you want only the
+registry download/install step, and `datapan doctor --json` when you want to
+recheck which registry is active, how many specs and operations it contains,
+whether a data.go.kr API key is present, and which external provider adapters
+are registered.
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top

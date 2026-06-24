@@ -929,6 +929,71 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	}
 }
 
+func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	var urls []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		switch req.URL.String() {
+		case defaultDatapanRegistryReleaseAPI:
+			return &http.Response{
+				StatusCode: 200,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "vtest",
+					"assets": [
+						{"name": "datapan-registry-vtest.zip", "browser_download_url": "https://example.test/init-registry.zip"}
+					]
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		case "https://example.test/init-registry.zip":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(zipData)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest([]string{"init", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if len(urls) != 2 || urls[0] != defaultDatapanRegistryReleaseAPI || urls[1] != "https://example.test/init-registry.zip" {
+		t.Fatalf("unexpected URLs: %#v", urls)
+	}
+	data, err := os.ReadFile(defaultRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"id":"100"`) {
+		t.Fatalf("expected initialized registry data: %s", string(data))
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"ready_for_search": true`,
+		`"ready_for_calls": true`,
+		`"registry": ".datapan/data-go-kr.registry.json"`,
+		`"specs": 1`,
+		`"operations": 1`,
+		`"credential_present": true`,
+		`"adapter_count": 6`,
+		`datapan search \"실거래\" --org 국토교통부 --json`,
+		`datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in init output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("init should not leak key material: %s", stdout)
+	}
+}
+
 func TestCatalogInstallDatapanRegistryAcceptsGitHubReleasePageURL(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"101","title":"릴리스 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`

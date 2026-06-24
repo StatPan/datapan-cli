@@ -215,6 +215,8 @@ func (a app) run() int {
 		}
 		fmt.Fprintf(a.stdout, "datapan %s\n", version)
 		return exitOK
+	case "init":
+		return a.init(args[1:], jsonOut)
 	case "search":
 		return a.search(args[1:], jsonOut)
 	case "info":
@@ -700,51 +702,164 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 	if jsonOut && registryPath == "-" {
 		return a.fail(exitUsage, "use --registry PATH with --json; --registry - writes the registry JSON to stdout")
 	}
-	if assetURL == "" {
-		release, err := a.fetchDatapanRegistryRelease(releaseURL)
-		if err != nil {
-			return a.catalogInstallFailure(jsonOut, err)
-		}
-		assetURL = release.ZipAssetURL
-		if assetURL == "" {
-			return a.catalogInstallFailure(jsonOut, fmt.Errorf("release has no %s asset", datapanRegistryZipAssetSuffix))
-		}
-	}
-	zipData, err := a.downloadBytes(assetURL)
+	install, err := a.installDatapanRegistry(registryPath, assetURL, releaseURL)
 	if err != nil {
 		return a.catalogInstallFailure(jsonOut, err)
-	}
-	registryData, err := registryFromDatapanRegistryZip(zipData)
-	if err != nil {
-		return a.catalogInstallFailure(jsonOut, err)
-	}
-	specs, err := decodeRegistryBytes(registryData)
-	if err != nil {
-		return a.catalogInstallFailure(jsonOut, err)
-	}
-	if err := writeOutput(registryPath, registryData, a.stdout); err != nil {
-		return a.catalogInstallFailure(jsonOut, err)
-	}
-	payload := map[string]any{
-		"ok":        true,
-		"provider":  "datapan-registry",
-		"registry":  registryPath,
-		"url":       assetURL,
-		"bytes":     len(registryData),
-		"specs":     len(specs),
-		"installed": registryPath != "-",
 	}
 	if jsonOut {
-		return a.writeJSON(payload)
+		return a.writeJSON(install.Payload())
 	}
 	if registryPath == "-" {
 		return exitOK
 	}
 	fmt.Fprintf(a.stdout, "Installed datapan-registry snapshot.\n")
 	fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
-	fmt.Fprintf(a.stdout, "  specs: %d\n", len(specs))
-	fmt.Fprintf(a.stdout, "  bytes: %d\n", len(registryData))
+	fmt.Fprintf(a.stdout, "  specs: %d\n", len(install.Specs))
+	fmt.Fprintf(a.stdout, "  bytes: %d\n", len(install.RegistryData))
 	return exitOK
+}
+
+type datapanRegistryInstall struct {
+	RegistryPath string
+	AssetURL     string
+	RegistryData []byte
+	Specs        []datago.Spec
+}
+
+func (i datapanRegistryInstall) Payload() map[string]any {
+	return map[string]any{
+		"ok":        true,
+		"provider":  "datapan-registry",
+		"registry":  i.RegistryPath,
+		"url":       i.AssetURL,
+		"bytes":     len(i.RegistryData),
+		"specs":     len(i.Specs),
+		"installed": i.RegistryPath != "-",
+	}
+}
+
+func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (datapanRegistryInstall, error) {
+	if assetURL == "" {
+		release, err := a.fetchDatapanRegistryRelease(releaseURL)
+		if err != nil {
+			return datapanRegistryInstall{}, err
+		}
+		assetURL = release.ZipAssetURL
+		if assetURL == "" {
+			return datapanRegistryInstall{}, fmt.Errorf("release has no %s asset", datapanRegistryZipAssetSuffix)
+		}
+	}
+	zipData, err := a.downloadBytes(assetURL)
+	if err != nil {
+		return datapanRegistryInstall{}, err
+	}
+	registryData, err := registryFromDatapanRegistryZip(zipData)
+	if err != nil {
+		return datapanRegistryInstall{}, err
+	}
+	specs, err := decodeRegistryBytes(registryData)
+	if err != nil {
+		return datapanRegistryInstall{}, err
+	}
+	if err := writeOutput(registryPath, registryData, a.stdout); err != nil {
+		return datapanRegistryInstall{}, err
+	}
+	return datapanRegistryInstall{
+		RegistryPath: registryPath,
+		AssetURL:     assetURL,
+		RegistryData: registryData,
+		Specs:        specs,
+	}, nil
+}
+
+func (a app) init(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	registryPath, args, err := consumeString(args, "--registry", defaultRegistryPath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	assetURL, args, err := consumeString(args, "--url", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	releaseURL, args, err := consumeString(args, "--release-url", defaultDatapanRegistryReleaseAPI)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]")
+	}
+	if registryPath == "-" {
+		return a.fail(exitUsage, "datapan init requires --registry PATH; use catalog install with --registry - to write raw registry JSON to stdout")
+	}
+	install, err := a.installDatapanRegistry(registryPath, assetURL, releaseURL)
+	if err != nil {
+		return a.catalogInstallFailure(jsonOut, err)
+	}
+	keyName, keyOK := a.resolveKey()
+	providerRegistry, err := providers.DefaultRegistry()
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	nextSteps := initNextSteps(registryPath, keyOK)
+	payload := map[string]any{
+		"ok":               true,
+		"version":          version,
+		"ready_for_search": len(install.Specs) > 0,
+		"ready_for_calls":  keyOK && len(install.Specs) > 0,
+		"install":          install.Payload(),
+		"registry": map[string]any{
+			"source":       "installed",
+			"path":         registryPath,
+			"default_path": defaultRegistryPath,
+			"is_default":   filepath.Clean(registryPath) == filepath.Clean(defaultRegistryPath),
+			"specs":        len(install.Specs),
+			"operations":   registryOperationCount(install.Specs),
+		},
+		"auth": map[string]any{
+			"provider":           "data.go.kr",
+			"credential_present": keyOK,
+			"selected_env_var":   keyName,
+			"accepted_env_vars":  datago.KeyEnvNames,
+		},
+		"providers":  providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
+		"next_steps": nextSteps,
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	fmt.Fprintln(a.stdout, "Datapan initialized.")
+	fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	fmt.Fprintf(a.stdout, "  specs: %d\n", len(install.Specs))
+	fmt.Fprintf(a.stdout, "  operations: %d\n", registryOperationCount(install.Specs))
+	if keyOK {
+		fmt.Fprintf(a.stdout, "  data.go.kr key: found in %s\n", keyName)
+	} else {
+		fmt.Fprintln(a.stdout, "  data.go.kr key: missing")
+	}
+	index := providerRegistry.IndexReport("", version)
+	fmt.Fprintf(a.stdout, "  provider adapters: %d adapters, %d hosts\n", index.AdapterCount, index.HostCount)
+	for _, step := range nextSteps {
+		fmt.Fprintf(a.stdout, "  next: %s\n", step)
+	}
+	return exitOK
+}
+
+func initNextSteps(registryPath string, credentialPresent bool) []string {
+	var steps []string
+	if filepath.Clean(registryPath) != filepath.Clean(defaultRegistryPath) {
+		steps = append(steps, "set DATAPAN_REGISTRY_PATH="+registryPath+" before consumer commands")
+	}
+	if !credentialPresent {
+		steps = append(steps, "set DATAPAN_DATA_GO_KR_KEY or DATA_PORTAL_API_KEY before calling approved APIs")
+	}
+	steps = append(steps,
+		"datapan search \"실거래\" --org 국토교통부 --json",
+		"datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json",
+		"datapan doctor --json",
+	)
+	return steps
 }
 
 type datapanRegistryRelease struct {
@@ -5321,6 +5436,7 @@ func (a app) printHelp() {
 	fmt.Fprintln(a.stdout, `datapan is an agent-friendly CLI for Korean public data.
 
 Usage:
+  datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]

@@ -53,20 +53,23 @@ datapan search --org 기상청 --json
 
 ## Registry Install
 
-`datapan catalog install datapan-registry` installs the latest released
-Datapan registry into `.datapan/data-go-kr.registry.json` by default. Consumer
-commands that resolve datasets, such as `search`, `show`, `get`, `curl`,
-`save`, `call`, `access`, `export`, and `codegen`, should automatically load
-that default registry file from the current project directory when
-`DATAPAN_REGISTRY_PATH` is not set. `DATAPAN_REGISTRY_PATH` remains the explicit
-override for alternate registry files.
+`datapan init` is the normal first-run consumer command. It installs the latest
+released Datapan registry into `.datapan/data-go-kr.registry.json` by default,
+reports registry and credential readiness, reports registered provider
+adapters, and returns next-step commands. It must not print credential values.
+Consumer commands that resolve datasets, such as `search`, `show`, `use`,
+`get`, `curl`, `save`, `call`, `access`, `export`, and `codegen`, should
+automatically load that default registry file from the current project
+directory when `DATAPAN_REGISTRY_PATH` is not set. `DATAPAN_REGISTRY_PATH`
+remains the explicit override for alternate registry files.
 
 ```bash
-datapan catalog install datapan-registry --json
-datapan doctor --json
+datapan init --json
 datapan search "실거래" --org 국토교통부 --json
 ```
 
+`datapan catalog install datapan-registry` remains the lower-level install
+command when callers only want to download and write the released registry.
 `datapan doctor --json` reports the active registry source, default registry
 path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
@@ -291,15 +294,23 @@ The command returns exit code 4 when any required gate fails. Warnings do not
 make `ready:false`, but they remain visible in `summary` and `gates`.
 
 `datapan catalog install datapan-registry --registry PATH --json` is the normal
-consumer path for a released Datapan registry. It fetches the latest GitHub
-release metadata for `StatPan/datapan-registry`, downloads the first `.zip`
-asset, extracts `data/data-go-kr.registry.json`, validates that the file decodes
-as a Datapan registry, and writes it to `PATH` without calling data.go.kr. Use
-`--url URL` to install from an explicit release zip and skip release metadata
-lookup. Use `--release-url URL` to point at a different compatible GitHub
-release API endpoint. JSON output reports `ok`, `provider`, `registry`, `url`,
-`bytes`, `specs`, and `installed`. `--json` must not be combined with
-`--registry -`, because `--registry -` writes the raw registry JSON to stdout.
+lower-level install path for a released Datapan registry. It fetches the latest
+GitHub release metadata for `StatPan/datapan-registry`, downloads the first
+`.zip` asset, extracts `data/data-go-kr.registry.json`, validates that the file
+decodes as a Datapan registry, and writes it to `PATH` without calling
+data.go.kr. Use `--url URL` to install from an explicit release zip and skip
+release metadata lookup. Use `--release-url URL` to point at a different
+compatible GitHub release API endpoint. JSON output reports `ok`, `provider`,
+`registry`, `url`, `bytes`, `specs`, and `installed`. `--json` must not be
+combined with `--registry -`, because `--registry -` writes the raw registry
+JSON to stdout.
+
+`datapan init [--registry PATH] [--url URL] [--release-url URL] --json` wraps
+that install path for first-run setup. JSON output must include `install`,
+`registry`, `auth`, `providers`, `ready_for_search`, `ready_for_calls`, and
+`next_steps`. `ready_for_calls` is true only when a registry was installed and a
+data.go.kr key is present. `--registry -` is not allowed for `init`; callers who
+want raw registry JSON on stdout should use `catalog install`.
 
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the
