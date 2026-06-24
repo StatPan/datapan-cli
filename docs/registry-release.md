@@ -60,6 +60,7 @@ reports/
   latest-release-readiness.json
 provenance/
   data-go-kr.md
+RELEASE_NOTES.md
 manifest.json
 ```
 
@@ -417,9 +418,9 @@ Every draft also writes `data/provider-index.json`,
 `reports/catalog-audit.json`, `reports/error-catalog.json`,
 `reports/dependencies.json`, `reports/adapter-targets.json`,
 `reports/provider-backlog.json`,
-`schemas/index.json`, and `manifest.json` with artifact paths, byte sizes, and
-SHA-256 checksums. When `--previous-registry` is provided, it also writes and
-manifests `reports/catalog-diff.json`.
+`schemas/index.json`, `RELEASE_NOTES.md`, and `manifest.json` with artifact
+paths, byte sizes, and SHA-256 checksums. When `--previous-registry` is
+provided, it also writes and manifests `reports/catalog-diff.json`.
 
 The local draft directory is ignored by git in this repository. Published
 registry artifacts now live in `https://github.com/StatPan/datapan-registry`.
@@ -431,7 +432,7 @@ provider APIs. It assembles release artifacts from existing local inputs:
 registry JSON, optional previous-registry diff, provider index, schema files,
 catalog audit, error catalog, dependency inventory, adapter targets, and
 provider backlog generated from that registry, optional verification evidence,
-provenance notes, and a manifest.
+provenance notes, human-facing release notes, and a manifest.
 
 ## Release Gates
 
@@ -454,6 +455,8 @@ Before publishing a registry snapshot:
   checksum;
 - `manifest.json` must list every release artifact except itself with size and
   SHA-256 checksum;
+- `RELEASE_NOTES.md` must be generated from the same release evidence and
+  included in the manifest as `release_notes`;
 - `catalog release verify --manifest manifest.json --output reports/latest-release-verification.json`
   must pass checksum and schema-bound artifact validation before publishing;
 - `catalog release readiness --manifest manifest.json --output reports/latest-release-readiness.json`

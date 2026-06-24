@@ -259,7 +259,7 @@ Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, optional previous-registry diff, provider index,
 catalog audit, error catalog, dependency inventory, adapter targets, provider
 backlog, schema, schema index, verification, verification summary, provenance,
-and manifest artifacts without calling upstream APIs.
+release notes, and manifest artifacts without calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`

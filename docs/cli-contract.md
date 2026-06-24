@@ -284,8 +284,9 @@ optionally writes `reports/catalog-diff.json` when `--previous-registry PATH`
 is provided,
 optionally copies a verification report with `--verification PATH`, writes
 `reports/latest-verification-summary.json` from that report, and writes
-provenance under `provenance/data-go-kr.md`. It also writes `manifest.json`
-with relative artifact paths, byte sizes, and SHA-256 checksums. Use
+provenance under `provenance/data-go-kr.md` and human-facing release notes
+under `RELEASE_NOTES.md`. It also writes `manifest.json` with relative artifact
+paths, byte sizes, and SHA-256 checksums. Use
 `--output-dir DIR` to choose the release draft directory and
 `--provider-limit N` to bound provider report output.
 
@@ -309,9 +310,9 @@ It must not fetch upstream data or call provider APIs. Required gates include a
 verified manifest, a complete schema set for the current CLI, a non-empty
 registry, and the presence of `schema_index`, `registry`, `provider_index`,
 `catalog_audit`, `error_catalog`, `dependencies`, `adapter_targets`,
-`provider_backlog`, and `provenance` artifacts. Recommended gates warn when
-`catalog_diff`, `verification`, or `verification_summary` artifacts are absent.
-The command returns exit code 4 when any required gate fails. Warnings do not
+`provider_backlog`, `provenance`, and `release_notes` artifacts. Recommended
+gates warn when `catalog_diff`, `verification`, or `verification_summary`
+artifacts are absent. The command returns exit code 4 when any required gate fails. Warnings do not
 make `ready:false`, but they remain visible in `summary` and `gates`.
 
 `datapan catalog install datapan-registry --registry PATH --json` is the normal

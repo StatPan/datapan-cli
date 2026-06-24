@@ -2603,6 +2603,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		return a.releaseFailure(jsonOut, err)
 	}
 	diffWritten := false
+	var catalogDiff *datago.CatalogDiffReport
 	if previousRegistryPath != "" {
 		previousReg, err := datago.LoadRegistry(previousRegistryPath)
 		if err != nil {
@@ -2613,6 +2614,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		if err := writeJSONFile(paths.CatalogDiffPath, diffReport); err != nil {
 			return a.releaseFailure(jsonOut, err)
 		}
+		catalogDiff = &diffReport
 		diffWritten = true
 	}
 	auditReport := datago.CatalogAuditReport{
@@ -2674,6 +2676,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	}
 	verificationCopied := false
 	verificationSummaryWritten := false
+	var verificationSummary *datago.VerificationSummaryReport
 	if verificationPath != "" {
 		report, err := readVerificationReport(verificationPath)
 		if err != nil {
@@ -2689,11 +2692,16 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		if err := writeJSONFile(paths.VerificationSummaryPath, summary); err != nil {
 			return a.releaseFailure(jsonOut, err)
 		}
+		verificationSummary = &summary
 		verificationCopied = true
 		verificationSummaryWritten = true
 	}
 	provenance := releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath, providerLimit, paths)
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
+	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, verificationSummary, dependencyReport, adapterTargetReport, providerReport)
+	if err := writeOutput(paths.ReleaseNotesPath, []byte(notes), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
 	manifest, err := writeReleaseManifest(generatedAt, registryPath, diffWritten, verificationCopied, paths)
@@ -2717,6 +2725,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		"verification":                 emptyIfFalse(paths.VerificationPath, verificationCopied),
 		"verification_summary":         emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
 		"provenance":                   paths.ProvenancePath,
+		"release_notes":                paths.ReleaseNotesPath,
 		"manifest":                     paths.ManifestPath,
 		"artifacts":                    manifest.ArtifactCount,
 		"specs":                        len(specs),
@@ -2745,6 +2754,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		fmt.Fprintf(a.stdout, "  verification summary: %s\n", paths.VerificationSummaryPath)
 	}
 	fmt.Fprintf(a.stdout, "  provenance: %s\n", paths.ProvenancePath)
+	fmt.Fprintf(a.stdout, "  release notes: %s\n", paths.ReleaseNotesPath)
 	fmt.Fprintf(a.stdout, "  manifest: %s\n", paths.ManifestPath)
 	fmt.Fprintf(a.stdout, "  specs: %d\n", len(specs))
 	fmt.Fprintf(a.stdout, "  providers: %d\n", len(providers))
@@ -6434,6 +6444,7 @@ type releasePaths struct {
 	VerificationPath        string
 	VerificationSummaryPath string
 	ProvenancePath          string
+	ReleaseNotesPath        string
 	ManifestPath            string
 }
 
@@ -6456,6 +6467,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		VerificationPath:        joinPath(outputDir, "reports/latest-verification.json"),
 		VerificationSummaryPath: joinPath(outputDir, "reports/latest-verification-summary.json"),
 		ProvenancePath:          joinPath(outputDir, "provenance/data-go-kr.md"),
+		ReleaseNotesPath:        joinPath(outputDir, "RELEASE_NOTES.md"),
 		ManifestPath:            joinPath(outputDir, "manifest.json"),
 	}
 }
@@ -6842,6 +6854,7 @@ func releaseReadinessReportForManifest(manifestPath, generatedAt string) (releas
 		"adapter_targets",
 		"provider_backlog",
 		"provenance",
+		"release_notes",
 	}
 	for _, kind := range required {
 		report.Summary.RequiredArtifacts++
@@ -7212,6 +7225,10 @@ func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVer
 		Path: releaseRelativePath(paths.OutputDir, paths.ProvenancePath),
 		Kind: "provenance",
 	})
+	artifacts = append(artifacts, releaseManifestArtifact{
+		Path: releaseRelativePath(paths.OutputDir, paths.ReleaseNotesPath),
+		Kind: "release_notes",
+	})
 	return artifacts
 }
 
@@ -7252,6 +7269,100 @@ func emptyIfFalse(value string, ok bool) string {
 		return ""
 	}
 	return value
+}
+
+func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, verificationSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "# Datapan Registry Release")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- generated_at: `%s`\n", generatedAt)
+	fmt.Fprintln(&b, "- provider: `data.go.kr`")
+	fmt.Fprintf(&b, "- datapan_version: `%s`\n", version)
+	fmt.Fprintf(&b, "- source_registry: `%s`\n", registryPath)
+	if strings.TrimSpace(previousRegistryPath) != "" {
+		fmt.Fprintf(&b, "- previous_registry: `%s`\n", previousRegistryPath)
+	}
+	fmt.Fprintf(&b, "- release_manifest: `%s`\n", releaseRelativePath(paths.OutputDir, paths.ManifestPath))
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Registry")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- specs: `%d`\n", specCount)
+	if catalogDiff != nil {
+		fmt.Fprintf(&b, "- catalog_diff: `%d` added, `%d` removed, `%d` changed, `%d` stable\n", catalogDiff.Summary.Added, catalogDiff.Summary.Removed, catalogDiff.Summary.Changed, catalogDiff.Summary.Stable)
+		fmt.Fprintf(&b, "- catalog_diff_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.CatalogDiffPath))
+	} else {
+		fmt.Fprintln(&b, "- catalog_diff: not included; no previous registry was provided")
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Provider Coverage")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- provider_adapters: `%d` adapters, `%d` hosts\n", providerIndex.AdapterCount, providerIndex.HostCount)
+	fmt.Fprintf(&b, "- split_readiness: `%s`\n", providerIndex.SplitReadiness.Status)
+	fmt.Fprintf(&b, "- verification_capable_adapters: `%d`\n", providerIndex.SplitReadiness.VerificationCapableAdapters)
+	fmt.Fprintf(&b, "- call_capable_adapters: `%d`\n", providerIndex.SplitReadiness.CallCapableAdapters)
+	fmt.Fprintf(&b, "- dependency_operations: `%d` total, `%d` gateway, `%d` external, `%d` registered-adapter, `%d` missing-adapter\n",
+		dependencyReport.Summary.OperationsTotal,
+		dependencyReport.Summary.DataGoKrGatewayOperations,
+		dependencyReport.Summary.ExternalEndpointOps,
+		dependencyReport.Summary.RegisteredAdapterOps,
+		dependencyReport.Summary.MissingAdapterOps,
+	)
+	fmt.Fprintf(&b, "- adapter_backlog: `%d` target hosts, `%d` target operations\n", adapterTargetReport.Summary.TargetHosts, adapterTargetReport.Summary.TargetOperations)
+	fmt.Fprintf(&b, "- provider_backlog: `%d` hosts, `%d` missing-adapter hosts, `%d` operations needing adapters\n",
+		providerReport.Summary.Hosts,
+		providerReport.Summary.MissingAdapterHosts,
+		providerReport.Summary.NeedsAdapterOperations,
+	)
+	if len(adapterTargetReport.Targets) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Top adapter targets:")
+		fmt.Fprintln(&b)
+		for _, target := range adapterTargetReport.Targets {
+			if target.Rank > 5 {
+				continue
+			}
+			fmt.Fprintf(&b, "- `%d`. `%s`: `%d` operations across `%d` specs", target.Rank, target.Host, target.Operations, target.Specs)
+			if strings.TrimSpace(target.ProviderFamily) != "" {
+				fmt.Fprintf(&b, " (`%s`)", target.ProviderFamily)
+			}
+			fmt.Fprintln(&b)
+		}
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Verification Evidence")
+	fmt.Fprintln(&b)
+	if verificationSummary != nil {
+		fmt.Fprintf(&b, "- verification: `%d` total, `%d` verified, `%d` failed, `%d` skipped, `%d` unknown\n",
+			verificationSummary.Summary.Total,
+			verificationSummary.Summary.Verified,
+			verificationSummary.Summary.Failed,
+			verificationSummary.Summary.Skipped,
+			verificationSummary.Summary.Unknown,
+		)
+		fmt.Fprintf(&b, "- verification_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.VerificationPath))
+		fmt.Fprintf(&b, "- verification_summary_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.VerificationSummaryPath))
+		if len(verificationSummary.Groups.ByProvider) > 0 {
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, "Provider evidence:")
+			fmt.Fprintln(&b)
+			for idx, group := range verificationSummary.Groups.ByProvider {
+				if idx >= 6 {
+					break
+				}
+				fmt.Fprintf(&b, "- `%s`: `%d`\n", group.Key, group.Count)
+			}
+		}
+	} else {
+		fmt.Fprintln(&b, "- verification: not included; provide `--verification` to include bounded runtime evidence")
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Publication Checks")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "```bash")
+	fmt.Fprintf(&b, "datapan catalog release verify --manifest %s --output %s --json\n", releaseRelativePath(paths.OutputDir, paths.ManifestPath), releaseRelativePath(paths.OutputDir, joinPath(paths.ReportsDir, "latest-release-verification.json")))
+	fmt.Fprintf(&b, "datapan catalog release readiness --manifest %s --output %s --json\n", releaseRelativePath(paths.OutputDir, paths.ManifestPath), releaseRelativePath(paths.OutputDir, joinPath(paths.ReportsDir, "latest-release-readiness.json")))
+	fmt.Fprintln(&b, "```")
+	return b.String()
 }
 
 func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath string, providerLimit int, paths releasePaths) string {

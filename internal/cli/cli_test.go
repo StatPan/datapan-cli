@@ -2274,8 +2274,9 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"provider_backlog":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 28`,
+		`"artifacts": 29`,
 		`"provenance":`,
+		`"release_notes":`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -2310,6 +2311,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
 		outputDir + "/provenance/data-go-kr.md",
+		outputDir + "/RELEASE_NOTES.md",
 		outputDir + "/manifest.json",
 	} {
 		if _, err := osReadFile(path); err != nil {
@@ -2322,6 +2324,24 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "--previous-registry") || !strings.Contains(string(provenance), "datapan catalog diff") || !strings.Contains(string(provenance), "datapan catalog audit") || !strings.Contains(string(provenance), "datapan catalog dependencies") || !strings.Contains(string(provenance), "datapan catalog adapter-targets") {
 		t.Fatalf("unexpected provenance: %s", provenance)
+	}
+	releaseNotes, err := osReadFile(outputDir + "/RELEASE_NOTES.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Datapan Registry Release",
+		"- specs: `1`",
+		"- catalog_diff: `1` added, `1` removed, `0` changed, `0` stable",
+		"- provider_adapters:",
+		"- split_readiness:",
+		"- verification: `1` total, `0` verified, `0` failed, `1` skipped, `0` unknown",
+		"datapan catalog release verify --manifest manifest.json",
+		"datapan catalog release readiness --manifest manifest.json",
+	} {
+		if !strings.Contains(string(releaseNotes), want) {
+			t.Fatalf("expected %q in release notes: %s", want, releaseNotes)
+		}
 	}
 	diffReport, err := osReadFile(outputDir + "/reports/catalog-diff.json")
 	if err != nil {
@@ -2421,7 +2441,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 28`,
+		`"artifact_count": 29`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -2438,6 +2458,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"kind": "adapter_targets"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
+		`"path": "RELEASE_NOTES.md"`,
+		`"kind": "release_notes"`,
 		`"sha256":`,
 	} {
 		if !strings.Contains(string(manifest), want) {
@@ -2454,7 +2476,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 28`,
+		`"checked": 29`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -2481,6 +2503,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"id": "manifest_verified"`,
 		`"id": "required_artifact_dependencies"`,
 		`"id": "required_artifact_adapter_targets"`,
+		`"id": "required_artifact_release_notes"`,
 		`"id": "recommended_artifact_catalog_diff"`,
 		`"registry_specs": 1`,
 	} {
@@ -2563,7 +2586,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 28`,
+		`"artifacts": 29`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
 	} {
