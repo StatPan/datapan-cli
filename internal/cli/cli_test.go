@@ -1444,7 +1444,7 @@ func TestKitWritesStarterKitWithDefaultOutputDir(t *testing.T) {
 		`"kind": "postman"`,
 		`"kind": "openapi"`,
 		`"kind": "codegen_go"`,
-		`15084084-kit\\15084084_params.json`,
+		jsonEscaped(filepath.Join("15084084-kit", "15084084_params.json")),
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in kit summary: %s", want, stdout)
