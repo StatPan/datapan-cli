@@ -140,7 +140,7 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 		`"external_endpoint_operations": 2`,
 		`"registered_adapter_operations": 1`,
 		`"missing_adapter_operations": 1`,
-		`"adapter_count": 4`,
+		`"adapter_count": 5`,
 		`"name": "기관"`,
 		`"host": "external.example.test"`,
 		`datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --limit 20 --json`,

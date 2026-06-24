@@ -396,6 +396,95 @@ func TestForestAdapterClassifiesServiceKeyFailures(t *testing.T) {
 	}
 }
 
+func TestFolkAdapterOwnsKnownHostsConservatively(t *testing.T) {
+	adapter := NewFolkAdapter()
+	if !adapter.MatchHost("folkency.nfm.go.kr") {
+		t.Fatal("expected folk adapter to match folkency.nfm.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("folk adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "600", Title: "Folk 샘플", Provider: "data.go.kr"}
+	op := datago.Operation{Name: "사진목록", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in provider request")
+		}
+		if req.URL.Query().Get("korname") != "소나무" || req.URL.Query().Get("page") != "1" || req.URL.Query().Get("size") != "1" {
+			t.Fatalf("unexpected folk query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"data":{"total":1,"list":[{"tit_idx":10039,"korname":"소나무"}]},"message":null,"result_code":200}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		MissingParams: []string{"dictionary", "tit_idx", "korname", "summary", "page", "size"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "folk" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected folk verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted folk URL: %s", result.URL)
+	}
+	if result.ProviderStatus == nil || !result.ProviderStatus.OK || result.ProviderStatus.Code != "200" {
+		t.Fatalf("unexpected folk provider status: %#v", result.ProviderStatus)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["korname"] != "소나무" || result.Params["size"] != "1" || result.BodyShape != "json_items" {
+		t.Fatalf("unexpected folk public params/body shape: params=%#v shape=%s", result.Params, result.BodyShape)
+	}
+}
+
+func TestFolkAdapterSkipsDetailEndpointsWithoutIdentifiers(t *testing.T) {
+	adapter := NewFolkAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "601", Title: "Folk detail", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "사진상세", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoItemList"},
+		MissingParams: []string{"tit_idx", "group_name", "md_idx"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "folk_missing_required_params" {
+		t.Fatalf("unexpected folk detail skip result: %#v", result)
+	}
+}
+
+func TestFolkAdapterDoesNotSendEmptySoundFilters(t *testing.T) {
+	adapter := NewFolkAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("korname") != "" || req.URL.Query().Get("dictionary") != "" || req.URL.Query().Get("tit_idx") != "" || req.URL.Query().Get("summary") != "" {
+			t.Fatalf("unexpected empty folk filter query params: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("page") != "1" || req.URL.Query().Get("size") != "1" || req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("unexpected folk sound query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"data":{"total":1,"list":[{"title":"sample"}]},"message":null,"result_code":200}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "602", Title: "Folk sound", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "음원목록", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getSoundList"},
+		MissingParams: []string{"dictionary", "tit_idx", "korname", "summary", "page", "size"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "json_items" {
+		t.Fatalf("unexpected folk sound result: %#v", result)
+	}
+	if _, ok := result.Params["korname"]; !ok || result.Params["korname"] != "" {
+		t.Fatalf("expected public params to record empty korname default: %#v", result.Params)
+	}
+}
+
 func TestQNetAdapterSkipsUnknownRequiredParams(t *testing.T) {
 	adapter := NewQNetAdapter()
 	result := adapter.Verify(context.Background(), VerificationRequest{

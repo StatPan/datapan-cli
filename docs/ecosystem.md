@@ -192,6 +192,8 @@ Adapter status:
   evaluation APIs, including provider key-registration error evidence;
 - `forest`: registered observation-stage adapter for Korea Forest Service
   culture information APIs with verified XML response evidence;
+- `folk`: registered observation-stage adapter for National Folk Museum
+  multimedia APIs with provider-specific JSON result evidence;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;

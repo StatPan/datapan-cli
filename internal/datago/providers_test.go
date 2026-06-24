@@ -137,11 +137,12 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 			Operations: []Operation{
 				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
 				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
+				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
 			},
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "folkency.nfm.go.kr"})
 	forest := findProviderSummary(backlog.Providers, "api.forest.go.kr")
 	if forest == nil || forest.AdapterStatus != "adapter" || forest.Provider != "forest" {
 		t.Fatalf("unexpected forest summary: %#v", forest)
@@ -149,6 +150,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	ekape := findProviderSummary(backlog.Providers, "data.ekape.or.kr")
 	if ekape == nil || ekape.AdapterStatus != "adapter" || ekape.Provider != "ekape" {
 		t.Fatalf("unexpected ekape summary: %#v", ekape)
+	}
+	folk := findProviderSummary(backlog.Providers, "folkency.nfm.go.kr")
+	if folk == nil || folk.AdapterStatus != "adapter" || folk.Provider != "folk" {
+		t.Fatalf("unexpected folk summary: %#v", folk)
 	}
 }
 
