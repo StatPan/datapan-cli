@@ -47,7 +47,9 @@ dataset. `category` maps to the upstream source category only when that value
 is present in the imported catalog.
 
 ```bash
+datapan list --limit 10 --json
 datapan search "실거래" --org 국토교통부 --json
+datapan ls --org 기상청 --json
 datapan search --org 기상청 --json
 ```
 
@@ -65,6 +67,7 @@ remains the explicit override for alternate registry files.
 
 ```bash
 datapan init --json
+datapan list --limit 10 --json
 datapan search "실거래" --org 국토교통부 --json
 ```
 
@@ -74,11 +77,14 @@ command when callers only want to download and write the released registry.
 path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
-`datapan search --json` must include per-result `examples` for immediate next
-steps: `show`, `use`, `kit`, `params`, `get`, `curl`, `postman`, `openapi`,
-`codegen_go`, `codegen_node`, and `codegen_python` when those commands can be
-generated from the selected operation. Human search output should include at
-least a `next: datapan show <id>` line and, when callable, a
+`datapan search --json`, `datapan list --json`, and `datapan ls --json` must
+include per-result `examples` for immediate next steps: `show`, `use`, `kit`,
+`params`, `get`, `curl`, `postman`, `openapi`, `codegen_go`, `codegen_node`,
+and `codegen_python` when those commands can be generated from the selected
+operation. `list` and `ls` accept the same source metadata filters as `search`;
+unlike `search`, they may run with no query or filters and should return a
+bounded dataset list. Human output should include at least a
+`next: datapan show <id>` line and, when callable, a
 `try: datapan get ...` line plus a `kit: datapan kit ... --json` line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment

@@ -335,6 +335,34 @@ func TestSearchAllowsFilterOnly(t *testing.T) {
 	}
 }
 
+func TestListAllowsEmptyDatasetListing(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"list", "--limit", "2", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"query": ""`,
+		`"count": 2`,
+		`"results":`,
+		`"examples":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in list output: %s", want, stdout)
+		}
+	}
+}
+
+func TestLsFiltersLikeSearch(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"ls", "--org", "기상청", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "15084084"`) || !strings.Contains(stdout, `"organization": "기상청"`) {
+		t.Fatalf("expected ls to reuse search filters: %s", stdout)
+	}
+}
+
 func TestShowResolvesURLAndTitle(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"show", "https://www.data.go.kr/data/15126469/openapi.do", "--json"}, nil, nil)
 	if code != exitOK {

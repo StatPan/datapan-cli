@@ -219,6 +219,8 @@ func (a app) run() int {
 		return a.init(args[1:], jsonOut)
 	case "search":
 		return a.search(args[1:], jsonOut)
+	case "list", "ls":
+		return a.list(args[1:], jsonOut)
 	case "info":
 		return a.info(args[1:], jsonOut)
 	case "show":
@@ -259,6 +261,14 @@ func (a app) run() int {
 }
 
 func (a app) search(args []string, jsonOut bool) int {
+	return a.searchOrList(args, jsonOut, false)
+}
+
+func (a app) list(args []string, jsonOut bool) int {
+	return a.searchOrList(args, jsonOut, true)
+}
+
+func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	limit, args, err := consumeInt(args, "--limit", 20)
@@ -304,9 +314,14 @@ func (a app) search(args []string, jsonOut bool) int {
 		Priority:       priority,
 	}
 	if query == "" && filters == (datago.SearchFilters{}) {
-		return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]")
+		if !allowEmpty {
+			return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]")
+		}
 	}
 	results := a.reg.Search(query, limit, filters)
+	if allowEmpty && query == "" && filters == (datago.SearchFilters{}) {
+		results = limitSpecs(a.reg.Specs(), limit)
+	}
 	if jsonOut {
 		return a.writeJSON(map[string]any{
 			"ok":      true,
@@ -889,6 +904,7 @@ func initNextSteps(registryPath string, credentialPresent bool) []string {
 		steps = append(steps, "set DATAPAN_DATA_GO_KR_KEY or DATA_PORTAL_API_KEY before calling approved APIs")
 	}
 	steps = append(steps,
+		"datapan list --org 국토교통부 --json",
 		"datapan search \"실거래\" --org 국토교통부 --json",
 		"datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json",
 		"datapan doctor --json",
@@ -6206,6 +6222,8 @@ func (a app) printHelp() {
 Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
