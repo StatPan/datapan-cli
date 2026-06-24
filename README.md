@@ -71,6 +71,7 @@ if the variable is not already present in the process environment.
 ```bash
 datapan init --json
 datapan list --limit 10 --json
+datapan list --callable --limit 10 --json
 datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan ls --org 기상청 --json
@@ -159,6 +160,7 @@ returns next commands.
 ```bash
 datapan init --json
 datapan list --limit 10 --json
+datapan list --callable --limit 10 --json
 datapan catalog overview --json
 datapan search "실거래" --org 국토교통부 --json
 ```
@@ -170,7 +172,10 @@ whether a data.go.kr API key is present, and which external provider adapters
 are registered.
 Use `datapan list` or `datapan ls` when you want a data-CLI-style dataset list
 without inventing a search term. They accept the same `--org`, `--category`,
-`--priority`, `--provider`, `--limit`, and `--json` options as `search`.
+`--priority`, `--provider`, `--callable`, `--limit`, and `--json` options as
+`search`. `--callable` returns only specs that have at least one operation
+endpoint, so it is the quickest path when you want something Datapan can turn
+into `get`, `curl`, Postman, OpenAPI, or generated client code.
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top

@@ -363,6 +363,50 @@ func TestLsFiltersLikeSearch(t *testing.T) {
 	}
 }
 
+func TestListCallableFiltersBeforeLimit(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"Not Callable API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]},
+		{"id":"200","title":"Callable API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"300","title":"Also Callable API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"조회","endpoint":"https://apis.data.go.kr/test/get"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"list", "--callable", "--limit", "1", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"callable_only": true`,
+		`"count": 1`,
+		`"id": "200"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in callable list output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"id": "100"`) {
+		t.Fatalf("expected not-callable spec to be filtered out: %s", stdout)
+	}
+}
+
+func TestSearchCallableCountsAsFilter(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"Not Callable API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]},
+		{"id":"200","title":"Callable API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"search", "--callable", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "200"`) || strings.Contains(stdout, `"id": "100"`) {
+		t.Fatalf("expected search --callable to filter callable specs without a query: %s", stdout)
+	}
+}
+
 func TestShowResolvesURLAndTitle(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"show", "https://www.data.go.kr/data/15126469/openapi.do", "--json"}, nil, nil)
 	if code != exitOK {

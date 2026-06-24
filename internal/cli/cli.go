@@ -271,6 +271,7 @@ func (a app) list(args []string, jsonOut bool) int {
 func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
+	callableOnly, args := consumeBool(args, "--callable")
 	limit, args, err := consumeInt(args, "--limit", 20)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -313,22 +314,34 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 		SourceCategory: category,
 		Priority:       priority,
 	}
-	if query == "" && filters == (datago.SearchFilters{}) {
+	emptySourceFilter := filters == (datago.SearchFilters{})
+	if query == "" && emptySourceFilter && !callableOnly {
 		if !allowEmpty {
-			return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]")
+			return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]")
 		}
 	}
-	results := a.reg.Search(query, limit, filters)
-	if allowEmpty && query == "" && filters == (datago.SearchFilters{}) {
-		results = limitSpecs(a.reg.Specs(), limit)
+	searchLimit := limit
+	if callableOnly {
+		searchLimit = 0
 	}
+	var results []datago.Spec
+	if query == "" && emptySourceFilter {
+		results = a.reg.Specs()
+	} else {
+		results = a.reg.Search(query, searchLimit, filters)
+	}
+	if callableOnly {
+		results = filterCallableSpecs(results)
+	}
+	results = limitSpecs(results, limit)
 	if jsonOut {
 		return a.writeJSON(map[string]any{
-			"ok":      true,
-			"query":   query,
-			"filters": filters,
-			"count":   len(results),
-			"results": specSummaries(results),
+			"ok":            true,
+			"query":         query,
+			"filters":       filters,
+			"callable_only": callableOnly,
+			"count":         len(results),
+			"results":       specSummaries(results),
 		})
 	}
 	if len(results) == 0 {
@@ -3982,6 +3995,16 @@ func limitSpecs(specs []datago.Spec, limit int) []datago.Spec {
 		return specs
 	}
 	return specs[:limit]
+}
+
+func filterCallableSpecs(specs []datago.Spec) []datago.Spec {
+	var out []datago.Spec
+	for _, spec := range specs {
+		if specHasCallableOperation(spec) {
+			out = append(out, spec)
+		}
+	}
+	return out
 }
 
 func limitChanges(changes []datago.SpecChange, limit int) []datago.SpecChange {
