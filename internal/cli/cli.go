@@ -95,11 +95,22 @@ type app struct {
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
 	env = maybeLoadDotEnv(env)
 	reg := datago.DefaultRegistry()
-	if path, ok := env.LookupEnv("DATAPAN_REGISTRY_PATH"); ok && strings.TrimSpace(path) != "" {
-		loaded, err := datago.LoadRegistry(strings.TrimSpace(path))
+	registryPath, registrySet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
+	registryPath = strings.TrimSpace(registryPath)
+	if (!registrySet || registryPath == "") && shouldLoadDefaultRegistry(args) {
+		if _, err := os.Stat(defaultRegistryPath); err == nil {
+			registryPath = defaultRegistryPath
+			registrySet = true
+		} else if err != nil && !os.IsNotExist(err) {
+			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+			return a.fail(exitUsage, "failed to inspect default registry path %s: %v", defaultRegistryPath, err)
+		}
+	}
+	if registrySet && registryPath != "" {
+		loaded, err := datago.LoadRegistry(registryPath)
 		if err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
-			return a.fail(exitUsage, "failed to load DATAPAN_REGISTRY_PATH: %v", err)
+			return a.fail(exitUsage, "failed to load registry %s: %v", registryPath, err)
 		}
 		reg = loaded
 	}
@@ -112,6 +123,20 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg:    reg,
 	}
 	return a.run()
+}
+
+func shouldLoadDefaultRegistry(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "search", "show", "get", "curl", "save", "call", "apply", "export", "codegen":
+		return true
+	case "access":
+		return len(args) < 2 || args[1] != "login"
+	default:
+		return false
+	}
 }
 
 func maybeLoadDotEnv(env Env) Env {

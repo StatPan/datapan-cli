@@ -51,6 +51,21 @@ datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 ```
 
+## Registry Install
+
+`datapan catalog install datapan-registry` installs the latest released
+Datapan registry into `.datapan/data-go-kr.registry.json` by default. Consumer
+commands that resolve datasets, such as `search`, `show`, `get`, `curl`,
+`save`, `call`, `access`, `export`, and `codegen`, should automatically load
+that default registry file from the current project directory when
+`DATAPAN_REGISTRY_PATH` is not set. `DATAPAN_REGISTRY_PATH` remains the explicit
+override for alternate registry files.
+
+```bash
+datapan catalog install datapan-registry --json
+datapan search "실거래" --org 국토교통부 --json
+```
+
 ## Registry Import
 
 `datapan catalog import data-go-kr` imports the upstream data.go.kr open-data
@@ -59,7 +74,7 @@ upstream metadata separately from Datapan-generated search helpers.
 
 ```bash
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
-DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
+datapan search "실거래" --org 국토교통부 --json
 ```
 
 `--output -` writes only the registry JSON array to stdout. It must not be

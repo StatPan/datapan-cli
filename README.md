@@ -122,7 +122,7 @@ the registry decodes, and writes it to `.datapan/data-go-kr.registry.json`.
 
 ```bash
 datapan catalog install datapan-registry --json
-DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
+datapan search "실거래" --org 국토교통부 --json
 ```
 
 For registry maintainers and bounded upstream checks, import the upstream
@@ -130,7 +130,7 @@ data.go.kr open-data list into a normalized Datapan registry:
 
 ```bash
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --pages 5 --json
-DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
+datapan search "실거래" --org 국토교통부 --json
 ```
 
 The importer uses data.go.kr's public list lookup API and preserves upstream
@@ -289,9 +289,11 @@ Exit codes are intentionally small and stable:
 
 ## Scope
 
-The embedded seed catalog is intentionally small. For broader coverage, import
-the data.go.kr open-data list into a local normalized registry and point
-`DATAPAN_REGISTRY_PATH` at that file.
+The embedded seed catalog is intentionally small. For broader coverage, install
+the released `datapan-registry` snapshot into `.datapan/data-go-kr.registry.json`.
+Consumer commands such as `search`, `show`, `get`, and `export` automatically
+load that default file from the current project directory. Set
+`DATAPAN_REGISTRY_PATH` only when you want to use a different registry file.
 
 Datapan CLI is the first repository, not the whole planned ecosystem. The
 longer-term shape is a public-data layer made of the CLI runtime, normalized

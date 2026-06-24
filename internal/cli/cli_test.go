@@ -62,6 +62,23 @@ func TestSearchJSON(t *testing.T) {
 	}
 }
 
+func TestSearchLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"search", "지역 설치", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "local-1"`) {
+		t.Fatalf("expected default installed registry result: %s", stdout)
+	}
+}
+
 func TestReadDotEnvTrimsShellQuotes(t *testing.T) {
 	path := t.TempDir() + "/.env"
 	if err := osWriteFile(path, []byte("DATA_PORTAL_API_KEY='encoded-key'\nexport DATA_GO_KR_USER_ID=user\nPLAIN=value\n")); err != nil {
@@ -696,6 +713,36 @@ func TestCatalogInstallDatapanRegistryRejectsJSONStdoutConflict(t *testing.T) {
 	}
 	if stdout != "" || !strings.Contains(stderr, "use --registry PATH with --json") {
 		t.Fatalf("unexpected output stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestCatalogInstallDatapanRegistryCanRepairInvalidDefaultRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`not-json`)); err != nil {
+		t.Fatal(err)
+	}
+	registry := `[{"id":"300","title":"복구 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(bytes.NewReader(zipData)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--url", "https://example.test/direct.zip", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	data, err := os.ReadFile(defaultRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"id":"300"`) {
+		t.Fatalf("expected repaired default registry: %s", string(data))
 	}
 }
 
