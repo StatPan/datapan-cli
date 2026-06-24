@@ -212,6 +212,7 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 		`"curl": "datapan curl 15126469`,
 		`"openapi": "datapan export --format openapi 15126469`,
 		`"codegen_go": "datapan codegen go 15126469`,
+		`"codegen_node": "datapan codegen node 15126469`,
 		`"codegen_python": "datapan codegen python 15126469`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -330,6 +331,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
 		`"openapi": "datapan export --format openapi 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.openapi.json"`,
 		`"codegen_go": "datapan codegen go 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.go"`,
+		`"codegen_node": "datapan codegen node 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.js"`,
 		`"codegen_python": "datapan codegen python 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.py"`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -2537,6 +2539,60 @@ func TestCodegenPythonWritesImportableClient(t *testing.T) {
 	}
 }
 
+func TestCodegenNodeWritesSyntaxCheckedClient(t *testing.T) {
+	dir := t.TempDir()
+	output := dir + "/client.js"
+	code, stdout, stderr := runTest(
+		[]string{"codegen", "node", "15084084", "--output", output, "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"target": "node"`,
+		`"function": "getVilageFcst"`,
+		`"dataset": "15084084"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in codegen summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`const DEFAULT_SERVICE_KEY_ENV = "DATA_PORTAL_API_KEY";`,
+		`const DEFAULT_PARAMS = {`,
+		`"base_date": "20260622"`,
+		`class DatapanClient {`,
+		`static fromEnv(env = process.env, envVar = DEFAULT_SERVICE_KEY_ENV, options = {})`,
+		`buildURL(params = {})`,
+		`async getVilageFcst(params = {}, options = {})`,
+		`url.searchParams.set("serviceKey", this.serviceKey);`,
+		`module.exports = {`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in generated Node client: %s", want, data)
+		}
+	}
+	if strings.Contains(text, "secret-value") || strings.Contains(text, "${DATA_PORTAL_API_KEY}") {
+		t.Fatalf("generated Node client should not embed key material or shell placeholders: %s", data)
+	}
+	node, ok := findNodeForTest()
+	if !ok {
+		t.Skip("node executable not found")
+	}
+	cmd := exec.Command(node, "--check", output)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated Node client should parse: %v\n%s", err, out)
+	}
+}
+
 func TestGetAmbiguousRefJSONReturnsCandidates(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"get", "정보", "--dry-run", "--json"}, nil, nil)
 	if code != exitAmbiguous {
@@ -3016,4 +3072,15 @@ func findPythonForTest() (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func findNodeForTest() (string, bool) {
+	path, err := exec.LookPath("node")
+	if err != nil {
+		return "", false
+	}
+	if err := exec.Command(path, "--version").Run(); err != nil {
+		return "", false
+	}
+	return path, true
 }

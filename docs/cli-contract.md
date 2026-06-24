@@ -72,11 +72,11 @@ path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
 `datapan search --json` must include per-result `examples` for immediate next
-steps: `show`, `get`, `curl`, `postman`, `openapi`, `codegen_go`, and
-`codegen_python` when those commands can be generated from the selected
-operation. Human search output should include at least a `next: datapan show
-<id>` line and, when callable, a `try: datapan get ...` line. Generated
-examples must omit auth parameters such as `serviceKey`, `apiKey`,
+steps: `show`, `get`, `curl`, `postman`, `openapi`, `codegen_go`,
+`codegen_node`, and `codegen_python` when those commands can be generated from
+the selected operation. Human search output should include at least a `next:
+datapan show <id>` line and, when callable, a `try: datapan get ...` line.
+Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment
 variables.
 
@@ -327,6 +327,7 @@ datapan export --format curl 15084084 base_date=20260622 base_time=0500
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 --output forecast.postman_collection.json
 datapan export --format openapi 15084084 base_date=20260622 base_time=0500 --output forecast.openapi.json
 datapan codegen go 15084084 base_date=20260622 base_time=0500 --package forecastclient --output forecast_client.go
+datapan codegen node 15084084 base_date=20260622 base_time=0500 --output forecast_client.js
 datapan codegen python 15084084 base_date=20260622 base_time=0500 --output forecast_client.py
 ```
 
@@ -392,6 +393,11 @@ request plan. The generated file must use a caller-provided service key or
 `NewFromEnv`, must expose operation parameters as `map[string]string` so
 upstream parameter names remain exact, and must not embed credential values or
 shell placeholders.
+`datapan codegen node <ref>` writes a dependency-free Node.js client for the
+same request plan. The generated file must use built-in `fetch`, expose
+operation parameters as a plain object so upstream parameter names remain
+exact, provide `DatapanClient.fromEnv()`, and must not embed credential values
+or shell placeholders.
 `datapan codegen python <ref>` writes a dependency-free Python client for the
 same request plan. The generated file must use `urllib`, expose operation
 parameters as a mapping so upstream parameter names remain exact, provide

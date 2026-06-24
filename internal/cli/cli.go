@@ -2824,6 +2824,7 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 		"postman":        exampleExportCommand(spec, "postman"),
 		"openapi":        exampleExportCommand(spec, "openapi"),
 		"codegen_go":     exampleCodegenCommand(spec, "go"),
+		"codegen_node":   exampleCodegenCommand(spec, "node"),
 		"codegen_python": exampleCodegenCommand(spec, "python"),
 	}
 	for key, value := range examples {
@@ -2894,6 +2895,8 @@ func exampleCodegenCommand(spec datago.Spec, target string) string {
 	switch target {
 	case "go":
 		args = append(args, "--output", spec.ID+"_client.go")
+	case "node":
+		args = append(args, "--output", spec.ID+"_client.js")
 	case "python":
 		args = append(args, "--output", spec.ID+"_client.py")
 	default:
@@ -3822,15 +3825,17 @@ func (a app) codegen(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--json]\n       datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--json]\n       datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--json]\n       datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "go", "golang":
 		return a.codegenGo(args[1:], jsonOut)
 	case "python", "py":
 		return a.codegenPython(args[1:], jsonOut)
+	case "node", "js", "javascript":
+		return a.codegenNode(args[1:], jsonOut)
 	default:
-		return a.fail(exitUsage, "unsupported codegen target %q; use go or python", args[0])
+		return a.fail(exitUsage, "unsupported codegen target %q; use go, python, or node", args[0])
 	}
 }
 
@@ -3900,6 +3905,35 @@ func (a app) codegenPython(args []string, jsonOut bool) int {
 			"dataset":   plan.Spec.ID,
 			"operation": plan.Operation.Name,
 			"function":  pythonFunctionName(plan),
+		})
+	}
+	return exitOK
+}
+
+func (a app) codegenNode(args []string, jsonOut bool) int {
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes generated Node.js code to stdout")
+	}
+	plan, err := a.curlExportPlan(args)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	source := nodeClientForPlan(plan)
+	if err := writeOutput(output, []byte(source), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":        true,
+			"target":    "node",
+			"output":    output,
+			"dataset":   plan.Spec.ID,
+			"operation": plan.Operation.Name,
+			"function":  nodeFunctionName(plan),
 		})
 	}
 	return exitOK
@@ -4466,6 +4500,72 @@ func pythonClientForPlan(plan curlExportPlan) string {
 	return b.String()
 }
 
+func nodeClientForPlan(plan curlExportPlan) string {
+	endpoint, _ := url.Parse(plan.Operation.Endpoint)
+	endpoint.RawQuery = ""
+	endpoint.Fragment = ""
+	function := nodeFunctionName(plan)
+	defaults := nodeDefaultParamLiteral(plan.PublicParams)
+	var b strings.Builder
+	b.WriteString("\"use strict\";\n\n")
+	fmt.Fprintf(&b, "const DEFAULT_BASE_URL = %s;\n", jsonStringLiteral(endpoint.String()))
+	fmt.Fprintf(&b, "const DEFAULT_SERVICE_KEY_ENV = %s;\n", jsonStringLiteral(plan.EnvVar))
+	fmt.Fprintf(&b, "const DEFAULT_PARAMS = %s;\n\n", defaults)
+	b.WriteString("class DatapanClient {\n")
+	b.WriteString("  constructor(serviceKey, options = {}) {\n")
+	b.WriteString("    this.serviceKey = String(serviceKey || \"\").trim();\n")
+	b.WriteString("    if (!this.serviceKey) {\n")
+	b.WriteString("      throw new Error(\"missing service key\");\n")
+	b.WriteString("    }\n")
+	b.WriteString("    this.baseURL = options.baseURL || DEFAULT_BASE_URL;\n")
+	b.WriteString("    this.fetch = options.fetch || globalThis.fetch;\n")
+	b.WriteString("    if (typeof this.fetch !== \"function\") {\n")
+	b.WriteString("      throw new Error(\"missing fetch implementation; use Node.js 18+ or pass options.fetch\");\n")
+	b.WriteString("    }\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  static fromEnv(env = process.env, envVar = DEFAULT_SERVICE_KEY_ENV, options = {}) {\n")
+	b.WriteString("    const key = String(env[envVar] || \"\").trim();\n")
+	b.WriteString("    if (!key) {\n")
+	b.WriteString("      throw new Error(`missing ${envVar}`);\n")
+	b.WriteString("    }\n")
+	b.WriteString("    return new DatapanClient(key, options);\n")
+	b.WriteString("  }\n\n")
+	b.WriteString("  buildURL(params = {}) {\n")
+	b.WriteString("    const url = new URL(this.baseURL);\n")
+	b.WriteString("    for (const [key, value] of Object.entries(DEFAULT_PARAMS)) {\n")
+	b.WriteString("      url.searchParams.set(key, String(value));\n")
+	b.WriteString("    }\n")
+	b.WriteString("    for (const [key, value] of Object.entries(params || {})) {\n")
+	b.WriteString("      if (key && key !== \"serviceKey\") {\n")
+	b.WriteString("        url.searchParams.set(key, String(value));\n")
+	b.WriteString("      }\n")
+	b.WriteString("    }\n")
+	b.WriteString("    url.searchParams.set(\"serviceKey\", this.serviceKey);\n")
+	b.WriteString("    return url;\n")
+	b.WriteString("  }\n\n")
+	fmt.Fprintf(&b, "  async %s(params = {}, options = {}) {\n", function)
+	fmt.Fprintf(&b, "    // Call %s (%s).\n", jsCommentText(plan.Operation.Name), plan.Spec.ID)
+	b.WriteString("    const response = await this.fetch(this.buildURL(params), { method: \"GET\", ...options });\n")
+	b.WriteString("    const body = await response.text();\n")
+	b.WriteString("    if (!response.ok) {\n")
+	b.WriteString("      throw new Error(`provider returned HTTP ${response.status}: ${body.trim()}`);\n")
+	b.WriteString("    }\n")
+	b.WriteString("    return body;\n")
+	b.WriteString("  }\n")
+	b.WriteString("}\n\n")
+	b.WriteString("function newFromEnv(env = process.env, options = {}) {\n")
+	b.WriteString("  return DatapanClient.fromEnv(env, DEFAULT_SERVICE_KEY_ENV, options);\n")
+	b.WriteString("}\n\n")
+	b.WriteString("module.exports = {\n")
+	b.WriteString("  DatapanClient,\n")
+	b.WriteString("  DEFAULT_BASE_URL,\n")
+	b.WriteString("  DEFAULT_SERVICE_KEY_ENV,\n")
+	b.WriteString("  DEFAULT_PARAMS,\n")
+	b.WriteString("  newFromEnv,\n")
+	b.WriteString("};\n")
+	return b.String()
+}
+
 func goDefaultParamLiteral(params map[string]string) string {
 	keys := make([]string, 0, len(params))
 	for key := range params {
@@ -4506,6 +4606,26 @@ func pythonDefaultParamLiteral(params map[string]string) string {
 	return b.String()
 }
 
+func nodeDefaultParamLiteral(params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		if strings.TrimSpace(key) != "" && !isAuthParam(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return "{}"
+	}
+	var b strings.Builder
+	b.WriteString("{\n")
+	for _, key := range keys {
+		fmt.Fprintf(&b, "  %s: %s,\n", jsonStringLiteral(key), jsonStringLiteral(params[key]))
+	}
+	b.WriteString("}")
+	return b.String()
+}
+
 func goFunctionName(plan curlExportPlan) string {
 	name := goExportedIdentifier(plan.Operation.Name)
 	if name == "" {
@@ -4513,6 +4633,27 @@ func goFunctionName(plan curlExportPlan) string {
 	}
 	if name == "Call" {
 		name = "CallOperation"
+	}
+	return name
+}
+
+func nodeFunctionName(plan curlExportPlan) string {
+	name := lowerCamelIdentifier(plan.Operation.Name)
+	if name == "" {
+		endpoint, _ := url.Parse(plan.Operation.Endpoint)
+		parts := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
+		if len(parts) > 0 {
+			name = lowerCamelIdentifier(parts[len(parts)-1])
+		}
+	}
+	if name == "" {
+		name = "call" + goExportedIdentifier(plan.Spec.ID)
+	}
+	if name == "" || name == "call" {
+		return "callOperation"
+	}
+	if isJavaScriptKeyword(name) {
+		return name + "Operation"
 	}
 	return name
 }
@@ -4591,9 +4732,30 @@ func pythonIdentifier(value string) string {
 	return strings.Trim(b.String(), "_")
 }
 
+func lowerCamelIdentifier(value string) string {
+	upper := goExportedIdentifier(value)
+	if upper == "" {
+		return ""
+	}
+	runes := []rune(upper)
+	if runes[0] >= 'A' && runes[0] <= 'Z' {
+		runes[0] += 'a' - 'A'
+	}
+	return string(runes)
+}
+
 func isPythonKeyword(value string) bool {
 	switch value {
 	case "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield":
+		return true
+	default:
+		return false
+	}
+}
+
+func isJavaScriptKeyword(value string) bool {
+	switch value {
+	case "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield", "let", "static":
 		return true
 	default:
 		return false
@@ -4629,6 +4791,15 @@ func validGoPackageName(value string) bool {
 func pythonDocText(value string) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
 	value = strings.ReplaceAll(value, `"""`, `\"\"\"`)
+	if value == "" {
+		return "the planned operation"
+	}
+	return value
+}
+
+func jsCommentText(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
+	value = strings.ReplaceAll(value, "*/", "* /")
 	if value == "" {
 		return "the planned operation"
 	}
@@ -4869,6 +5040,7 @@ Usage:
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
+  datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan version [--json]
 
