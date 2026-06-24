@@ -761,6 +761,158 @@ func TestGeojeAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestUiryeongAdapterOwnsKnownHostAndClassifiesServiceKeyRegistration(t *testing.T) {
+	adapter := NewUiryeongAdapter()
+	if !adapter.MatchHost("data.uiryeong.go.kr") {
+		t.Fatal("expected uiryeong adapter to match data.uiryeong.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("uiryeong adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "660", Title: "Uiryeong park", Provider: "data.go.kr"}
+	op := datago.Operation{
+		Name:     "도시공원정보 목록",
+		Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList",
+		RequestParams: []datago.Param{
+			{Name: "ServiceKey"},
+			{Name: "pageNo"},
+			{Name: "numOfRows"},
+			{Name: "uiryeongparkEntId"},
+			{Name: "uiryeongparkType"},
+			{Name: "uiryeongparkTitle"},
+			{Name: "uiryeongparkNewAddr"},
+			{Name: "uiryeongparkAddr"},
+		},
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("ServiceKey") != "secret" {
+			t.Fatalf("expected ServiceKey in uiryeong request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected uiryeong paging query: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Has("uiryeongparkEntId") || req.URL.Query().Has("uiryeongparkTitle") || req.URL.Query().Has("uiryeongparkAddr") {
+			t.Fatalf("empty optional uiryeong filters should not be sent: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0"?><rfcOpenApi><header><resultCode>99</resultCode><resultMsg>등록되지 않은 서비스키입니다.</resultMsg></header></rfcOpenApi>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		MissingParams: []string{"pageNo", "numOfRows", "uiryeongparkEntId", "uiryeongparkType", "uiryeongparkTitle", "uiryeongparkNewAddr", "uiryeongparkAddr"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "uiryeong" || result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "uiryeong_service_key_not_registered" {
+		t.Fatalf("unexpected uiryeong verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "ServiceKey=REDACTED") {
+		t.Fatalf("expected redacted uiryeong URL: %s", result.URL)
+	}
+	if result.Params["ServiceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected uiryeong public params/body shape: params=%#v shape=%s", result.Params, result.BodyShape)
+	}
+}
+
+func TestUiryeongAdapterSkipsOpaqueIDsForDetailAndFileOperations(t *testing.T) {
+	adapter := NewUiryeongAdapter()
+	for _, op := range []datago.Operation{
+		{Name: "체육시설 상세정보", Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongphysical/uiryeongphysicalView"},
+		{Name: "민박/펜션업소 사진", Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongstay/uiryeongstayFile"},
+	} {
+		result := adapter.Verify(context.Background(), VerificationRequest{
+			Spec:          datago.Spec{ID: "661", Title: "Uiryeong detail", Provider: "data.go.kr"},
+			Operation:     op,
+			MissingParams: []string{"uiryeongphysicalEntId"},
+			Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		})
+		if result.Status != "skipped" || result.Reason != "uiryeong_missing_required_params" || len(result.MissingParams) != 1 {
+			t.Fatalf("unexpected uiryeong skip result for %s: %#v", op.Name, result)
+		}
+	}
+}
+
+func TestUiryeongAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewUiryeongAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.uiryeong.go.kr" {
+			t.Fatalf("expected uiryeong host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("ServiceKey") != "secret" {
+			t.Fatalf("expected ServiceKey in uiryeong call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected uiryeong call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<rfcOpenApi><header><resultCode>00</resultCode><resultMsg>success</resultMsg></header><body><data><list><title>의령 도시공원</title></list></data></body></rfcOpenApi>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "662", Title: "Uiryeong park", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "도시공원정보 목록",
+			Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList",
+			RequestParams: []datago.Param{
+				{Name: "ServiceKey"},
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+				{Name: "uiryeongparkEntId"},
+				{Name: "uiryeongparkTitle"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows", "uiryeongparkEntId", "uiryeongparkTitle"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "uiryeong" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected uiryeong call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected uiryeong provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "ServiceKey=REDACTED") || !strings.Contains(envelope.Body, "의령 도시공원") {
+		t.Fatalf("unexpected uiryeong call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestUiryeongAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewUiryeongAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "663", Title: "Uiryeong transport", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "도시공원정보 목록",
+			Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList",
+			RequestParams: []datago.Param{
+				{Name: "ServiceKey"},
+				{Name: "pageNo"},
+			},
+		},
+		MissingParams: []string{"pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "ServiceKey=REDACTED") {
+		t.Fatalf("expected redacted uiryeong transport error, got %v", err)
+	}
+}
+
 func TestJeonjuAdapterCallExecutesProviderRequest(t *testing.T) {
 	adapter := NewJeonjuAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

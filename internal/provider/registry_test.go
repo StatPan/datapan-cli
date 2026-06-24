@@ -80,6 +80,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.epost.go.kr":   "epost",
 		"data.ekape.or.kr":      "ekape",
 		"data.geoje.go.kr":      "geoje",
+		"data.uiryeong.go.kr":   "uiryeong",
 		"folkency.nfm.go.kr":    "folk",
 		"api.forest.go.kr":      "forest",
 		"openapi.jeonju.go.kr":  "jeonju",
@@ -93,22 +94,22 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 8 || report.HostCount != 11 {
+	if report.AdapterCount != 9 || report.HostCount != 12 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 8 || report.SplitReadiness.VerificationCapableAdapters != 8 || report.SplitReadiness.CallCapableAdapters != 3 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 9 || report.SplitReadiness.VerificationCapableAdapters != 9 || report.SplitReadiness.CallCapableAdapters != 4 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
 		t.Fatalf("unexpected split readiness reasons: %#v", report.SplitReadiness.Reasons)
 	}
-	if len(report.Adapters) != 8 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "ekape" || report.Adapters[2].Name != "epost" || report.Adapters[3].Name != "folk" || report.Adapters[4].Name != "forest" || report.Adapters[5].Name != "geoje" || report.Adapters[6].Name != "jeonju" || report.Adapters[7].Name != "q-net" {
+	if len(report.Adapters) != 9 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "ekape" || report.Adapters[2].Name != "epost" || report.Adapters[3].Name != "folk" || report.Adapters[4].Name != "forest" || report.Adapters[5].Name != "geoje" || report.Adapters[6].Name != "jeonju" || report.Adapters[7].Name != "q-net" || report.Adapters[8].Name != "uiryeong" {
 		t.Fatalf("unexpected provider index adapter: %#v", report)
 	}
-	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" || report.Adapters[3].Status != "registered" || report.Adapters[4].Status != "registered" || report.Adapters[5].Status != "registered" || report.Adapters[6].Status != "registered" || report.Adapters[7].Status != "registered" {
+	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" || report.Adapters[3].Status != "registered" || report.Adapters[4].Status != "registered" || report.Adapters[5].Status != "registered" || report.Adapters[6].Status != "registered" || report.Adapters[7].Status != "registered" || report.Adapters[8].Status != "registered" {
 		t.Fatalf("unexpected provider index adapter status: %#v", report)
 	}
 	if strings.Join(report.Adapters[0].Hosts, ",") != "openapi.airport.co.kr" {
@@ -146,5 +147,11 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	}
 	if strings.Join(report.Adapters[7].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
 		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[7].Hosts)
+	}
+	if strings.Join(report.Adapters[8].Hosts, ",") != "data.uiryeong.go.kr" {
+		t.Fatalf("unexpected uiryeong provider index hosts: %#v", report.Adapters[8].Hosts)
+	}
+	if strings.Join(report.Adapters[8].Capabilities, ",") != "call,verification" {
+		t.Fatalf("unexpected uiryeong provider index capabilities: %#v", report.Adapters[8].Capabilities)
 	}
 }

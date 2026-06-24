@@ -208,6 +208,9 @@ Adapter status:
   `authApiKey` handling and upstream `HTTP 405` evidence;
 - `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
   verified XML list evidence, ID-only detail skips, and call behavior;
+- `uiryeong`: registered adapter for Uiryeong county APIs with `ServiceKey`
+  handling, list-filter/default separation, provider key-registration evidence,
+  and call behavior;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;
@@ -220,9 +223,10 @@ Creation trigger:
   interface has stabilized inside `datapan-cli`.
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
-code boundary lives in `internal/provider`; epost, forest, and geoje now prove
-multiple external call paths, while jeonju expands high-impact external host
-ownership. The split should wait for sustained maintenance pressure.
+code boundary lives in `internal/provider`; epost, forest, geoje, and uiryeong
+now prove multiple external call paths, while jeonju expands high-impact
+external host ownership. The split should wait for sustained maintenance
+pressure.
 
 ### datapan-spec
 

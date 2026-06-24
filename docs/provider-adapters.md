@@ -97,6 +97,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider geoje --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider uiryeong --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider jeonju --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider jeonju --json
 ```
@@ -111,6 +113,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeonju --json
 ```
 
@@ -146,6 +149,11 @@ external host. It uses the normal `serviceKey` credential, proves
 `resultCode=00` XML list responses, skips ID-only detail operations rather than
 inventing identifiers, and declares call capability for operations whose
 parameters are supplied or safely defaultable.
+The uiryeong adapter owns `data.uiryeong.go.kr`, the next high-coverage
+local-government host. It preserves the upstream `ServiceKey` parameter,
+separates list filters from opaque detail/file IDs, and records the current
+upstream key-registration rejection as provider evidence instead of a generic
+missing-adapter gap.
 The jeonju adapter owns `openapi.jeonju.go.kr`, currently the largest missing
 external host family in the imported registry. It preserves the upstream
 credential parameter name (`ServiceKey` or `authApiKey`) and only fills
@@ -401,6 +409,38 @@ operations, `geoje_missing_required_params` for ID-only detail operations, and
 stable provider failures such as `geoje_common_error` or
 `geoje_provider_sql_error` when upstream returns those bodies.
 
+## Ninth Adapter: uiryeong
+
+The uiryeong adapter covers Uiryeong county APIs hosted at
+`data.uiryeong.go.kr`. The current registry exposes dozens of XML REST
+operations across administration, tourism, welfare, traffic, health, safety,
+and science categories. These APIs use an upstream `ServiceKey` parameter and
+return XML `rfcOpenApi` envelopes with `resultCode` / `resultMsg`.
+
+The adapter is intentionally careful with identifier-looking fields. In list
+operations, `EntId`, title, address, type, kind, and similar fields are treated
+as optional filters and omitted when no value is supplied. In detail, view,
+file, and photo operations, opaque IDs remain required so Datapan records
+`uiryeong_missing_required_params` instead of inventing identifiers.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider uiryeong --kind external_endpoint --limit 6 --output .datapan/uiryeong-verification.json --json
+datapan catalog verify summary --input .datapan/uiryeong-verification.json --json
+datapan get 15008883 pageNo=1 numOfRows=1 --operation "도시공원정보 목록" --json
+```
+
+Expected evidence shape: `provider=uiryeong`,
+`endpoint_host=data.uiryeong.go.kr`, redacted URLs with `ServiceKey=REDACTED`,
+XML `rfcOpenApi` status bodies, `provider_status.code=99` with the upstream
+Korean key-registration message when the current data.go.kr key is not
+registered, and stable provider reasons such as
+`uiryeong_service_key_not_registered`. A failed verification is still useful
+evidence when it proves the request reached the external provider and the
+provider rejected the credential registration state.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -424,7 +464,7 @@ providers and the release boundary is worth maintaining separately.
 The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
-registered verification-capable providers, and epost, forest, and geoje declare
-stable `call` capability, so the boundary is ready to consider. Keep adapters
-inside `datapan-cli` until release cadence or maintenance cost makes a separate
-`datapan-providers` repository clearly worth it.
+registered verification-capable providers, and epost, forest, geoje, and
+uiryeong declare stable `call` capability, so the boundary is ready to consider.
+Keep adapters inside `datapan-cli` until release cadence or maintenance cost
+makes a separate `datapan-providers` repository clearly worth it.
