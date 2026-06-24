@@ -175,6 +175,8 @@ returns next commands.
 ```bash
 datapan init --json
 datapan ready --limit 10 --json
+datapan providers --adapters --json
+datapan providers --gaps --limit 10 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -187,6 +189,11 @@ registry download/install step, and `datapan doctor --json` when you want to
 recheck which registry is active, how many specs and operations it contains,
 whether a data.go.kr API key is present, and which external provider adapters
 are registered.
+Use `datapan providers --adapters --json` when you want to see external hosts
+already owned by registered provider adapters, and `datapan providers --gaps
+--json` when you want the missing external endpoint host backlog without
+remembering the longer `catalog providers --status missing --kind
+external_endpoint` form.
 Use `datapan list` or `datapan ls` when you want a data-CLI-style dataset list
 without inventing a search term. They accept the same `--org`, `--category`,
 `--priority`, `--provider`, `--callable`, `--call-ready`, `--limit`, and

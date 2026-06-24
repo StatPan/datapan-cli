@@ -270,6 +270,50 @@ func TestCatalogProvidersLoadsDefaultInstalledRegistry(t *testing.T) {
 	}
 }
 
+func TestProvidersTopLevelShortcutsLoadDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"500","title":"산림청_숲 이야기","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}]},
+		{"id":"600","title":"외부_미등록 API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://missing.example.test/openapi/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"providers", "--adapters", "--provider", "forest", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"provider": "forest"`,
+		`"host": "api.forest.go.kr"`,
+		`"adapter_status": "adapter"`,
+		`"filtered_count": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in provider adapter output: %s", want, stdout)
+		}
+	}
+
+	code, stdout, stderr = runTest([]string{"providers", "--gaps", "--limit", "1", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"status": "missing"`,
+		`"kind": "external_endpoint"`,
+		`"host": "missing.example.test"`,
+		`"adapter_status": "missing"`,
+		`"filtered_count": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in provider gap output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogDependenciesLoadsDefaultInstalledRegistry(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {

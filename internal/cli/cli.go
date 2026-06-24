@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "ready", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "ready", "providers", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -232,6 +232,8 @@ func (a app) run() int {
 		return a.search(args[1:], jsonOut)
 	case "ready":
 		return a.ready(args[1:], jsonOut)
+	case "providers":
+		return a.providers(args[1:], jsonOut)
 	case "list", "ls":
 		return a.list(args[1:], jsonOut)
 	case "info":
@@ -285,6 +287,28 @@ func (a app) ready(args []string, jsonOut bool) int {
 	readyArgs := append([]string{"--ready", "--ready-rank"}, args...)
 	args = readyArgs
 	return a.searchOrList(args, jsonOut, true)
+}
+
+func (a app) providers(args []string, jsonOut bool) int {
+	adaptersOnly, args := consumeBool(args, "--adapters")
+	gapsOnly, args := consumeBool(args, "--gaps")
+	missingOnly, args := consumeBool(args, "--missing")
+	if adaptersOnly && (gapsOnly || missingOnly) {
+		return a.fail(exitUsage, "use only one of --adapters, --gaps, or --missing")
+	}
+	if adaptersOnly {
+		if hasAnyArg(args, "--status") {
+			return a.fail(exitUsage, "--adapters cannot be combined with --status")
+		}
+		args = append(args, "--status", "adapter")
+	}
+	if gapsOnly || missingOnly {
+		if hasAnyArg(args, "--status", "--kind") {
+			return a.fail(exitUsage, "--gaps cannot be combined with --status or --kind")
+		}
+		args = append(args, "--status", "missing", "--kind", "external_endpoint")
+	}
+	return a.catalogProviders(args, jsonOut)
 }
 
 func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
@@ -7242,6 +7266,7 @@ Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]

@@ -234,6 +234,14 @@ installed registry discovery used by consumer commands. The command may accept
 `--query`, `--org`, `--category`, `--provider`, `--priority`, and `--limit` to
 build a focused bundle.
 
+`datapan providers [--adapters|--gaps] --json` is the consumer-facing shortcut
+for external provider ownership and backlog discovery. It uses the default
+installed registry when no `--registry` is supplied and delegates to the same
+provider backlog contract as `catalog providers`. `--adapters` is equivalent
+to `--status adapter`; `--gaps` and `--missing` are equivalent to `--status
+missing --kind external_endpoint`. These shortcuts must not be combined with
+explicit conflicting `--status` or `--kind` filters.
+
 `datapan catalog providers [--registry PATH] --json` converts dependency
 classification into a host/provider backlog. When `--registry` is omitted, it
 uses the default installed registry. The response includes summary
