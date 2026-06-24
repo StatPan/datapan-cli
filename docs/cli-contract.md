@@ -79,17 +79,19 @@ steps: `show`, `use`, `kit`, `params`, `get`, `curl`, `postman`, `openapi`,
 `codegen_go`, `codegen_node`, and `codegen_python` when those commands can be
 generated from the selected operation. Human search output should include at
 least a `next: datapan show <id>` line and, when callable, a
-`try: datapan get ...` line plus a `kit: datapan use ... --output-dir ...`
-line.
+`try: datapan get ...` line plus a `kit: datapan kit ... --json` line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment
 variables.
 
-`datapan use <ref> --output-dir DIR` should generate a portable starter kit for
-one selected operation. The kit includes params JSON, a curl script, Postman
-collection, OpenAPI document, Go/Node/Python clients, and a README. Generated
-files must use environment-variable placeholders for credentials and must not
-write actual service-key material to disk.
+`datapan kit <ref>` should generate a portable starter kit for one selected
+operation under `<dataset-id>-kit` by default. `--output-dir DIR` may override
+that location. The kit includes params JSON, a curl script, Postman collection,
+OpenAPI document, Go/Node/Python clients, and a README. Generated files must
+use environment-variable placeholders for credentials and must not write actual
+service-key material to disk. `datapan use <ref> --output-dir DIR` remains a
+compatible lower-level path for callers that already build around the planning
+command.
 
 ## Registry Import
 
@@ -387,6 +389,12 @@ values, `--params-file`, positional `KEY=VALUE`, and `--param k=v`, with later
 sources overriding earlier sources. The command must preserve exact upstream
 parameter names and must never include credential values or auth parameters in
 the params object or generated commands.
+
+`datapan kit <ref> [KEY=VALUE ...] [--param k=v] [--params-file PATH|-]
+[--output-dir DIR] --json` is the shorter human-facing starter-kit command. It
+must reuse the same parameter merge, operation resolution, credential redaction,
+and generated file set as `datapan use --output-dir`, while defaulting
+`--output-dir` to `<dataset-id>-kit` when the caller omits it.
 
 `datapan params <ref> [KEY=VALUE ...] [--param k=v] --output params.json`
 writes a JSON object that can be passed directly to

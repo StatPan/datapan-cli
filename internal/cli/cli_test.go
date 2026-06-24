@@ -201,7 +201,7 @@ func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
 		`"schema_version": "datapan.studio-datasets.v1"`,
 		`"id": "100"`,
 		`"callable": true`,
-		`"kit": "datapan use 100 --operation \"목록\" pageNo=VALUE --output-dir 100-kit --json"`,
+		`"kit": "datapan kit 100 --operation \"목록\" pageNo=VALUE --json"`,
 		`"request_params":`,
 		`"response_params_count": 1`,
 	} {
@@ -283,8 +283,8 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 	for _, want := range []string{
 		`"examples":`,
 		`"show": "datapan show 15126469"`,
-		`"kit": "datapan use 15126469`,
-		`--output-dir 15126469-kit --json`,
+		`"kit": "datapan kit 15126469`,
+		`--json`,
 		`"params": "datapan params 15126469`,
 		`"curl": "datapan curl 15126469`,
 		`"openapi": "datapan export --format openapi 15126469`,
@@ -309,8 +309,8 @@ func TestSearchHumanOutputShowsNextCommands(t *testing.T) {
 	for _, want := range []string{
 		`next: datapan show 15126469`,
 		`try: datapan get 15126469`,
-		`kit: datapan use 15126469`,
-		`--output-dir 15126469-kit --json`,
+		`kit: datapan kit 15126469`,
+		`--json`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in search output: %s", want, stdout)
@@ -406,7 +406,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
 		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
-		`"kit": "datapan use 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output-dir 999-kit --json"`,
+		`"kit": "datapan kit 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
 		`"params": "datapan params 999 --operation \"목록 조회\" --output 999_params.json"`,
 		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE"`,
 		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
@@ -646,6 +646,48 @@ func TestUseWritesStarterKit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generated starter Node client should parse: %v\n%s", err, out)
 		}
+	}
+}
+
+func TestKitWritesStarterKitWithDefaultOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	code, stdout, stderr := runTest(
+		[]string{"kit", "15084084", "base_date=20260622", "--param", "base_time=0500", "--param", "nx=60", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"output_dir": "15084084-kit"`,
+		`"kind": "params"`,
+		`"kind": "postman"`,
+		`"kind": "openapi"`,
+		`"kind": "codegen_go"`,
+		`15084084-kit\\15084084_params.json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in kit summary: %s", want, stdout)
+		}
+	}
+	for _, name := range []string{
+		"15084084_params.json",
+		"15084084.curl.sh",
+		"15084084.postman_collection.json",
+		"15084084.openapi.json",
+		"15084084_client.go",
+		"15084084_client.js",
+		"15084084_client.py",
+		"README.md",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, "15084084-kit", name)); err != nil {
+			t.Fatalf("expected generated %s: %v", name, err)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") || strings.Contains(stdout, "serviceKey") {
+		t.Fatalf("kit summary should not leak credential material or auth params: %s", stdout)
 	}
 }
 

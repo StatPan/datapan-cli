@@ -225,6 +225,8 @@ func (a app) run() int {
 		return a.info(args[1:], jsonOut)
 	case "use":
 		return a.use(args[1:], jsonOut)
+	case "kit":
+		return a.kit(args[1:], jsonOut)
 	case "params":
 		return a.params(args[1:], jsonOut)
 	case "auth":
@@ -3055,6 +3057,14 @@ func showPayload(spec datago.Spec) map[string]any {
 }
 
 func (a app) use(args []string, jsonOut bool) int {
+	return a.useOrKit(args, jsonOut, false)
+}
+
+func (a app) kit(args []string, jsonOut bool) int {
+	return a.useOrKit(args, jsonOut, true)
+}
+
+func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	operation, args, err := consumeString(args, "--operation", "")
@@ -3074,6 +3084,9 @@ func (a app) use(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) < 1 {
+		if defaultKitOutput {
+			return a.fail(exitUsage, "usage: datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]")
+		}
 		return a.fail(exitUsage, "usage: datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]")
 	}
 	positionalParams, err := parseKeyValueArgs(args[1:])
@@ -3088,6 +3101,9 @@ func (a app) use(args []string, jsonOut bool) int {
 	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
 		return code
+	}
+	if defaultKitOutput && strings.TrimSpace(outputDir) == "" {
+		outputDir = spec.ID + "-kit"
 	}
 	op, ok := spec.Operation(operation)
 	if !ok {
@@ -3683,7 +3699,7 @@ func exampleKitCommand(spec datago.Spec) string {
 	if op.Endpoint == "" {
 		return ""
 	}
-	args := []string{"datapan", "use", spec.ID}
+	args := []string{"datapan", "kit", spec.ID}
 	if op.Name != "" {
 		args = append(args, "--operation", op.Name)
 	}
@@ -3693,7 +3709,7 @@ func exampleKitCommand(spec datago.Spec) string {
 			args = append(args, name+"=VALUE")
 		}
 	}
-	args = append(args, "--output-dir", spec.ID+"-kit", "--json")
+	args = append(args, "--json")
 	return datago.CommandString(args)
 }
 
@@ -6108,6 +6124,7 @@ Usage:
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
   datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
+  datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
   datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
   datapan auth check [--json]
   datapan doctor [--json]
