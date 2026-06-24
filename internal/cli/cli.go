@@ -4307,11 +4307,25 @@ func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
 	for _, param := range nonAuthParams(op.RequestParams) {
 		name := strings.TrimSpace(param.Name)
 		if name != "" {
-			args = append(args, name+"=VALUE")
+			args = append(args, name+"="+exampleParamValue(name))
 		}
 	}
 	args = append(args, "--json")
 	return datago.CommandString(args)
+}
+
+func exampleParamValue(name string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "_", ""))
+	switch normalized {
+	case "pageno", "page", "pageindex":
+		return "1"
+	case "numofrows", "rows", "perpage", "pagesize", "limit":
+		return "10"
+	case "type", "datatype", "returntype", "resulttype":
+		return "json"
+	default:
+		return "VALUE"
+	}
 }
 
 func specExampleCommands(spec datago.Spec) map[string]string {
@@ -4544,7 +4558,7 @@ func exampleUseCommand(spec datago.Spec) string {
 	for _, param := range nonAuthParams(op.RequestParams) {
 		name := strings.TrimSpace(param.Name)
 		if name != "" {
-			args = append(args, name+"=VALUE")
+			args = append(args, name+"="+exampleParamValue(name))
 		}
 	}
 	return datago.CommandString(args)
@@ -4565,7 +4579,7 @@ func exampleKitCommand(spec datago.Spec) string {
 	for _, param := range nonAuthParams(op.RequestParams) {
 		name := strings.TrimSpace(param.Name)
 		if name != "" {
-			args = append(args, name+"=VALUE")
+			args = append(args, name+"="+exampleParamValue(name))
 		}
 	}
 	args = append(args, "--json")
@@ -4611,7 +4625,7 @@ func exampleExportCommand(spec datago.Spec, format string) string {
 	for _, param := range nonAuthParams(op.RequestParams) {
 		name := strings.TrimSpace(param.Name)
 		if name != "" {
-			args = append(args, name+"=VALUE")
+			args = append(args, name+"="+exampleParamValue(name))
 		}
 	}
 	switch format {
@@ -4638,7 +4652,7 @@ func exampleCodegenCommand(spec datago.Spec, target string) string {
 	for _, param := range nonAuthParams(op.RequestParams) {
 		name := strings.TrimSpace(param.Name)
 		if name != "" {
-			args = append(args, name+"=VALUE")
+			args = append(args, name+"="+exampleParamValue(name))
 		}
 	}
 	switch target {

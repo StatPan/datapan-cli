@@ -151,6 +151,9 @@ in the imported catalog; Datapan should not invent source categories.
 Search and show results include copyable next-step examples for `show`, `use`,
 starter-kit generation, `get`, `curl`, Postman export, OpenAPI export, and
 Go/Node/Python codegen when an operation has an endpoint.
+Generated examples fill common paging and response-format parameters such as
+`pageNo`, `numOfRows`, `_type`, `dataType`, and `resultType` with safe starter
+values, while unknown required parameters remain `VALUE`.
 Search JSON also includes quick decision fields such as `callable`,
 `call_ready`, `call_route`, `call_provider`, `endpoint_host`,
 `default_operation`, approval metadata, data format, update date, and the

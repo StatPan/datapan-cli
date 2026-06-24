@@ -121,7 +121,10 @@ applied. Human output should include `callable: yes|no`,
 `try: datapan get ...` line plus a `kit: datapan kit ... --json` line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment
-variables.
+variables. Generated examples should fill safe starter values for common
+paging and response-format parameters such as `pageNo=1`, `numOfRows=10`,
+`_type=json`, `dataType=json`, and `resultType=json`. Unknown required
+parameters should remain `VALUE`.
 
 `datapan kit <ref>` should generate a portable starter kit for one selected
 operation under `<dataset-id>-kit` by default. `--output-dir DIR` may override

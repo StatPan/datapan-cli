@@ -337,7 +337,7 @@ func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
 		`"schema_version": "datapan.studio-datasets.v1"`,
 		`"id": "100"`,
 		`"callable": true`,
-		`"kit": "datapan kit 100 --operation \"목록\" pageNo=VALUE --json"`,
+		`"kit": "datapan kit 100 --operation \"목록\" pageNo=1 --json"`,
 		`"request_params":`,
 		`"response_params_count": 1`,
 	} {
@@ -737,15 +737,15 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"name": "PAGE"`,
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
-		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
-		`"kit": "datapan kit 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
+		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --json"`,
+		`"kit": "datapan kit 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --json"`,
 		`"params": "datapan params 999 --operation \"목록 조회\" --output 999_params.json"`,
-		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE"`,
-		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
-		`"openapi": "datapan export --format openapi 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.openapi.json"`,
-		`"codegen_go": "datapan codegen go 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.go"`,
-		`"codegen_node": "datapan codegen node 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.js"`,
-		`"codegen_python": "datapan codegen python 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.py"`,
+		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=1 ROWS=10"`,
+		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --output 999.postman_collection.json"`,
+		`"openapi": "datapan export --format openapi 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --output 999.openapi.json"`,
+		`"codegen_go": "datapan codegen go 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --output 999_client.go"`,
+		`"codegen_node": "datapan codegen node 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --output 999_client.js"`,
+		`"codegen_python": "datapan codegen python 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --output 999_client.py"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -4094,11 +4094,11 @@ func TestAccessSynthesizesSmokeCommandFromImportedRegistry(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
-	want := `"smoke_command": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`
+	want := `"smoke_command": "datapan get 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --json"`
 	if !strings.Contains(stdout, want) {
 		t.Fatalf("expected synthesized smoke command %q in output: %s", want, stdout)
 	}
-	if !strings.Contains(stdout, `After approval, run: datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json`) {
+	if !strings.Contains(stdout, `After approval, run: datapan get 999 --operation \"목록 조회\" PAGE=1 ROWS=10 --json`) {
 		t.Fatalf("expected next step to include synthesized smoke command: %s", stdout)
 	}
 }
