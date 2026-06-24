@@ -260,6 +260,9 @@ be published by `datapan-registry`. Use `--status`, `--kind`, and
 `--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
 registered external adapters such as airport, q-net, epost, ekape, forest, and
 folk.
+EPost and forest are call-capable external adapters, so `datapan get` can route
+their matching operations through the provider boundary instead of treating them
+as generic data.go.kr gateway calls.
 After `datapan init`, catalog observation commands such as `catalog providers`,
 `catalog dependencies`, `catalog adapter-targets`, and `catalog verify`
 automatically use `.datapan/data-go-kr.registry.json` when `--registry` is not

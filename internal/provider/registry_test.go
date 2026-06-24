@@ -97,7 +97,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 6 || report.SplitReadiness.VerificationCapableAdapters != 6 || report.SplitReadiness.CallCapableAdapters != 1 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 6 || report.SplitReadiness.VerificationCapableAdapters != 6 || report.SplitReadiness.CallCapableAdapters != 2 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -117,6 +117,9 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	}
 	if strings.Join(report.Adapters[2].Hosts, ",") != "openapi.epost.go.kr,openapi.epost.go.kr:80" {
 		t.Fatalf("unexpected epost provider index hosts: %#v", report.Adapters[2].Hosts)
+	}
+	if strings.Join(report.Adapters[2].Capabilities, ",") != "call,verification" {
+		t.Fatalf("unexpected epost provider index capabilities: %#v", report.Adapters[2].Capabilities)
 	}
 	if strings.Join(report.Adapters[3].Hosts, ",") != "folkency.nfm.go.kr" {
 		t.Fatalf("unexpected folk provider index hosts: %#v", report.Adapters[3].Hosts)

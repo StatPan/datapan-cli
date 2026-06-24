@@ -194,12 +194,12 @@ Adapter status:
 
 - `data-go-kr`: gateway APIs, approval metadata, provider error bodies;
 - `q-net`: registered observation-stage adapter for qualification/exam APIs;
-- `epost`: registered observation-stage adapter for postal APIs;
+- `epost`: registered adapter for postal APIs with conservative REST XML
+  verification and call behavior;
 - `ekape`: registered observation-stage adapter for livestock quality
   evaluation APIs, including provider key-registration error evidence;
-- `forest`: registered observation-stage adapter for Korea Forest Service
-  culture information APIs with verified XML response evidence and the first
-  external provider call path;
+- `forest`: registered adapter for Korea Forest Service culture information
+  APIs with verified XML response evidence and external provider call behavior;
 - `folk`: registered observation-stage adapter for National Folk Museum
   multimedia APIs with provider-specific JSON result evidence;
 - `airport`: registered observation-stage adapter for Korea Airports
@@ -212,13 +212,12 @@ Adapter status:
 Creation trigger:
 
 - create this repository when at least two non-data.go.kr provider adapters are
-  needed, at least one adapter has call behavior, and the `Provider` interface
-  has stabilized inside `datapan-cli`.
+  needed, at least two adapters have call behavior, and the `Provider`
+  interface has stabilized inside `datapan-cli`.
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
-code boundary lives in `internal/provider`; forest now proves one call path,
-and the split should wait for another provider call path or sustained
-maintenance pressure.
+code boundary lives in `internal/provider`; epost and forest now prove two call
+paths, and the split should wait for sustained maintenance pressure.
 
 ### datapan-spec
 

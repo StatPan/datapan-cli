@@ -30,6 +30,12 @@ func (a EPostAdapter) Name() string { return "epost" }
 
 func (a EPostAdapter) Hosts() []string { return EPostHosts() }
 
+func (a EPostAdapter) Capabilities() []string { return []string{"call"} }
+
+func (a EPostAdapter) PrepareCallParams(params map[string]string, missing []string) (map[string]string, []string) {
+	return epostVerificationParams(params, missing)
+}
+
 func (a EPostAdapter) DependencyClass(spec datago.Spec, op datago.Operation) string {
 	return datago.OperationDependencyClass(spec, op)
 }
@@ -268,5 +274,64 @@ func rawStringFromMerged(spec datago.Spec, op datago.Operation, key string) stri
 }
 
 func (a EPostAdapter) Call(ctx context.Context, req CallRequest) (datago.ResponseEnvelope, error) {
-	return datago.ResponseEnvelope{}, fmt.Errorf("epost adapter call support is not enabled yet")
+	params, missing := a.PrepareCallParams(req.Params, req.MissingParams)
+	if qnetApprovalRequired(req.Spec, req.Operation) {
+		return datago.ResponseEnvelope{}, fmt.Errorf("approval required before calling epost operation %s", req.Operation.Name)
+	}
+	if epostUnsupportedProtocol(req.Spec, req.Operation) {
+		return datago.ResponseEnvelope{}, fmt.Errorf("unsupported epost protocol for operation %s", req.Operation.Name)
+	}
+	if epostWADLMetadataEndpoint(req.Operation.Endpoint) {
+		return datago.ResponseEnvelope{}, fmt.Errorf("epost metadata endpoint is not callable")
+	}
+	if len(missing) > 0 {
+		return datago.ResponseEnvelope{}, fmt.Errorf("missing required epost params: %s", strings.Join(missing, ", "))
+	}
+	if strings.TrimSpace(req.Credential.Value) == "" {
+		return datago.ResponseEnvelope{}, fmt.Errorf("missing auth")
+	}
+	plan, err := epostRequestURL(req.Operation.Endpoint, params, req.Credential.Value)
+	if err != nil {
+		return datago.ResponseEnvelope{}, err
+	}
+	client := req.HTTP
+	if client == nil {
+		client = http.DefaultClient
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.url, nil)
+	if err != nil {
+		return datago.ResponseEnvelope{}, err
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return datago.ResponseEnvelope{}, epostTransportError(err, plan)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return datago.ResponseEnvelope{}, err
+	}
+	contentType := resp.Header.Get("Content-Type")
+	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, contentType, body)
+	return datago.ResponseEnvelope{
+		OK:             ok,
+		Provider:       "epost",
+		Dataset:        req.Spec.ID,
+		Operation:      req.Operation.Name,
+		StatusCode:     resp.StatusCode,
+		ContentType:    contentType,
+		SemanticStatus: semanticStatus,
+		Message:        message,
+		ProviderStatus: providerStatus,
+		URL:            plan.redacted,
+		Body:           string(body),
+	}, nil
+}
+
+func epostTransportError(err error, plan providerRequestPlan) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ReplaceAll(err.Error(), plan.url, plan.redacted)
+	return fmt.Errorf("epost request failed: %s", message)
 }

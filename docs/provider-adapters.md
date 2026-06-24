@@ -207,13 +207,13 @@ openapi.epost.go.kr:80   22 operations
 openapi.epost.go.kr       6 operations
 ```
 
-The first epost boundary is deliberately conservative. It owns the hosts,
-participates in provider-index release artifacts, and verifies REST XML
-operation URLs when required parameters are supplied or have safe pagination
-defaults such as `countPerPage=1` and `currentPage=1`. It skips WADL metadata
-URLs with `epost_wadl_metadata_only`, SOAP operations with
-`epost_unsupported_protocol`, and unknown required parameters with
-`epost_missing_required_params`.
+The epost boundary is deliberately conservative, but now call-capable. It owns
+the hosts, participates in provider-index release artifacts, verifies REST XML
+operation URLs, and can route `datapan get` through the provider boundary when
+required parameters are supplied or have safe pagination defaults such as
+`countPerPage=1` and `currentPage=1`. It skips WADL metadata URLs with
+`epost_wadl_metadata_only`, SOAP operations with `epost_unsupported_protocol`,
+and unknown required parameters with `epost_missing_required_params`.
 
 Observed evidence commands:
 
@@ -222,13 +222,16 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider epost --kind external_endpoint --limit 5 --output .datapan/epost-batch-verification.json --json
 datapan catalog verify summary --input .datapan/epost-batch-verification.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15075270 --operation "우체국알뜰폰 요금제 조회" --output .datapan/epost-single-verification.json --json
+datapan get 15075270 --operation "우체국알뜰폰 요금제 조회" --json
 ```
 
 Expected evidence shape: registered adapter ownership for both epost hosts,
 redacted URLs, provider-specific skip reasons for WADL/SOAP/required-parameter
 cases, `provider=epost` in verification results, and stable provider error
 reasons such as `epost_service_key_not_registered` when the upstream epost
-service rejects the shared data.go.kr key.
+service rejects the shared data.go.kr key. Call evidence should return a
+`provider=epost` response envelope with redacted URL, upstream HTTP status,
+semantic status, provider status when available, and the raw body.
 
 ## Third Adapter: ekape
 
@@ -261,7 +264,7 @@ four external operations across two datasets. The value is evidence quality.
 Those operations need search terms, so the adapter supplies conservative
 read-only defaults such as `searchWrd=소나무`, `searchMtNm=북한산`,
 `searchArNm=서울`, `pageNo=1`, and `numOfRows=1`.
-Forest is also the first call-capable external adapter: `datapan get` can route
+Forest is also a call-capable external adapter: `datapan get` can route
 `api.forest.go.kr` operations through the provider boundary, preserve redacted
 URLs, classify upstream provider status, and return the raw body without falling
 back to generic gateway assumptions.
@@ -343,15 +346,14 @@ A provider adapter is not ready just because it can build a URL. It needs:
 ## Split Trigger
 
 Keep adapters inside `datapan-cli` until at least two external providers have
-real verification and at least one provider has call behavior. Move to
+real verification and at least two providers have call behavior. Move to
 `datapan-providers` only when the interface has been exercised by multiple
 providers and the release boundary is worth maintaining separately.
 
 The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
-registered verification-capable providers and forest has declared stable `call`
-capability, so the boundary is ready to consider. Keep adapters inside
-`datapan-cli` until at least one more external provider exercises call behavior
-or the maintenance cost makes a separate `datapan-providers` repository clearly
-worth it.
+registered verification-capable providers, and both epost and forest declare
+stable `call` capability, so the boundary is ready to consider. Keep adapters
+inside `datapan-cli` until release cadence or maintenance cost makes a separate
+`datapan-providers` repository clearly worth it.
