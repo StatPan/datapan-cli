@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -41,6 +42,9 @@ const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 const defaultDiffLimit = 20
+const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
+const datapanRegistryZipAssetSuffix = ".zip"
+const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
 
 type Env interface {
 	LookupEnv(string) (string, bool)
@@ -285,13 +289,15 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
 		return a.catalogImport(args[1:], jsonOut)
 	case "update":
 		return a.catalogUpdate(args[1:], jsonOut)
+	case "install":
+		return a.catalogInstall(args[1:], jsonOut)
 	case "diff":
 		return a.catalogDiff(args[1:], jsonOut)
 	case "audit":
@@ -608,6 +614,182 @@ func (a app) catalogUpdate(args []string, jsonOut bool) int {
 }
 
 func (a app) catalogUpdateWriteFailure(jsonOut bool, err error) int {
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":      false,
+			"error":   "request_failed",
+			"message": err.Error(),
+		}); code != exitOK {
+			return code
+		}
+		return exitRequest
+	}
+	return a.fail(exitRequest, "%v", err)
+}
+
+func (a app) catalogInstall(args []string, jsonOut bool) int {
+	if len(args) == 0 || args[0] != "datapan-registry" {
+		return a.fail(exitUsage, "usage: datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]")
+	}
+	args = args[1:]
+	registryPath, args, err := consumeString(args, "--registry", defaultRegistryPath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	assetURL, args, err := consumeString(args, "--url", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	releaseURL, args, err := consumeString(args, "--release-url", defaultDatapanRegistryReleaseAPI)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]")
+	}
+	if jsonOut && registryPath == "-" {
+		return a.fail(exitUsage, "use --registry PATH with --json; --registry - writes the registry JSON to stdout")
+	}
+	if assetURL == "" {
+		release, err := a.fetchDatapanRegistryRelease(releaseURL)
+		if err != nil {
+			return a.catalogInstallFailure(jsonOut, err)
+		}
+		assetURL = release.ZipAssetURL
+		if assetURL == "" {
+			return a.catalogInstallFailure(jsonOut, fmt.Errorf("release has no %s asset", datapanRegistryZipAssetSuffix))
+		}
+	}
+	zipData, err := a.downloadBytes(assetURL)
+	if err != nil {
+		return a.catalogInstallFailure(jsonOut, err)
+	}
+	registryData, err := registryFromDatapanRegistryZip(zipData)
+	if err != nil {
+		return a.catalogInstallFailure(jsonOut, err)
+	}
+	specs, err := decodeRegistryBytes(registryData)
+	if err != nil {
+		return a.catalogInstallFailure(jsonOut, err)
+	}
+	if err := writeOutput(registryPath, registryData, a.stdout); err != nil {
+		return a.catalogInstallFailure(jsonOut, err)
+	}
+	payload := map[string]any{
+		"ok":        true,
+		"provider":  "datapan-registry",
+		"registry":  registryPath,
+		"url":       assetURL,
+		"bytes":     len(registryData),
+		"specs":     len(specs),
+		"installed": registryPath != "-",
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	if registryPath == "-" {
+		return exitOK
+	}
+	fmt.Fprintf(a.stdout, "Installed datapan-registry snapshot.\n")
+	fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	fmt.Fprintf(a.stdout, "  specs: %d\n", len(specs))
+	fmt.Fprintf(a.stdout, "  bytes: %d\n", len(registryData))
+	return exitOK
+}
+
+type datapanRegistryRelease struct {
+	TagName     string
+	ZipAssetURL string
+}
+
+func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRelease, error) {
+	data, err := a.downloadBytes(releaseURL)
+	if err != nil {
+		return datapanRegistryRelease{}, err
+	}
+	var payload struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("decode release metadata: %w", err)
+	}
+	out := datapanRegistryRelease{TagName: payload.TagName}
+	for _, asset := range payload.Assets {
+		if strings.HasSuffix(strings.ToLower(asset.Name), datapanRegistryZipAssetSuffix) && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+			out.ZipAssetURL = asset.BrowserDownloadURL
+			return out, nil
+		}
+	}
+	return out, nil
+}
+
+func (a app) downloadBytes(rawURL string) ([]byte, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil, fmt.Errorf("download URL is empty")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json, application/zip, application/octet-stream")
+	client := a.http
+	if client == nil {
+		client = RealHTTPClient{}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("download %s returned HTTP %d", rawURL, resp.StatusCode)
+	}
+	return body, nil
+}
+
+func registryFromDatapanRegistryZip(data []byte) ([]byte, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("open registry zip: %w", err)
+	}
+	for _, file := range reader.File {
+		if filepath.ToSlash(file.Name) != datapanRegistryZipRegistryPath {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer rc.Close()
+		out, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("zip does not contain %s", datapanRegistryZipRegistryPath)
+}
+
+func decodeRegistryBytes(data []byte) ([]datago.Spec, error) {
+	reg, err := datago.DecodeRegistry(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	return reg.Specs(), nil
+}
+
+func (a app) catalogInstallFailure(jsonOut bool, err error) int {
 	if jsonOut {
 		if code := a.writeJSON(map[string]any{
 			"ok":      false,
@@ -3885,6 +4067,7 @@ Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
+  datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json]
   datapan catalog audit [--registry PATH] [--sample N] [--output PATH|-] [--json]
   datapan catalog errors [--registry PATH] [--limit N] [--output PATH|-] [--json]

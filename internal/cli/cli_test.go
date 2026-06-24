@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
@@ -32,6 +33,23 @@ func runTest(args []string, env fakeEnv, client HTTPClient) (int, string, string
 	var stdout, stderr bytes.Buffer
 	code := Run(args, &stdout, &stderr, env, client)
 	return code, stdout.String(), stderr.String()
+}
+
+func zipBytesForTest(t *testing.T, name string, data string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(data)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 func TestSearchJSON(t *testing.T) {
@@ -563,6 +581,121 @@ func TestCatalogImportOutputFailureJSON(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"error": "request_failed"`) || !strings.Contains(stdout, `"message":`) {
 		t.Fatalf("expected output failure JSON: %s", stdout)
+	}
+}
+
+func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	var urls []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		switch req.URL.String() {
+		case defaultDatapanRegistryReleaseAPI:
+			return &http.Response{
+				StatusCode: 200,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "vtest",
+					"assets": [
+						{"name": "datapan-registry-vtest.zip", "browser_download_url": "https://example.test/registry.zip"}
+					]
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		case "https://example.test/registry.zip":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(zipData)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got %s", stderr)
+	}
+	if len(urls) != 2 || urls[0] != defaultDatapanRegistryReleaseAPI || urls[1] != "https://example.test/registry.zip" {
+		t.Fatalf("unexpected URLs: %#v", urls)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+	}
+	if payload["ok"] != true || int(payload["specs"].(float64)) != 1 || payload["registry"] != output {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"id":"100"`) {
+		t.Fatalf("expected installed registry data: %s", string(data))
+	}
+}
+
+func TestCatalogInstallDatapanRegistryUsesDirectURL(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"200","title":"직접 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	var urls []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		if req.URL.String() != "https://example.test/direct.zip" {
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(bytes.NewReader(zipData)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--url", "https://example.test/direct.zip", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if len(urls) != 1 || urls[0] != "https://example.test/direct.zip" {
+		t.Fatalf("unexpected URLs: %#v", urls)
+	}
+	if !strings.Contains(stdout, `"url": "https://example.test/direct.zip"`) {
+		t.Fatalf("expected direct URL in output: %s", stdout)
+	}
+}
+
+func TestCatalogInstallDatapanRegistryMissingRegistryInZipJSON(t *testing.T) {
+	zipData := zipBytesForTest(t, "data/other.json", `[]`)
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(bytes.NewReader(zipData)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", filepath.Join(t.TempDir(), "registry.json"), "--url", "https://example.test/direct.zip", "--json"}, nil, client)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+	if !strings.Contains(stdout, `"error": "request_failed"`) || !strings.Contains(stdout, `zip does not contain data/data-go-kr.registry.json`) {
+		t.Fatalf("expected missing registry JSON failure: %s", stdout)
+	}
+}
+
+func TestCatalogInstallDatapanRegistryRejectsJSONStdoutConflict(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", "-", "--url", "https://example.test/direct.zip", "--json"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if stdout != "" || !strings.Contains(stderr, "use --registry PATH with --json") {
+		t.Fatalf("unexpected output stdout=%s stderr=%s", stdout, stderr)
 	}
 }
 

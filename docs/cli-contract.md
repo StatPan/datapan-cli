@@ -249,6 +249,17 @@ registry, and the presence of `schema_index`, `registry`, `provider_index`,
 The command returns exit code 4 when any required gate fails. Warnings do not
 make `ready:false`, but they remain visible in `summary` and `gates`.
 
+`datapan catalog install datapan-registry --registry PATH --json` is the normal
+consumer path for a released Datapan registry. It fetches the latest GitHub
+release metadata for `StatPan/datapan-registry`, downloads the first `.zip`
+asset, extracts `data/data-go-kr.registry.json`, validates that the file decodes
+as a Datapan registry, and writes it to `PATH` without calling data.go.kr. Use
+`--url URL` to install from an explicit release zip and skip release metadata
+lookup. Use `--release-url URL` to point at a different compatible GitHub
+release API endpoint. JSON output reports `ok`, `provider`, `registry`, `url`,
+`bytes`, `specs`, and `installed`. `--json` must not be combined with
+`--registry -`, because `--registry -` writes the raw registry JSON to stdout.
+
 `datapan catalog update data-go-kr --registry PATH --json` is the safe update
 path. It fetches the full upstream catalog, normalizes it, diffs it against the
 existing registry, audits the new registry, and returns the result without

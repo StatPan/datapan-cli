@@ -72,6 +72,7 @@ if the variable is not already present in the process environment.
 datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
+datapan catalog install datapan-registry --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --output .datapan/catalog-diff.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
@@ -114,8 +115,18 @@ Search can be narrowed with source metadata such as `--org`, `--category`,
 `category` maps to the upstream source category only when that value is present
 in the imported catalog; Datapan should not invent source categories.
 
-To move beyond the embedded seed catalog, import the upstream data.go.kr
-open-data list into a normalized Datapan registry:
+To move beyond the embedded seed catalog, install the latest released
+`datapan-registry` snapshot. This is the normal consumer path: it downloads the
+published release zip, extracts `data/data-go-kr.registry.json`, validates that
+the registry decodes, and writes it to `.datapan/data-go-kr.registry.json`.
+
+```bash
+datapan catalog install datapan-registry --json
+DATAPAN_REGISTRY_PATH=.datapan/data-go-kr.registry.json datapan search "실거래" --org 국토교통부 --json
+```
+
+For registry maintainers and bounded upstream checks, import the upstream
+data.go.kr open-data list into a normalized Datapan registry:
 
 ```bash
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --pages 5 --json
