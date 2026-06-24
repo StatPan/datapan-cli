@@ -85,6 +85,9 @@ jobs:
     needs: build
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Download archive artifacts
         uses: actions/download-artifact@v4
         with:
