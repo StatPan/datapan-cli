@@ -745,6 +745,7 @@ type datapanRegistryRelease struct {
 }
 
 func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRelease, error) {
+	releaseURL = normalizeGitHubReleaseURL(releaseURL)
 	data, err := a.downloadBytes(releaseURL)
 	if err != nil {
 		return datapanRegistryRelease{}, err
@@ -767,6 +768,25 @@ func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRele
 		}
 	}
 	return out, nil
+}
+
+func normalizeGitHubReleaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	if !strings.EqualFold(u.Host, "github.com") {
+		return raw
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) == 5 && parts[2] == "releases" && parts[3] == "tag" && parts[4] != "" {
+		return "https://api.github.com/repos/" + parts[0] + "/" + parts[1] + "/releases/tags/" + url.PathEscape(parts[4])
+	}
+	if len(parts) == 4 && parts[2] == "releases" && parts[3] == "latest" {
+		return "https://api.github.com/repos/" + parts[0] + "/" + parts[1] + "/releases/latest"
+	}
+	return raw
 }
 
 func (a app) downloadBytes(rawURL string) ([]byte, error) {

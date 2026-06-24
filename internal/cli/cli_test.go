@@ -753,6 +753,48 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	}
 }
 
+func TestCatalogInstallDatapanRegistryAcceptsGitHubReleasePageURL(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"101","title":"릴리스 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	var urls []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		switch req.URL.String() {
+		case "https://api.github.com/repos/StatPan/datapan-registry/releases/tags/vtest":
+			return &http.Response{
+				StatusCode: 200,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "vtest",
+					"assets": [
+						{"name": "datapan-registry-vtest.zip", "browser_download_url": "https://example.test/release-page.zip"}
+					]
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		case "https://example.test/release-page.zip":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(zipData)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--release-url", "https://github.com/StatPan/datapan-registry/releases/tag/vtest", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if len(urls) != 2 || urls[0] != "https://api.github.com/repos/StatPan/datapan-registry/releases/tags/vtest" || urls[1] != "https://example.test/release-page.zip" {
+		t.Fatalf("unexpected URLs: %#v", urls)
+	}
+	if !strings.Contains(stdout, `"specs": 1`) {
+		t.Fatalf("expected install success output: %s", stdout)
+	}
+}
+
 func TestCatalogInstallDatapanRegistryUsesDirectURL(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"200","title":"직접 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`
