@@ -45,6 +45,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.dependencies.v1.schema.json",
 		"datapan.adapter-targets.v1.schema.json",
 		"datapan.providers.v1.schema.json",
+		"datapan.coverage.v1.schema.json",
 		"datapan.verification.v1.schema.json",
 		"datapan.verification-summary.v1.schema.json",
 		"datapan.release-manifest.v1.schema.json",
@@ -78,6 +79,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.adapter-targets.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
+		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
@@ -97,6 +99,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"reports/dependencies.json",
 		"reports/adapter-targets.json",
 		"reports/provider-backlog.json",
+		"reports/coverage.json",
 		"reports/latest-verification.json",
 		"reports/latest-verification-summary.json",
 		"reports/latest-release-verification.json",
@@ -162,6 +165,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.adapter-targets.v1.schema.json",
+		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
 		"schemas/datapan.release-readiness.v1.schema.json",
@@ -176,6 +180,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"reports/latest-verification-summary.json",
 		"reports/dependencies.json",
 		"reports/adapter-targets.json",
+		"reports/coverage.json",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ecosystem doc should reference %q", want)

@@ -143,6 +143,7 @@ Likely artifacts:
 - `schemas/datapan.dependencies.v1.schema.json`;
 - `schemas/datapan.adapter-targets.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
+- `schemas/datapan.coverage.v1.schema.json`;
 - `schemas/datapan.studio-datasets.v1.schema.json`;
 - `schemas/datapan.studio-bundle.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
@@ -157,6 +158,7 @@ Likely artifacts:
 - `reports/catalog-diff.json`;
 - `reports/dependencies.json`;
 - `reports/adapter-targets.json`;
+- `reports/coverage.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
 - `reports/latest-release-readiness.json`;
@@ -530,6 +532,7 @@ Required:
 - publish catalog audit reports;
 - publish dependency inventory reports;
 - publish adapter target reports;
+- publish coverage reports;
 - publish error catalog reports;
 - publish verification reports;
 - publish verification summaries;

@@ -168,6 +168,67 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 	}
 }
 
+func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	verificationPath := filepath.Join(dir, "verification.json")
+	output := filepath.Join(dir, "coverage.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list","default_params":{"pageNo":"1"}}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"외부","endpoint":"https://external.example.test/api"}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","operations":[{"name":"EKAPE","endpoint":"http://data.ekape.or.kr/openapi-data/service/user/confirm/eggCoustomer"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(verificationPath, []byte(`{
+		"generated_at":"2026-06-24T00:00:00Z",
+		"provider":"data.go.kr",
+		"registry":"registry.json",
+		"limit":3,
+		"timeout":"10s",
+		"truncated":false,
+		"filtered_count":3,
+		"summary":{"total":3,"verified":1,"failed":1,"skipped":1,"unknown":0},
+		"results":[
+			{"dataset_id":"100","title":"A","operation":"목록","provider":"data.go.kr","dependency_class":"data_go_kr_gateway","status":"verified"},
+			{"dataset_id":"200","title":"B","operation":"외부","provider":"data.go.kr","endpoint_host":"external.example.test","dependency_class":"external_endpoint","status":"skipped","reason":"external_provider_adapter_missing"},
+			{"dataset_id":"300","title":"C","operation":"EKAPE","provider":"ekape","endpoint_host":"data.ekape.or.kr","dependency_class":"external_endpoint","status":"failed","reason":"provider_error"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "coverage", "--registry", registryPath, "--verification", verificationPath, "--limit", "1", "--output", output, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"operations": 3`,
+		`"callable_operations": 3`,
+		`"callable_operation_percent": 100`,
+		`"registered_adapter_operations": 1`,
+		`"missing_adapter_operations": 1`,
+		`"external_adapter_coverage_percent": 50`,
+		`"present": true`,
+		`"timeout": "10s"`,
+		`"verified": 1`,
+		`"evidence_operation_percent": 100`,
+		`"host": "external.example.test"`,
+		`datapan catalog coverage --registry`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in coverage output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"verification":`) || !strings.Contains(string(data), `"provider_split_ready": true`) {
+		t.Fatalf("unexpected coverage report file: %s", data)
+	}
+}
+
 func TestCatalogProvidersLoadsDefaultInstalledRegistry(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
@@ -2665,9 +2726,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"dependencies":`,
 		`"adapter_targets":`,
 		`"provider_backlog":`,
+		`"coverage":`,
 		`"verification_summary":`,
 		`"manifest":`,
-		`"artifacts": 29`,
+		`"artifacts": 31`,
 		`"provenance":`,
 		`"release_notes":`,
 	} {
@@ -2680,6 +2742,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.dependencies.v1.schema.json",
 		outputDir + "/schemas/datapan.adapter-targets.v1.schema.json",
 		outputDir + "/schemas/datapan.providers.v1.schema.json",
+		outputDir + "/schemas/datapan.coverage.v1.schema.json",
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
@@ -2701,6 +2764,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/reports/dependencies.json",
 		outputDir + "/reports/adapter-targets.json",
 		outputDir + "/reports/provider-backlog.json",
+		outputDir + "/reports/coverage.json",
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
 		outputDir + "/provenance/data-go-kr.md",
@@ -2715,7 +2779,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "--previous-registry") || !strings.Contains(string(provenance), "datapan catalog diff") || !strings.Contains(string(provenance), "datapan catalog audit") || !strings.Contains(string(provenance), "datapan catalog dependencies") || !strings.Contains(string(provenance), "datapan catalog adapter-targets") {
+	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "--previous-registry") || !strings.Contains(string(provenance), "datapan catalog diff") || !strings.Contains(string(provenance), "datapan catalog audit") || !strings.Contains(string(provenance), "datapan catalog dependencies") || !strings.Contains(string(provenance), "datapan catalog adapter-targets") || !strings.Contains(string(provenance), "datapan catalog coverage") {
 		t.Fatalf("unexpected provenance: %s", provenance)
 	}
 	releaseNotes, err := osReadFile(outputDir + "/RELEASE_NOTES.md")
@@ -2727,6 +2791,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		"- specs: `1`",
 		"- catalog_diff: `1` added, `1` removed, `0` changed, `0` stable",
 		"- provider_adapters:",
+		"- coverage:",
+		"- coverage_artifact:",
 		"- split_readiness:",
 		"- verification: `1` total, `0` verified, `0` failed, `1` skipped, `0` unknown",
 		"datapan catalog release verify --manifest manifest.json",
@@ -2801,9 +2867,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 16`,
+		`"count": 17`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
+		`"path": "schemas/datapan.coverage.v1.schema.json"`,
 		`"path": "schemas/datapan.release-readiness.v1.schema.json"`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-diff.v1.schema.json"`,
@@ -2814,6 +2881,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"path": "schemas/datapan.studio-bundle.v1.schema.json"`,
 		`"contract": "dependencies"`,
 		`"contract": "adapter-targets"`,
+		`"contract": "coverage"`,
 		`"contract": "release-readiness"`,
 		`"contract": "schema-index"`,
 		`"contract": "catalog-diff"`,
@@ -2834,7 +2902,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 29`,
+		`"artifact_count": 31`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -2849,6 +2917,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"kind": "dependencies"`,
 		`"path": "reports/adapter-targets.json"`,
 		`"kind": "adapter_targets"`,
+		`"path": "reports/coverage.json"`,
+		`"kind": "coverage"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
 		`"path": "RELEASE_NOTES.md"`,
@@ -2869,7 +2939,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 29`,
+		`"checked": 31`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -2979,7 +3049,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 29`,
+		`"artifacts": 31`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
 	} {
