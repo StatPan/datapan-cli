@@ -255,6 +255,78 @@ func TestEPostAdapterClassifiesServiceKeyFailures(t *testing.T) {
 	}
 }
 
+func TestEKAPEAdapterOwnsKnownHostsConservatively(t *testing.T) {
+	adapter := NewEKAPEAdapter()
+	if !adapter.MatchHost("data.ekape.or.kr") {
+		t.Fatal("expected ekape adapter to match data.ekape.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("ekape adapter should not match data.go.kr gateway")
+	}
+	spec := datago.Spec{ID: "400", Title: "EKAPE 샘플", Provider: "data.go.kr"}
+	op := datago.Operation{Name: "목록", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in provider request")
+		}
+		if req.URL.Query().Get("pageNo") != "1" {
+			t.Fatalf("unexpected ekape query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><issueNo>1</issueNo></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          spec,
+		Operation:     op,
+		MissingParams: []string{"pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "ekape" || result.Status != "verified" || result.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected ekape verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted ekape URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected ekape public params: %#v", result.Params)
+	}
+}
+
+func TestEKAPEAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewEKAPEAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("issueDate") != "20240101" || req.URL.Query().Get("issueNo") != "1" {
+			t.Fatalf("unexpected ekape query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>99</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header><notice/></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "401", Title: "EKAPE key", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "키 오류", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
+		MissingParams: []string{"issueDate", "issueNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "ekape_service_key_not_registered" {
+		t.Fatalf("unexpected ekape service key result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "99" {
+		t.Fatalf("unexpected ekape provider status: %#v", result.ProviderStatus)
+	}
+	if result.BodyShape != "xml_notice" {
+		t.Fatalf("unexpected ekape body shape: %s", result.BodyShape)
+	}
+}
+
 func TestQNetAdapterSkipsUnknownRequiredParams(t *testing.T) {
 	adapter := NewQNetAdapter()
 	result := adapter.Verify(context.Background(), VerificationRequest{

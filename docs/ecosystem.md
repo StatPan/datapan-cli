@@ -188,6 +188,8 @@ Adapter status:
 - `data-go-kr`: gateway APIs, approval metadata, provider error bodies;
 - `q-net`: registered observation-stage adapter for qualification/exam APIs;
 - `epost`: registered observation-stage adapter for postal APIs;
+- `ekape`: registered observation-stage adapter for livestock quality
+  evaluation APIs, including provider key-registration error evidence;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;

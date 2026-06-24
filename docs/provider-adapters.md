@@ -87,6 +87,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider q-net --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider epost --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider epost --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider ekape --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider ekape --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
@@ -94,6 +96,7 @@ To inspect hosts that already have an observation-stage adapter registered:
 ```bash
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider q-net --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider epost --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ekape --json
 ```
 
 The current imported registry shows q-net as a strong early adapter family:
@@ -112,6 +115,9 @@ adapter at all.
 It also registers epost host ownership for `openapi.epost.go.kr` and
 `openapi.epost.go.kr:80`, so q-net is no longer the only exercised external
 adapter family.
+EKAPE host ownership for `data.ekape.or.kr` adds a third adapter family and
+captures upstream key-registration failures as provider evidence rather than
+leaving those operations as generic missing-adapter skips.
 Release drafts also publish `data/provider-index.json` using
 `schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
 registered adapter ownership from backlog observations.
@@ -206,6 +212,29 @@ redacted URLs, provider-specific skip reasons for WADL/SOAP/required-parameter
 cases, `provider=epost` in verification results, and stable provider error
 reasons such as `epost_service_key_not_registered` when the upstream epost
 service rejects the shared data.go.kr key.
+
+## Third Adapter: ekape
+
+The EKAPE adapter covers livestock quality evaluation APIs hosted at
+`data.ekape.or.kr`. These APIs often need domain identifiers such as issue
+numbers, lot numbers, and base months. The adapter supplies conservative
+read-only verification defaults for those fields so Datapan can reach the
+provider and classify its response, while still redacting service keys.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ekape --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ekape --kind external_endpoint --limit 5 --output .datapan/ekape-batch-verification.json --json
+datapan catalog verify summary --input .datapan/ekape-batch-verification.json --json
+```
+
+Expected evidence shape: `provider=ekape`, `endpoint_host=data.ekape.or.kr`,
+redacted URLs, stable provider-specific reasons such as
+`ekape_service_key_not_registered`, and preserved upstream `resultCode` /
+`resultMsg` under `provider_status`. A failed EKAPE verification is still useful
+evidence when it proves that the request reached the external provider and the
+provider rejected the credential registration state.
 
 ## Adapter Readiness Bar
 

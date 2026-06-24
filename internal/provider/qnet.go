@@ -297,7 +297,14 @@ func normalizeParamName(name string) string {
 
 func isAuthParam(name string) bool {
 	normalized := normalizeParamName(name)
-	return normalized == "servicekey" || normalized == "service_key" || normalized == "apikey" || normalized == "api_key"
+	return normalized == "servicekey" ||
+		normalized == "service_key" ||
+		normalized == "apikey" ||
+		normalized == "api_key" ||
+		normalized == "authapikey" ||
+		normalized == "auth_api_key" ||
+		normalized == "authkey" ||
+		normalized == "auth_key"
 }
 
 func qnetApprovalRequired(spec datago.Spec, op datago.Operation) bool {
@@ -331,7 +338,7 @@ func (a QNetAdapter) Call(ctx context.Context, req CallRequest) (datago.Response
 }
 
 func DefaultRegistry() (Registry, error) {
-	return NewRegistry(NewEPostAdapter(), NewQNetAdapter())
+	return NewRegistry(NewEKAPEAdapter(), NewEPostAdapter(), NewQNetAdapter())
 }
 
 func endpointHost(raw string) string {
@@ -348,7 +355,7 @@ func publicParams(params map[string]string) map[string]string {
 	}
 	out := map[string]string{}
 	for key, value := range params {
-		if strings.EqualFold(key, "serviceKey") || strings.EqualFold(key, "service_key") {
+		if isAuthParam(key) {
 			continue
 		}
 		out[key] = value

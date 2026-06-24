@@ -57,6 +57,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	for host, name := range map[string]string{
 		"openapi.q-net.or.kr": "q-net",
 		"openapi.epost.go.kr": "epost",
+		"data.ekape.or.kr":    "ekape",
 	} {
 		adapter, ok := registry.MatchHost(host)
 		if !ok {
@@ -67,19 +68,22 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 2 || report.HostCount != 5 {
+	if report.AdapterCount != 3 || report.HostCount != 6 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
-	if len(report.Adapters) != 2 || report.Adapters[0].Name != "epost" || report.Adapters[1].Name != "q-net" {
+	if len(report.Adapters) != 3 || report.Adapters[0].Name != "ekape" || report.Adapters[1].Name != "epost" || report.Adapters[2].Name != "q-net" {
 		t.Fatalf("unexpected provider index adapter: %#v", report)
 	}
-	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" {
+	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" {
 		t.Fatalf("unexpected provider index adapter status: %#v", report)
 	}
-	if strings.Join(report.Adapters[0].Hosts, ",") != "openapi.epost.go.kr,openapi.epost.go.kr:80" {
-		t.Fatalf("unexpected epost provider index hosts: %#v", report.Adapters[0].Hosts)
+	if strings.Join(report.Adapters[0].Hosts, ",") != "data.ekape.or.kr" {
+		t.Fatalf("unexpected ekape provider index hosts: %#v", report.Adapters[0].Hosts)
 	}
-	if strings.Join(report.Adapters[1].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
-		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[1].Hosts)
+	if strings.Join(report.Adapters[1].Hosts, ",") != "openapi.epost.go.kr,openapi.epost.go.kr:80" {
+		t.Fatalf("unexpected epost provider index hosts: %#v", report.Adapters[1].Hosts)
+	}
+	if strings.Join(report.Adapters[2].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
+		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[2].Hosts)
 	}
 }
