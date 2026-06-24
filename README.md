@@ -175,6 +175,7 @@ returns next commands.
 ```bash
 datapan init --json
 datapan ready --limit 10 --json
+datapan coverage --json
 datapan providers --adapters --json
 datapan providers --gaps --limit 10 --json
 datapan targets --limit 10 --json
@@ -220,12 +221,15 @@ client code. Check `call_ready` and `call_route` when you need the stronger
 top-level shortcut for `datapan list --call-ready`. Its default output is
 ranked toward APIs with fewer required parameters and less action-like
 operations, so the first screen is closer to "try this now."
+Use `datapan coverage --json` when you want the high-level claim/gap dashboard:
+registry size, callable coverage, external adapter coverage, provider split
+readiness, and optional runtime evidence from `--verification REPORT`.
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top
 organizations, top external hosts, missing adapter hosts, registered adapter
 hosts, and suggested next commands.
-Use `datapan catalog coverage --json` when you want a claim-oriented coverage
+Use `datapan coverage --json` or `datapan catalog coverage --json` when you want a claim-oriented coverage
 and gap report. It combines registry coverage, callable operations, adapter
 coverage, provider split readiness, top missing adapter hosts, and optional
 runtime evidence from `--verification REPORT` into one agent-friendly response.

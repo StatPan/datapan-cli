@@ -168,7 +168,10 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 		`"adapter_count": 6`,
 		`"name": "기관"`,
 		`"host": "external.example.test"`,
-		`datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --limit 20 --json`,
+		`datapan coverage --registry .datapan/data-go-kr.registry.json --json`,
+		`datapan providers --registry .datapan/data-go-kr.registry.json --gaps --limit 20 --json`,
+		`datapan targets --registry .datapan/data-go-kr.registry.json --limit 20 --json`,
+		`datapan verify --registry .datapan/data-go-kr.registry.json --provider forest --kind external_endpoint --limit 4 --json`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in overview output: %s", want, stdout)
@@ -229,7 +232,10 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 		`"verified": 1`,
 		`"evidence_operation_percent": 100`,
 		`"host": "external.example.test"`,
-		`datapan catalog coverage --registry`,
+		`datapan coverage --registry`,
+		`datapan providers --registry`,
+		`datapan targets --registry`,
+		`datapan verify --registry`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in coverage output: %s", want, stdout)
@@ -241,6 +247,38 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"verification":`) || !strings.Contains(string(data), `"provider_split_ready": true`) {
 		t.Fatalf("unexpected coverage report file: %s", data)
+	}
+}
+
+func TestCoverageTopLevelLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"외부","endpoint":"https://external.example.test/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"coverage", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "default"`,
+		`"registry": ".datapan/data-go-kr.registry.json"`,
+		`"specs": 2`,
+		`"operations": 2`,
+		`"missing_adapter_operations": 1`,
+		`"label": "missing adapters"`,
+		`"command": "datapan providers --registry .datapan/data-go-kr.registry.json --gaps --limit 20 --json"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in coverage output: %s", want, stdout)
+		}
 	}
 }
 

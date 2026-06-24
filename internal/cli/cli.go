@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "ready", "providers", "targets", "ops", "verify", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "ready", "coverage", "providers", "targets", "ops", "verify", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -232,6 +232,8 @@ func (a app) run() int {
 		return a.search(args[1:], jsonOut)
 	case "ready":
 		return a.ready(args[1:], jsonOut)
+	case "coverage":
+		return a.coverage(args[1:], jsonOut)
 	case "providers":
 		return a.providers(args[1:], jsonOut)
 	case "targets":
@@ -293,6 +295,10 @@ func (a app) ready(args []string, jsonOut bool) int {
 	readyArgs := append([]string{"--ready", "--ready-rank"}, args...)
 	args = readyArgs
 	return a.searchOrList(args, jsonOut, true)
+}
+
+func (a app) coverage(args []string, jsonOut bool) int {
+	return a.catalogCoverage(args, jsonOut)
 }
 
 func (a app) providers(args []string, jsonOut bool) int {
@@ -1869,9 +1875,10 @@ func catalogOverviewNext(registryPath string) []catalogOverviewNextStep {
 	}
 	return []catalogOverviewNextStep{
 		{Label: "search", Command: "datapan search \"실거래\" --org 국토교통부 --json"},
-		{Label: "dependencies", Command: "datapan catalog dependencies" + registryArg + " --status missing --kind external_endpoint --limit 20 --json"},
-		{Label: "adapter targets", Command: "datapan catalog adapter-targets" + registryArg + " --limit 20 --json"},
-		{Label: "verify adapters", Command: "datapan catalog verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --json"},
+		{Label: "coverage", Command: "datapan coverage" + registryArg + " --json"},
+		{Label: "missing providers", Command: "datapan providers" + registryArg + " --gaps --limit 20 --json"},
+		{Label: "adapter targets", Command: "datapan targets" + registryArg + " --limit 20 --json"},
+		{Label: "verify adapters", Command: "datapan verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --json"},
 	}
 }
 
@@ -1885,10 +1892,10 @@ func catalogCoverageNext(registryPath, verificationPath string) []catalogOvervie
 		verificationArg = " --verification " + quoteShellArg(verificationPath)
 	}
 	return []catalogOverviewNextStep{
-		{Label: "missing adapters", Command: "datapan catalog providers" + registryArg + " --status missing --kind external_endpoint --limit 20 --json"},
-		{Label: "adapter targets", Command: "datapan catalog adapter-targets" + registryArg + " --limit 20 --json"},
-		{Label: "coverage report", Command: "datapan catalog coverage" + registryArg + verificationArg + " --json"},
-		{Label: "verify forest", Command: "datapan catalog verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --timeout 10s --json"},
+		{Label: "missing adapters", Command: "datapan providers" + registryArg + " --gaps --limit 20 --json"},
+		{Label: "adapter targets", Command: "datapan targets" + registryArg + " --limit 20 --json"},
+		{Label: "coverage report", Command: "datapan coverage" + registryArg + verificationArg + " --json"},
+		{Label: "verify forest", Command: "datapan verify" + registryArg + " --provider forest --kind external_endpoint --limit 4 --timeout 10s --json"},
 	}
 }
 
@@ -7362,6 +7369,7 @@ Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan coverage [--registry PATH] [--verification REPORT] [--limit N] [--json]
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
   datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]

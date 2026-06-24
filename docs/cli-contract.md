@@ -206,6 +206,13 @@ the command writes a pure overview report containing `generated_at`, `provider`,
 be combined with `--output -`. When no `--registry` is supplied, it follows the
 same default installed registry discovery used by consumer commands.
 
+`datapan coverage [--registry PATH] --json` is the consumer-facing shortcut for
+the claim-oriented coverage and gap report. It accepts the same
+`--verification`, `--limit`, and `--output` options as `catalog coverage`, uses
+the default installed registry when no `--registry` is supplied, and returns
+the same JSON envelope. Release jobs can continue to use `catalog coverage
+--output` for pure report artifacts.
+
 `datapan catalog coverage --registry PATH --json` emits a claim-oriented
 coverage and gap report. It combines registry counts, callable operation
 counts, data.go.kr gateway coverage, external endpoint coverage,
