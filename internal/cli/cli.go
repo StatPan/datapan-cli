@@ -141,7 +141,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "show", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "show", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -221,6 +221,8 @@ func (a app) run() int {
 		return a.info(args[1:], jsonOut)
 	case "show":
 		return a.info(args[1:], jsonOut)
+	case "params":
+		return a.params(args[1:], jsonOut)
 	case "auth":
 		return a.auth(args[1:], jsonOut)
 	case "doctor":
@@ -2730,6 +2732,127 @@ func showOperationSummaries(spec datago.Spec) []map[string]any {
 	return out
 }
 
+func (a app) params(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	operation, args, err := consumeString(args, "--operation", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes params JSON to stdout")
+	}
+	if len(args) != 1 {
+		return a.fail(exitUsage, "usage: datapan params <ref> [--operation NAME] [--output PATH|-] [--json]")
+	}
+	spec, code, ok := a.resolveOne(args[0], jsonOut)
+	if !ok {
+		return code
+	}
+	op, ok := spec.Operation(operation)
+	if !ok {
+		if operation == "" {
+			return a.mapError(fmt.Errorf("spec %s has no callable operation endpoint yet", spec.ID), jsonOut)
+		}
+		return a.mapError(fmt.Errorf("unknown operation %q for %s", operation, spec.ID), jsonOut)
+	}
+	template, fields := paramsTemplateForOperation(spec, op)
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(template); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeOutput(output, out.Bytes(), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":           true,
+			"dataset":      spec.ID,
+			"title":        spec.Title,
+			"operation":    op.Name,
+			"output":       output,
+			"params":       template,
+			"fields":       fields,
+			"next_get":     paramsNextCommand(spec.ID, op.Name, output, false),
+			"next_dry_run": paramsNextCommand(spec.ID, op.Name, output, true),
+		})
+	}
+	return exitOK
+}
+
+func paramsNextCommand(specID, operation, output string, dryRun bool) string {
+	args := []string{"datapan", "get", specID}
+	if operation != "" {
+		args = append(args, "--operation", operation)
+	}
+	args = append(args, "--params-file", output)
+	if dryRun {
+		args = append(args, "--dry-run")
+	}
+	args = append(args, "--json")
+	return datago.CommandString(args)
+}
+
+func paramsTemplateForOperation(spec datago.Spec, op datago.Operation) (map[string]string, []map[string]string) {
+	values := map[string]string{}
+	for key, value := range op.DefaultParams {
+		if strings.TrimSpace(key) != "" && !isAuthParam(key) {
+			values[key] = value
+		}
+	}
+	if spec.Smoke != nil && spec.Smoke.Operation == op.Name {
+		for key, value := range spec.Smoke.Params {
+			if strings.TrimSpace(key) != "" && !isAuthParam(key) {
+				values[key] = value
+			}
+		}
+	}
+	fields := make([]map[string]string, 0)
+	for _, param := range nonAuthParams(op.RequestParams) {
+		name := strings.TrimSpace(param.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := values[name]; !ok {
+			values[name] = "VALUE"
+		}
+		field := map[string]string{
+			"name":  name,
+			"value": values[name],
+		}
+		if label := strings.TrimSpace(param.Label); label != "" {
+			field["label"] = label
+		}
+		fields = append(fields, field)
+	}
+	for name, value := range values {
+		if containsParamName(fields, name) {
+			continue
+		}
+		fields = append(fields, map[string]string{"name": name, "value": value})
+	}
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i]["name"] < fields[j]["name"]
+	})
+	return values, fields
+}
+
+func containsParamName(fields []map[string]string, name string) bool {
+	for _, field := range fields {
+		if field["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
 func authParamSummaries(params []datago.Param) []map[string]string {
 	return paramSummaries(authParams(params))
 }
@@ -2819,6 +2942,7 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 	examples := map[string]string{
 		"show":           showCommand(spec),
 		"access":         "datapan access " + spec.ID + " --start",
+		"params":         exampleParamsCommand(spec),
 		"get":            exampleGetCommand(spec),
 		"curl":           exampleExportCommand(spec, "curl"),
 		"postman":        exampleExportCommand(spec, "postman"),
@@ -2837,6 +2961,22 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 
 func showCommand(spec datago.Spec) string {
 	return datago.CommandString([]string{"datapan", "show", spec.ID})
+}
+
+func exampleParamsCommand(spec datago.Spec) string {
+	if len(spec.Operations) == 0 {
+		return ""
+	}
+	op := spec.Operations[0]
+	if op.Endpoint == "" {
+		return ""
+	}
+	args := []string{"datapan", "params", spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	args = append(args, "--output", spec.ID+"_params.json")
+	return datago.CommandString(args)
 }
 
 func exampleExportCommand(spec datago.Spec, format string) string {
@@ -5026,6 +5166,7 @@ Usage:
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
+  datapan params <ref> [--operation NAME] [--output PATH|-] [--json]
   datapan auth check [--json]
   datapan doctor [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]

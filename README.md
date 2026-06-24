@@ -100,7 +100,9 @@ datapan auth check --json
 datapan access 15126469 --purpose
 datapan access 15126469 --open
 datapan access 15126469 --start
+datapan params 15084084 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 nx=60 ny=127 --json
+datapan get 15084084 --params-file forecast.params.json --dry-run --json
 datapan get 15084084 --dry-run --json
 datapan curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan save 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --format csv --output forecast.csv
@@ -256,8 +258,14 @@ a full machine-readable diff is needed.
 
 `datapan show <ref> --json` is the bridge from discovery to use. It keeps the
 normalized spec, and also returns access metadata, operation parameter names,
-response-field counts, and a copyable `datapan get ...` example where Datapan
-can synthesize one from the imported data.go.kr spec.
+response-field counts, and copyable next-step examples where Datapan can
+synthesize them from the imported data.go.kr spec.
+
+`datapan params <ref> --output params.json` writes a reusable JSON object for
+`--params-file`. The template keeps exact upstream parameter names, omits auth
+parameters, fills known defaults or smoke values, and leaves unknown values as
+`VALUE` so humans and agents can edit one small file instead of memorizing long
+command lines.
 
 `datapan get` treats HTTP failures, data.go.kr provider errors such as non-`00`
 `resultCode`, and HTML service pages as request failures. JSON output preserves

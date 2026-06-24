@@ -72,7 +72,7 @@ path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
 `datapan search --json` must include per-result `examples` for immediate next
-steps: `show`, `get`, `curl`, `postman`, `openapi`, `codegen_go`,
+steps: `show`, `params`, `get`, `curl`, `postman`, `openapi`, `codegen_go`,
 `codegen_node`, and `codegen_python` when those commands can be generated from
 the selected operation. Human search output should include at least a `next:
 datapan show <id>` line and, when callable, a `try: datapan get ...` line.
@@ -320,7 +320,9 @@ must fail with exit code 5 and return candidate summaries under `--json`.
 
 ```bash
 datapan show "국토교통부_아파트 매매 실거래가 자료" --json
+datapan params 15084084 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 --json
+datapan get 15084084 --params-file forecast.params.json --dry-run --json
 datapan curl 15084084 base_date=20260622 base_time=0500
 datapan save 15084084 base_date=20260622 base_time=0500 --format csv --output forecast.csv
 datapan export --format curl 15084084 base_date=20260622 base_time=0500
@@ -337,7 +339,16 @@ addition to the normalized `spec`, it returns:
 - `access`: data.go.kr application URL and known upstream access/status fields.
 - `operations`: operation names, endpoints, request parameters, response
   parameter counts, and a generated `datapan get ...` example when callable.
-- `examples`: top-level `access` and `get` commands for the selected dataset.
+- `examples`: top-level `access`, `params`, `get`, export, and codegen commands
+  for the selected dataset when those commands can be generated.
+
+`datapan params <ref> --output params.json` writes a JSON object that can be
+passed directly to `datapan get/save/call/curl/export/codegen --params-file`.
+It must use exact upstream parameter names, omit auth parameters such as
+`serviceKey`, preserve operation default or smoke values where known, and use
+`VALUE` for unknown user-editable fields. With `--json`, it must require
+`--output PATH` and return `params`, field labels, `next_get`, and
+`next_dry_run` without mixing the raw params object into stdout.
 
 ## Verification Evidence
 
@@ -365,6 +376,7 @@ Parameter and export flows should accept `-` for stdin where practical:
 
 ```bash
 datapan call 15084084 --params-file - --json
+datapan params 15084084 | datapan get 15084084 --params-file - --dry-run --json
 datapan export --input - --format csv
 ```
 

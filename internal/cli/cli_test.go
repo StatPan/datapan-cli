@@ -209,6 +209,7 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 	for _, want := range []string{
 		`"examples":`,
 		`"show": "datapan show 15126469"`,
+		`"params": "datapan params 15126469`,
 		`"curl": "datapan curl 15126469`,
 		`"openapi": "datapan export --format openapi 15126469`,
 		`"codegen_go": "datapan codegen go 15126469`,
@@ -327,6 +328,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
 		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
+		`"params": "datapan params 999 --operation \"목록 조회\" --output 999_params.json"`,
 		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE"`,
 		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
 		`"openapi": "datapan export --format openapi 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.openapi.json"`,
@@ -340,6 +342,98 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 	}
 	if strings.Contains(stdout, `serviceKey=VALUE`) || strings.Contains(stdout, `authApiKey=VALUE`) {
 		t.Fatalf("show examples should not ask users to pass auth params: %s", stdout)
+	}
+}
+
+func TestParamsWritesReusableParamsFile(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := dir + "/registry.json"
+	paramsPath := dir + "/params.json"
+	if err := osWriteFile(registryPath, []byte(`[
+		{
+			"id": "999",
+			"title": "테스트기관_테스트 API",
+			"provider": "data.go.kr",
+			"operations": [
+				{
+					"name": "목록 조회",
+					"endpoint": "https://apis.data.go.kr/test/list",
+					"default_params": {"pageNo": "1"},
+					"request_params": [
+						{"name": "serviceKey", "label": "인증키"},
+						{"name": "pageNo", "label": "페이지"},
+						{"name": "numOfRows", "label": "행수"},
+						{"name": "keyword", "label": "검색어"}
+					]
+				}
+			],
+			"smoke": {
+				"operation": "목록 조회",
+				"params": {"keyword": "소나무", "numOfRows": "1"}
+			}
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"params", "999", "--operation", "목록 조회", "--output", paramsPath, "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"dataset": "999"`,
+		`"operation": "목록 조회"`,
+		`"output": "` + jsonEscaped(paramsPath) + `"`,
+		`"next_get": "datapan get 999 --operation \"목록 조회\" --params-file`,
+		`--json"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in params summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(paramsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`"keyword": "소나무"`,
+		`"numOfRows": "1"`,
+		`"pageNo": "1"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in params file: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "serviceKey") {
+		t.Fatalf("params file should not include auth params: %s", text)
+	}
+
+	code, stdout, stderr = runTest(
+		[]string{"get", "999", "--operation", "목록 조회", "--params-file", paramsPath, "--dry-run", "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"dry_run": true`,
+		`"keyword": "소나무"`,
+		`"numOfRows": "1"`,
+		`"pageNo": "1"`,
+		`serviceKey=REDACTED`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in get dry-run: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("dry-run should not leak key: %s", stdout)
 	}
 }
 
