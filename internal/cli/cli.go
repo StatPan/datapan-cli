@@ -37,7 +37,7 @@ const (
 	exitAmbiguous = 5
 )
 
-const version = "0.1.0-dev"
+var version = "0.1.0-dev"
 
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"

@@ -58,9 +58,10 @@ jobs:
           name="datapan-cli_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
           outdir="dist/${name}"
           mkdir -p "${outdir}"
+          ldflags="-s -w -X github.com/StatPan/datapan-cli/internal/cli.version=${GITHUB_REF_NAME}"
 
-          go build -trimpath -ldflags="-s -w" -o "${outdir}/datapan${suffix}" ./cmd/datapan
-          go build -trimpath -ldflags="-s -w" -o "${outdir}/dp${suffix}" ./cmd/dp
+          go build -trimpath -ldflags="${ldflags}" -o "${outdir}/datapan${suffix}" ./cmd/datapan
+          go build -trimpath -ldflags="${ldflags}" -o "${outdir}/dp${suffix}" ./cmd/dp
           cp README.md LICENSE "${outdir}/"
 
           if [ "${{ matrix.archive }}" = "zip" ]; then
