@@ -84,6 +84,12 @@ Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment
 variables.
 
+`datapan use <ref> --output-dir DIR` should generate a portable starter kit for
+one selected operation. The kit includes params JSON, a curl script, Postman
+collection, OpenAPI document, Go/Node/Python clients, and a README. Generated
+files must use environment-variable placeholders for credentials and must not
+write actual service-key material to disk.
+
 ## Registry Import
 
 `datapan catalog import data-go-kr` imports the upstream data.go.kr open-data

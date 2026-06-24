@@ -102,6 +102,7 @@ datapan access 15126469 --purpose
 datapan access 15126469 --open
 datapan access 15126469 --start
 datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
+datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output-dir forecast-kit --json
 datapan params 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 nx=60 ny=127 --json
 datapan get 15084084 --params-file forecast.params.json --dry-run --json
@@ -123,6 +124,12 @@ datapan head --input forecast.csv --format csv --limit 5
 opens the data.go.kr application page, copies the standard purpose text to the
 clipboard when the OS supports it, prints the manual steps, and shows the smoke
 command to run after approval.
+
+`datapan use <ref> --output-dir DIR` turns one selected API operation into a
+local starter kit: reusable params JSON, a curl script, Postman collection,
+OpenAPI document, Go/Node/Python clients, and a small README with next commands.
+The generated files use environment-variable placeholders and never write the
+service key into the kit.
 
 Search can be narrowed with source metadata such as `--org`, `--category`,
 `--priority`, and `--provider`. `provider` is the upstream platform such as

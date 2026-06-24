@@ -2809,12 +2809,16 @@ func (a app) use(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	outputDir, args, err := consumeString(args, "--output-dir", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) < 1 {
-		return a.fail(exitUsage, "usage: datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]")
 	}
 	positionalParams, err := parseKeyValueArgs(args[1:])
 	if err != nil {
@@ -2838,7 +2842,18 @@ func (a app) use(args []string, jsonOut bool) int {
 	}
 	params, fields := paramsTemplateForOperation(spec, op, overrides)
 	paramsOutput := spec.ID + "_params.json"
-	commands := useCommandsForOperation(spec, op, params, paramsOutput)
+	if strings.TrimSpace(outputDir) != "" {
+		paramsOutput = filepath.Join(outputDir, paramsOutput)
+	}
+	commands := useCommandsForOperation(spec, op, params, paramsOutput, outputDir)
+	var kit *useKit
+	if strings.TrimSpace(outputDir) != "" {
+		written, err := a.writeUseKit(outputDir, spec, op, params, commands)
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		kit = &written
+	}
 	payload := map[string]any{
 		"ok":                 true,
 		"dataset":            spec.ID,
@@ -2855,6 +2870,10 @@ func (a app) use(args []string, jsonOut bool) int {
 		"registry_path":      a.registryPath,
 		"uses_params_file":   paramsOutput,
 		"provided_overrides": len(overrides),
+	}
+	if kit != nil {
+		payload["output_dir"] = kit.OutputDir
+		payload["files"] = kit.Files
 	}
 	if jsonOut {
 		return a.writeJSON(payload)
@@ -2880,6 +2899,12 @@ func (a app) use(args []string, jsonOut bool) int {
 	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
 		if value := strings.TrimSpace(commands[key]); value != "" {
 			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
+		}
+	}
+	if kit != nil {
+		fmt.Fprintln(a.stdout, "  files:")
+		for _, file := range kit.Files {
+			fmt.Fprintf(a.stdout, "    %s: %s\n", file.Kind, file.Path)
 		}
 	}
 	return exitOK
@@ -3180,19 +3205,25 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 	return examples
 }
 
-func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[string]string, paramsOutput string) map[string]string {
+func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[string]string, paramsOutput, outputDir string) map[string]string {
+	saveCSVOutput := useOutputPath(outputDir, spec.ID+".csv")
+	postmanOutput := useOutputPath(outputDir, spec.ID+".postman_collection.json")
+	openAPIOutput := useOutputPath(outputDir, spec.ID+".openapi.json")
+	goOutput := useOutputPath(outputDir, spec.ID+"_client.go")
+	nodeOutput := useOutputPath(outputDir, spec.ID+"_client.js")
+	pythonOutput := useOutputPath(outputDir, spec.ID+"_client.py")
 	commands := map[string]string{
 		"access":         datago.CommandString([]string{"datapan", "access", spec.ID, "--start"}),
 		"params":         paramsCommandForOperation(spec, op, params, paramsOutput),
 		"dry_run":        commandWithParamsFile([]string{"datapan", "get", spec.ID}, op.Name, paramsOutput, "--dry-run", "--json"),
 		"get":            commandWithParamsFile([]string{"datapan", "get", spec.ID}, op.Name, paramsOutput, "--json"),
-		"save_csv":       commandWithParamsFile([]string{"datapan", "save", spec.ID}, op.Name, paramsOutput, "--format", "csv", "--output", spec.ID+".csv"),
+		"save_csv":       commandWithParamsFile([]string{"datapan", "save", spec.ID}, op.Name, paramsOutput, "--format", "csv", "--output", saveCSVOutput),
 		"curl":           commandWithParamsFile([]string{"datapan", "curl", spec.ID}, op.Name, paramsOutput),
-		"postman":        commandWithParamsFile([]string{"datapan", "export", "--format", "postman", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+".postman_collection.json"),
-		"openapi":        commandWithParamsFile([]string{"datapan", "export", "--format", "openapi", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+".openapi.json"),
-		"codegen_go":     commandWithParamsFile([]string{"datapan", "codegen", "go", spec.ID}, op.Name, paramsOutput, "--package", "datapanclient", "--output", spec.ID+"_client.go"),
-		"codegen_node":   commandWithParamsFile([]string{"datapan", "codegen", "node", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+"_client.js"),
-		"codegen_python": commandWithParamsFile([]string{"datapan", "codegen", "python", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+"_client.py"),
+		"postman":        commandWithParamsFile([]string{"datapan", "export", "--format", "postman", spec.ID}, op.Name, paramsOutput, "--output", postmanOutput),
+		"openapi":        commandWithParamsFile([]string{"datapan", "export", "--format", "openapi", spec.ID}, op.Name, paramsOutput, "--output", openAPIOutput),
+		"codegen_go":     commandWithParamsFile([]string{"datapan", "codegen", "go", spec.ID}, op.Name, paramsOutput, "--package", "datapanclient", "--output", goOutput),
+		"codegen_node":   commandWithParamsFile([]string{"datapan", "codegen", "node", spec.ID}, op.Name, paramsOutput, "--output", nodeOutput),
+		"codegen_python": commandWithParamsFile([]string{"datapan", "codegen", "python", spec.ID}, op.Name, paramsOutput, "--output", pythonOutput),
 	}
 	for key, value := range commands {
 		if strings.TrimSpace(value) == "" {
@@ -3200,6 +3231,13 @@ func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[s
 		}
 	}
 	return commands
+}
+
+func useOutputPath(outputDir, name string) string {
+	if strings.TrimSpace(outputDir) == "" {
+		return name
+	}
+	return filepath.Join(outputDir, name)
 }
 
 func paramsCommandForOperation(spec datago.Spec, op datago.Operation, params map[string]string, output string) string {
@@ -3226,6 +3264,122 @@ func commandWithParamsFile(base []string, operation, paramsFile string, extra ..
 	args = append(args, "--params-file", paramsFile)
 	args = append(args, extra...)
 	return datago.CommandString(args)
+}
+
+type useKit struct {
+	OutputDir string       `json:"output_dir"`
+	Files     []useKitFile `json:"files"`
+}
+
+type useKitFile struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+}
+
+func (a app) writeUseKit(outputDir string, spec datago.Spec, op datago.Operation, params map[string]string, commands map[string]string) (useKit, error) {
+	outputDir = strings.TrimSpace(outputDir)
+	if outputDir == "" {
+		return useKit{}, fmt.Errorf("--output-dir is empty")
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return useKit{}, err
+	}
+	plan, err := a.curlExportPlanForSpec(spec, op, params)
+	if err != nil {
+		return useKit{}, err
+	}
+	files := []useKitFile{}
+	write := func(kind, path string, data []byte, mode os.FileMode) error {
+		if err := os.WriteFile(path, data, mode); err != nil {
+			return err
+		}
+		files = append(files, useKitFile{Kind: kind, Path: path})
+		return nil
+	}
+	paramsPath := useOutputPath(outputDir, spec.ID+"_params.json")
+	paramsJSON, err := jsonIndentedBytes(params)
+	if err != nil {
+		return useKit{}, err
+	}
+	if err := write("params", paramsPath, paramsJSON, 0o600); err != nil {
+		return useKit{}, err
+	}
+	curlPath := useOutputPath(outputDir, spec.ID+".curl.sh")
+	curlScript := "#!/usr/bin/env sh\nset -eu\n" + plan.Command + "\n"
+	if err := write("curl", curlPath, []byte(curlScript), 0o700); err != nil {
+		return useKit{}, err
+	}
+	postmanPath := useOutputPath(outputDir, spec.ID+".postman_collection.json")
+	postmanJSON, err := jsonIndentedBytes(postmanCollectionForPlan(plan))
+	if err != nil {
+		return useKit{}, err
+	}
+	if err := write("postman", postmanPath, postmanJSON, 0o600); err != nil {
+		return useKit{}, err
+	}
+	openAPIPath := useOutputPath(outputDir, spec.ID+".openapi.json")
+	openAPIJSON, err := jsonIndentedBytes(openAPIDocumentForPlan(plan))
+	if err != nil {
+		return useKit{}, err
+	}
+	if err := write("openapi", openAPIPath, openAPIJSON, 0o600); err != nil {
+		return useKit{}, err
+	}
+	goPath := useOutputPath(outputDir, spec.ID+"_client.go")
+	goSource, err := format.Source([]byte(goClientForPlan(plan, "datapanclient")))
+	if err != nil {
+		return useKit{}, err
+	}
+	if err := write("codegen_go", goPath, goSource, 0o600); err != nil {
+		return useKit{}, err
+	}
+	nodePath := useOutputPath(outputDir, spec.ID+"_client.js")
+	if err := write("codegen_node", nodePath, []byte(nodeClientForPlan(plan)), 0o600); err != nil {
+		return useKit{}, err
+	}
+	pythonPath := useOutputPath(outputDir, spec.ID+"_client.py")
+	if err := write("codegen_python", pythonPath, []byte(pythonClientForPlan(plan)), 0o600); err != nil {
+		return useKit{}, err
+	}
+	readmePath := useOutputPath(outputDir, "README.md")
+	if err := write("readme", readmePath, []byte(useKitReadme(spec, op, commands, files)), 0o600); err != nil {
+		return useKit{}, err
+	}
+	return useKit{OutputDir: outputDir, Files: files}, nil
+}
+
+func jsonIndentedBytes(payload any) ([]byte, error) {
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(payload); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func useKitReadme(spec datago.Spec, op datago.Operation, commands map[string]string, files []useKitFile) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", strings.TrimSpace(spec.Title))
+	fmt.Fprintf(&b, "- Dataset ID: `%s`\n", spec.ID)
+	fmt.Fprintf(&b, "- Provider: `%s`\n", spec.Provider)
+	if strings.TrimSpace(spec.Organization) != "" {
+		fmt.Fprintf(&b, "- Organization: `%s`\n", spec.Organization)
+	}
+	fmt.Fprintf(&b, "- Operation: `%s`\n\n", op.Name)
+	b.WriteString("## Files\n\n")
+	for _, file := range files {
+		fmt.Fprintf(&b, "- `%s`: `%s`\n", file.Kind, filepath.Base(file.Path))
+	}
+	b.WriteString("\n## Commands\n\n")
+	for _, key := range []string{"dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
+		if command := strings.TrimSpace(commands[key]); command != "" {
+			fmt.Fprintf(&b, "```bash\n%s\n```\n\n", command)
+		}
+	}
+	b.WriteString("Set one of the Datapan data.go.kr key environment variables before calling the API. Do not put the service key in the params file.\n")
+	return b.String()
 }
 
 func sortedParamKeys(params map[string]string) []string {
@@ -4717,6 +4871,10 @@ func (a app) curlExportPlanForRef(ref, operation string, params map[string]strin
 		}
 		return curlExportPlan{}, fmt.Errorf("unknown operation %q for %s", operation, spec.ID)
 	}
+	return a.curlExportPlanForSpec(spec, op, params)
+}
+
+func (a app) curlExportPlanForSpec(spec datago.Spec, op datago.Operation, params map[string]string) (curlExportPlan, error) {
 	envVar := datago.KeyEnvNames[0]
 	if selected, ok := a.resolveKey(); ok {
 		envVar = selected
@@ -5260,7 +5418,18 @@ func nodeDefaultParamLiteral(params map[string]string) string {
 func goFunctionName(plan curlExportPlan) string {
 	name := goExportedIdentifier(plan.Operation.Name)
 	if name == "" {
-		name = "Call" + goExportedIdentifier(plan.Spec.ID)
+		endpoint, _ := url.Parse(plan.Operation.Endpoint)
+		parts := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
+		if len(parts) > 0 {
+			name = goExportedIdentifier(parts[len(parts)-1])
+		}
+	}
+	if name == "" {
+		suffix := strings.TrimPrefix(goExportedIdentifier(plan.Spec.ID), "Call")
+		if suffix == "" {
+			suffix = "Operation"
+		}
+		name = "Call" + suffix
 	}
 	if name == "Call" {
 		name = "CallOperation"
@@ -5658,7 +5827,7 @@ Usage:
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
-  datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
+  datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
   datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
   datapan auth check [--json]
   datapan doctor [--json]

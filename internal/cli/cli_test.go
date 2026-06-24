@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/StatPan/datapan-cli/internal/datago"
 )
 
 type fakeEnv map[string]string
@@ -477,6 +479,96 @@ func TestUsePlansDatasetCommands(t *testing.T) {
 	}
 	if strings.Contains(stdout, "secret-value") || strings.Contains(stdout, "serviceKey") || strings.Contains(stdout, "20240101") || strings.Contains(stdout, "0100") || strings.Contains(stdout, "nx=55") {
 		t.Fatalf("use plan should not leak credential material or auth params: %s", stdout)
+	}
+}
+
+func TestUseWritesStarterKit(t *testing.T) {
+	dir := t.TempDir()
+	code, stdout, stderr := runTest(
+		[]string{"use", "15084084", "--output-dir", dir, "base_date=20260622", "--param", "base_time=0500", "--param", "nx=60", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"output_dir": "` + jsonEscaped(dir) + `"`,
+		`"kind": "params"`,
+		`"kind": "curl"`,
+		`"kind": "postman"`,
+		`"kind": "openapi"`,
+		`"kind": "codegen_go"`,
+		`"kind": "codegen_node"`,
+		`"kind": "codegen_python"`,
+		`"kind": "readme"`,
+		`--params-file`,
+		jsonEscaped(filepath.Join(dir, "15084084_params.json")),
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in use kit summary: %s", want, stdout)
+		}
+	}
+	for _, name := range []string{
+		"15084084_params.json",
+		"15084084.curl.sh",
+		"15084084.postman_collection.json",
+		"15084084.openapi.json",
+		"15084084_client.go",
+		"15084084_client.js",
+		"15084084_client.py",
+		"README.md",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("expected generated %s: %v", name, err)
+		}
+	}
+	paramsData, err := osReadFile(filepath.Join(dir, "15084084_params.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(paramsData), `"base_date": "20260622"`) || strings.Contains(string(paramsData), "serviceKey") {
+		t.Fatalf("unexpected params file: %s", paramsData)
+	}
+	for _, name := range []string{
+		"15084084.curl.sh",
+		"15084084.postman_collection.json",
+		"15084084.openapi.json",
+		"15084084_client.go",
+		"15084084_client.js",
+		"15084084_client.py",
+		"README.md",
+	} {
+		data, err := osReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "secret-value") {
+			t.Fatalf("%s leaked secret: %s", name, data)
+		}
+	}
+	if err := osWriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/generated\n\ngo 1.26\n")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated starter Go client should compile: %v\n%s", err, out)
+	}
+	if python, ok := findPythonForTest(); ok {
+		cmd = exec.Command(python, "-m", "py_compile", filepath.Join(dir, "15084084_client.py"))
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("generated starter Python client should compile: %v\n%s", err, out)
+		}
+	}
+	if node, ok := findNodeForTest(); ok {
+		cmd = exec.Command(node, "--check", filepath.Join(dir, "15084084_client.js"))
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("generated starter Node client should parse: %v\n%s", err, out)
+		}
 	}
 }
 
@@ -2733,6 +2825,19 @@ func TestCodegenGoWritesCompilableClient(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated client should compile: %v\n%s", err, out)
+	}
+}
+
+func TestGoCodegenFallsBackToEndpointNameForKoreanOperation(t *testing.T) {
+	plan := curlExportPlan{
+		Spec: datago.Spec{ID: "15084084"},
+		Operation: datago.Operation{
+			Name:     "단기예보조회",
+			Endpoint: "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst",
+		},
+	}
+	if got := goFunctionName(plan); got != "GetVilageFcst" {
+		t.Fatalf("goFunctionName()=%q", got)
 	}
 }
 
