@@ -242,8 +242,8 @@ to `--status adapter`; `--gaps` and `--missing` are equivalent to `--status
 missing --kind external_endpoint`. These shortcuts must not be combined with
 explicit conflicting `--status` or `--kind` filters. The command envelope may
 include `next_commands` entries keyed by host; these are convenience commands
-for inspecting `datapan targets`, operation dependencies, or bounded
-verification without changing the pure provider backlog report schema.
+for inspecting `datapan targets`, `datapan ops`, or bounded verification
+without changing the pure provider backlog report schema.
 
 `datapan catalog providers [--registry PATH] --json` converts dependency
 classification into a host/provider backlog. When `--registry` is omitted, it
@@ -265,6 +265,14 @@ writes a pure `datapan.providers.v1` report containing `generated_at`,
 provider list for adapter planning; the report must preserve those filters so
 the artifact remains explainable. `--json` may wrap that report in a command
 envelope for agent use.
+
+`datapan ops [--registry PATH] --json` is the consumer-facing shortcut for the
+operation-level dependency inventory. It accepts the same `--limit`, `--kind`,
+`--status`, `--provider`, and `--host` filters as `catalog dependencies`, uses
+the default installed registry when no `--registry` is supplied, and returns the
+same JSON envelope. It is intended for quick host-to-operation inspection,
+while release jobs can continue to use `catalog dependencies --output` for pure
+report artifacts.
 
 `datapan catalog dependencies [--registry PATH] --json` emits an
 operation-level dependency inventory. When `--registry` is omitted, it uses the

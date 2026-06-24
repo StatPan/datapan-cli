@@ -178,6 +178,7 @@ datapan ready --limit 10 --json
 datapan providers --adapters --json
 datapan providers --gaps --limit 10 --json
 datapan targets --limit 10 --json
+datapan ops --host openapi.jeonju.go.kr --limit 10 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -196,10 +197,13 @@ already owned by registered provider adapters, and `datapan providers --gaps
 remembering the longer `catalog providers --status missing --kind
 external_endpoint` form. The JSON envelope includes `next_commands` so an
 agent or human can jump directly from a provider host to `datapan targets`,
-`catalog dependencies`, or bounded `catalog verify` commands.
+`datapan ops`, or bounded `catalog verify` commands.
 Use `datapan targets --json` when you want the ranked adapter work queue
 directly: target host, operation/spec counts, organizations, categories, formats,
 and sample operations for the next external provider adapter decision.
+Use `datapan ops --host HOST --json` when you want the exact operation-level
+inventory behind a host: dataset ID, operation name, dependency class, adapter
+status, approval state, parameter counts, and skip reason.
 Use `datapan list` or `datapan ls` when you want a data-CLI-style dataset list
 without inventing a search term. They accept the same `--org`, `--category`,
 `--priority`, `--provider`, `--callable`, `--call-ready`, `--limit`, and
@@ -269,14 +273,14 @@ response parameters, such as `resultCode`, `resultMsg`, `returnReasonCode`,
 `datapan.error-catalog.v1` report so verification, SDK, and Studio layers can
 preserve upstream error/status semantics instead of inventing a separate error
 taxonomy.
-Use `datapan catalog dependencies` to list operation-level dependency
+Use `datapan ops` or `datapan catalog dependencies` to list operation-level dependency
 classifications. It keeps each operation's dataset ID, operation name,
 endpoint/source/guide hosts, dependency class, provider family, approval state,
 adapter status, and parameter counts together. This is the artifact to use when
 an agent, UI, or SDK generator needs to know which exact operations are
 gateway-hosted, externally hosted, service-root-only, unsupported, missing an
-adapter, or owned by a registered adapter. With `--output`, it writes a
-`datapan.dependencies.v1` report.
+adapter, or owned by a registered adapter. With `catalog dependencies
+--output`, it writes a `datapan.dependencies.v1` report.
 Use `datapan targets` or `datapan catalog adapter-targets` to turn missing external/service-root
 operations into a prioritized adapter work queue by host. It ranks target hosts
 by operation coverage, includes provider family, kinds, organizations, formats,

@@ -309,12 +309,46 @@ func TestProvidersTopLevelShortcutsLoadDefaultInstalledRegistry(t *testing.T) {
 		`"host": "missing.example.test"`,
 		`"adapter_status": "missing"`,
 		`"adapter_targets": "datapan targets --host missing.example.test --limit 5 --json"`,
-		`"dependencies": "datapan catalog dependencies --host missing.example.test --limit 20 --json"`,
+		`"dependencies": "datapan ops --host missing.example.test --limit 20 --json"`,
 		`"filtered_count": 1`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in provider gap output: %s", want, stdout)
 		}
+	}
+}
+
+func TestOpsTopLevelLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://missing.example.test/api/list","request_params":[{"name":"q"}]}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"ops", "--host", "missing.example.test", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"filtered_count": 1`,
+		`"dataset_id": "100"`,
+		`"operation": "목록"`,
+		`"endpoint_host": "missing.example.test"`,
+		`"adapter_status": "missing"`,
+		`"skip_reason": "external_provider_adapter_missing"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in ops output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"dataset_id": "200"`) {
+		t.Fatalf("ops output included non-matching operation: %s", stdout)
 	}
 }
 
@@ -2131,7 +2165,7 @@ func TestCatalogProvidersJSONReportsAdapterBacklog(t *testing.T) {
 		`"provider": "q-net"`,
 		`"adapter_status": "adapter"`,
 		`"next_commands":`,
-		`"dependencies": "datapan catalog dependencies --registry`,
+		`"dependencies": "datapan ops --registry`,
 		`--host openapi.q-net.or.kr --limit 20 --json"`,
 		`"verify": "datapan catalog verify --registry`,
 		`--host openapi.q-net.or.kr --limit 3 --json"`,
