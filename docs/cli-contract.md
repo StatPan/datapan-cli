@@ -75,11 +75,12 @@ path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
 `datapan search --json` must include per-result `examples` for immediate next
-steps: `show`, `use`, `params`, `get`, `curl`, `postman`, `openapi`,
+steps: `show`, `use`, `kit`, `params`, `get`, `curl`, `postman`, `openapi`,
 `codegen_go`, `codegen_node`, and `codegen_python` when those commands can be
 generated from the selected operation. Human search output should include at
 least a `next: datapan show <id>` line and, when callable, a
-`try: datapan get ...` line.
+`try: datapan get ...` line plus a `kit: datapan use ... --output-dir ...`
+line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment
 variables.

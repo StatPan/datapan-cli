@@ -137,8 +137,8 @@ Search can be narrowed with source metadata such as `--org`, `--category`,
 `category` maps to the upstream source category only when that value is present
 in the imported catalog; Datapan should not invent source categories.
 Search and show results include copyable next-step examples for `show`, `use`,
-`get`, `curl`, Postman export, OpenAPI export, and Go/Node/Python codegen when
-an operation has an endpoint.
+starter-kit generation, `get`, `curl`, Postman export, OpenAPI export, and
+Go/Node/Python codegen when an operation has an endpoint.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 

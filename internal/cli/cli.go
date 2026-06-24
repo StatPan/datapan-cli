@@ -333,6 +333,9 @@ func (a app) search(args []string, jsonOut bool) int {
 		if example := exampleGetCommand(spec); example != "" {
 			fmt.Fprintf(a.stdout, "  try: %s\n", example)
 		}
+		if kit := exampleKitCommand(spec); kit != "" {
+			fmt.Fprintf(a.stdout, "  kit: %s\n", kit)
+		}
 	}
 	return exitOK
 }
@@ -3187,6 +3190,7 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 	examples := map[string]string{
 		"show":           showCommand(spec),
 		"use":            exampleUseCommand(spec),
+		"kit":            exampleKitCommand(spec),
 		"access":         "datapan access " + spec.ID + " --start",
 		"params":         exampleParamsCommand(spec),
 		"get":            exampleGetCommand(spec),
@@ -3415,6 +3419,28 @@ func exampleUseCommand(spec datago.Spec) string {
 			args = append(args, name+"=VALUE")
 		}
 	}
+	return datago.CommandString(args)
+}
+
+func exampleKitCommand(spec datago.Spec) string {
+	if len(spec.Operations) == 0 {
+		return ""
+	}
+	op := spec.Operations[0]
+	if op.Endpoint == "" {
+		return ""
+	}
+	args := []string{"datapan", "use", spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	for _, param := range nonAuthParams(op.RequestParams) {
+		name := strings.TrimSpace(param.Name)
+		if name != "" {
+			args = append(args, name+"=VALUE")
+		}
+	}
+	args = append(args, "--output-dir", spec.ID+"-kit", "--json")
 	return datago.CommandString(args)
 }
 

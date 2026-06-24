@@ -211,6 +211,8 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 	for _, want := range []string{
 		`"examples":`,
 		`"show": "datapan show 15126469"`,
+		`"kit": "datapan use 15126469`,
+		`--output-dir 15126469-kit --json`,
 		`"params": "datapan params 15126469`,
 		`"curl": "datapan curl 15126469`,
 		`"openapi": "datapan export --format openapi 15126469`,
@@ -235,6 +237,8 @@ func TestSearchHumanOutputShowsNextCommands(t *testing.T) {
 	for _, want := range []string{
 		`next: datapan show 15126469`,
 		`try: datapan get 15126469`,
+		`kit: datapan use 15126469`,
+		`--output-dir 15126469-kit --json`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in search output: %s", want, stdout)
@@ -330,6 +334,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"label": "페이지"`,
 		`"response_params_count": 1`,
 		`"example": "datapan get 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --json"`,
+		`"kit": "datapan use 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output-dir 999-kit --json"`,
 		`"params": "datapan params 999 --operation \"목록 조회\" --output 999_params.json"`,
 		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE"`,
 		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
