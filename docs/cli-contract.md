@@ -110,7 +110,10 @@ be used without a search query. `--call-ready` is also accepted by `search`,
 `list`, and `ls`; it filters to specs with at least one `call_ready` operation.
 `--ready` is a short human-friendly alias for `--call-ready`. `datapan ready`
 is a top-level shortcut for `datapan list --call-ready` and should accept the
-same query and source metadata filters as `list`. JSON output must include
+same query and source metadata filters as `list`. Its default ordering should
+prefer ready APIs with fewer missing required parameters, fewer request
+parameters, and less action-like operation names before falling back to route,
+priority, and ID ordering. JSON output must include
 `callable_only` and `call_ready_only` so agents can tell which filters were
 applied. Human output should include `callable: yes|no`,
 `call ready: yes|no (...)`, and at least a

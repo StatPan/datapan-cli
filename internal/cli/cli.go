@@ -282,7 +282,7 @@ func (a app) list(args []string, jsonOut bool) int {
 }
 
 func (a app) ready(args []string, jsonOut bool) int {
-	readyArgs := append([]string{"--ready"}, args...)
+	readyArgs := append([]string{"--ready", "--ready-rank"}, args...)
 	args = readyArgs
 	return a.searchOrList(args, jsonOut, true)
 }
@@ -290,6 +290,7 @@ func (a app) ready(args []string, jsonOut bool) int {
 func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
+	readyRank, args := consumeBool(args, "--ready-rank")
 	callableOnly, args := consumeBool(args, "--callable")
 	callReadyOnly, args := consumeBool(args, "--call-ready")
 	readyOnly, args := consumeBool(args, "--ready")
@@ -357,6 +358,9 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 	}
 	if callReadyOnly {
 		results = filterCallReadySpecs(results)
+	}
+	if readyRank {
+		sortReadySpecs(results)
 	}
 	results = limitSpecs(results, limit)
 	if jsonOut {
@@ -4760,6 +4764,105 @@ func filterCallReadySpecs(specs []datago.Spec) []datago.Spec {
 		}
 	}
 	return out
+}
+
+func sortReadySpecs(specs []datago.Spec) {
+	sort.SliceStable(specs, func(i, j int) bool {
+		left := readyRank(specs[i])
+		right := readyRank(specs[j])
+		if left.MissingParams != right.MissingParams {
+			return left.MissingParams < right.MissingParams
+		}
+		if left.ActionPenalty != right.ActionPenalty {
+			return left.ActionPenalty < right.ActionPenalty
+		}
+		if left.RequestParams != right.RequestParams {
+			return left.RequestParams < right.RequestParams
+		}
+		if left.RouteRank != right.RouteRank {
+			return left.RouteRank < right.RouteRank
+		}
+		if priorityRank(specs[i].Priority) != priorityRank(specs[j].Priority) {
+			return priorityRank(specs[i].Priority) < priorityRank(specs[j].Priority)
+		}
+		return specs[i].ID < specs[j].ID
+	})
+}
+
+type readyRankValue struct {
+	MissingParams int
+	RequestParams int
+	ActionPenalty int
+	RouteRank     int
+}
+
+func readyRank(spec datago.Spec) readyRankValue {
+	best := readyRankValue{MissingParams: 1 << 20, RequestParams: 1 << 20, ActionPenalty: 1 << 20, RouteRank: 1 << 20}
+	for _, op := range spec.Operations {
+		route := operationCallRoute(spec, op)
+		if !route.Ready {
+			continue
+		}
+		_, missing := datago.VerificationParams(spec, op)
+		candidate := readyRankValue{
+			MissingParams: len(missing),
+			RequestParams: len(nonAuthParams(op.RequestParams)),
+			ActionPenalty: readyActionPenalty(spec, op),
+			RouteRank:     readyRouteRank(route),
+		}
+		if readyRankLess(candidate, best) {
+			best = candidate
+		}
+	}
+	return best
+}
+
+func readyRankLess(left, right readyRankValue) bool {
+	if left.MissingParams != right.MissingParams {
+		return left.MissingParams < right.MissingParams
+	}
+	if left.ActionPenalty != right.ActionPenalty {
+		return left.ActionPenalty < right.ActionPenalty
+	}
+	if left.RequestParams != right.RequestParams {
+		return left.RequestParams < right.RequestParams
+	}
+	return left.RouteRank < right.RouteRank
+}
+
+func readyRouteRank(route callRouteMetadata) int {
+	switch route.Route {
+	case "data_go_kr_gateway":
+		return 0
+	case "provider_adapter":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func readyActionPenalty(spec datago.Spec, op datago.Operation) int {
+	text := strings.ToLower(spec.Title + " " + spec.Description + " " + op.Name)
+	penalty := 0
+	for _, word := range []string{"취소", "삭제", "등록", "저장", "수정", "신청", "처리", "발급", "cancel", "delete", "insert", "update", "apply", "issue"} {
+		if strings.Contains(text, word) {
+			penalty++
+		}
+	}
+	return penalty
+}
+
+func priorityRank(priority string) int {
+	switch strings.ToUpper(strings.TrimSpace(priority)) {
+	case "P0":
+		return 0
+	case "P1":
+		return 1
+	case "P2":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func limitChanges(changes []datago.SpecChange, limit int) []datago.SpecChange {

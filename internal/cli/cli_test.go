@@ -629,6 +629,7 @@ func TestReadyCommandFiltersCallReadySpecs(t *testing.T) {
 	registryPath := filepath.Join(t.TempDir(), "registry.json")
 	if err := osWriteFile(registryPath, []byte(`[
 		{"id":"100","title":"Generic External API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://partner.example.test/api"}]},
+		{"id":"150","title":"Ready 취소 API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"신청취소처리","endpoint":"https://apis.data.go.kr/test/cancel"}]},
 		{"id":"200","title":"Ready Gateway API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
 		{"id":"300","title":"Ready Provider API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"요금","endpoint":"http://openapi.epost.go.kr/api"}]}
 	]`)); err != nil {
@@ -650,6 +651,9 @@ func TestReadyCommandFiltersCallReadySpecs(t *testing.T) {
 	}
 	if strings.Contains(stdout, `"id": "100"`) {
 		t.Fatalf("ready should filter generic external specs: %s", stdout)
+	}
+	if strings.Contains(stdout, `"id": "150"`) {
+		t.Fatalf("ready should rank read-style APIs before action-style APIs: %s", stdout)
 	}
 }
 

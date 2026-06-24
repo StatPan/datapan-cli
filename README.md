@@ -193,7 +193,9 @@ something Datapan can turn into `get`, `curl`, Postman, OpenAPI, or generated
 client code. Check `call_ready` and `call_route` when you need the stronger
 "Datapan has a stable call route" signal, or use `--call-ready` directly.
 `--ready` is the shorter alias for interactive use, and `datapan ready` is a
-top-level shortcut for `datapan list --call-ready`.
+top-level shortcut for `datapan list --call-ready`. Its default output is
+ranked toward APIs with fewer required parameters and less action-like
+operations, so the first screen is closer to "try this now."
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top
