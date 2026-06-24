@@ -142,6 +142,9 @@ func shouldLoadDefaultRegistry(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
+	if isHelpInvocation(args) {
+		return false
+	}
 	switch args[0] {
 	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
@@ -152,6 +155,21 @@ func shouldLoadDefaultRegistry(args []string) bool {
 	default:
 		return false
 	}
+}
+
+func isHelpInvocation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		return true
+	}
+	for _, arg := range args[1:] {
+		if arg == "-h" || arg == "--help" {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultRegistryCatalogCommand(command string) bool {
@@ -217,9 +235,15 @@ func (a app) run() int {
 	}
 
 	switch args[0] {
-	case "help", "-h", "--help":
+	case "-h", "--help":
 		a.printHelp()
 		return exitOK
+	case "help":
+		if len(args) == 1 {
+			a.printHelp()
+			return exitOK
+		}
+		return a.commandHelp(args[1:])
 	case "version":
 		if jsonOut {
 			return a.writeJSON(map[string]string{"version": version})
@@ -227,60 +251,144 @@ func (a app) run() int {
 		fmt.Fprintf(a.stdout, "datapan %s\n", version)
 		return exitOK
 	case "init":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.init(args[1:], jsonOut)
 	case "search":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.search(args[1:], jsonOut)
 	case "try":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.try(args[1:], jsonOut)
 	case "ready":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.ready(args[1:], jsonOut)
 	case "coverage":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.coverage(args[1:], jsonOut)
 	case "studio":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.studio(args[1:], jsonOut)
 	case "providers":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.providers(args[1:], jsonOut)
 	case "targets":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.targets(args[1:], jsonOut)
 	case "ops":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.ops(args[1:], jsonOut)
 	case "verify":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.verify(args[1:], jsonOut)
 	case "list", "ls":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.list(args[1:], jsonOut)
 	case "info":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp([]string{"show"})
+		}
 		return a.info(args[1:], jsonOut)
 	case "show":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.info(args[1:], jsonOut)
 	case "use":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.use(args[1:], jsonOut)
 	case "kit":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.kit(args[1:], jsonOut)
 	case "params":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.params(args[1:], jsonOut)
 	case "auth":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.auth(args[1:], jsonOut)
 	case "doctor", "status":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.doctor(args[1:], jsonOut)
 	case "catalog":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.catalog(args[1:], jsonOut)
 	case "access":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.access(args[1:], jsonOut)
 	case "apply":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp([]string{"access"})
+		}
 		return a.access(args[1:], jsonOut)
 	case "call":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.call(args[1:], jsonOut, false)
 	case "get":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.call(args[1:], jsonOut, false)
 	case "curl":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.curl(args[1:], jsonOut)
 	case "export":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.export(args[1:], jsonOut)
 	case "codegen":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.codegen(args[1:], jsonOut)
 	case "save":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
 		return a.save(args[1:], jsonOut)
 	case "preview", "head":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp([]string{"preview"})
+		}
 		return a.preview(args[1:], jsonOut)
 	default:
 		return a.fail(exitUsage, "unknown command %q\n\nRun `datapan help`.", args[0])
@@ -7870,6 +7978,306 @@ Accepted data.go.kr key env vars:
   DATAPAN_DATA_GO_KR_KEY, DATA_PORTAL_API_KEY, DATA_GO_KR_SERVICE_KEY`)
 }
 
+func (a app) commandHelp(args []string) int {
+	key := helpKey(args)
+	if key == "" {
+		a.printHelp()
+		return exitOK
+	}
+	text, ok := commandHelpText(key)
+	if !ok {
+		return a.fail(exitUsage, "unknown help topic %q\n\nRun `datapan help`.", strings.Join(args, " "))
+	}
+	fmt.Fprintln(a.stdout, text)
+	return exitOK
+}
+
+func helpKey(args []string) string {
+	parts := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "-h" || arg == "--help" || arg == "--json" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			if !strings.Contains(arg, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+			continue
+		}
+		parts = append(parts, arg)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	switch parts[0] {
+	case "catalog":
+		if len(parts) >= 3 && parts[1] == "release" {
+			return "catalog release"
+		}
+		if len(parts) >= 2 {
+			return "catalog " + parts[1]
+		}
+		return "catalog"
+	case "access":
+		if len(parts) >= 2 && parts[1] == "login" {
+			return "access login"
+		}
+		return "access"
+	case "codegen":
+		return "codegen"
+	case "export":
+		return "export"
+	case "list", "ls":
+		return "search"
+	case "ready":
+		return "search"
+	case "info":
+		return "show"
+	case "head":
+		return "preview"
+	case "apply":
+		return "access"
+	default:
+		return parts[0]
+	}
+}
+
+func commandHelpText(key string) (string, bool) {
+	switch key {
+	case "init":
+		return `Usage:
+  datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
+
+Install or point Datapan at a registry. Without flags it installs the latest
+datapan-registry GitHub Release into .datapan/data-go-kr.registry.json.`, true
+	case "search":
+		return `Usage:
+  datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
+  datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+
+Find public data APIs. Use --call-ready when you only want APIs Datapan can
+plan or call from the local machine.`, true
+	case "try":
+		return `Usage:
+  datapan try [query] [KEY=VALUE ...] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--operation NAME] [--any] [--params-output PATH] [--output-dir DIR] [--json]
+
+Pick the best matching call-ready API and return the next commands for params,
+dry-run, get, curl, Postman, OpenAPI, codegen, and access.`, true
+	case "coverage":
+		return `Usage:
+  datapan coverage [--registry PATH] [--verification REPORT] [--limit N] [--json]
+
+Summarize registry coverage, callable operations, external provider adapter
+coverage, and verification evidence.`, true
+	case "studio":
+		return `Usage:
+  datapan studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]
+
+Write a local Studio bundle with overview.json, datasets.json, studio.json,
+and index.html.`, true
+	case "providers":
+		return `Usage:
+  datapan providers --split [--registry PATH] [--verification REPORT] [--limit N] [--json]
+  datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
+
+Inspect provider adapters, missing external hosts, and datapan-providers split
+readiness.`, true
+	case "targets":
+		return `Usage:
+  datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
+
+List adapter targets for external provider hosts that still need coverage.`, true
+	case "ops":
+		return `Usage:
+  datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]
+
+List registry operations with dependency and adapter status filters.`, true
+	case "verify":
+		return `Usage:
+  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+
+Run bounded runtime verification against selected registry operations.`, true
+	case "show":
+		return `Usage:
+  datapan show <ref> [--json]
+
+Resolve and display one dataset by id or search text.`, true
+	case "use":
+		return `Usage:
+  datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
+
+Plan a usable API workflow and optionally write a starter kit.`, true
+	case "kit":
+		return `Usage:
+  datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
+
+Write a starter kit for one operation: params JSON, curl script, Postman
+collection, OpenAPI document, Go/Node/Python clients, and README.`, true
+	case "params":
+		return `Usage:
+  datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
+
+Write reusable request params without credential material.`, true
+	case "auth":
+		return `Usage:
+  datapan auth check [--json]
+
+Check whether a supported data.go.kr API key environment variable is present.`, true
+	case "status", "doctor":
+		return `Usage:
+  datapan status [--json]
+  datapan doctor [--json]
+
+Check registry installation, auth environment, provider adapter state, and
+suggest next commands.`, true
+	case "catalog":
+		return `Usage:
+  datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
+  datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]
+  datapan catalog coverage [--registry PATH] [--verification REPORT] [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify ... [--json]
+  datapan catalog release ... [--json]
+
+Operate on registry artifacts, release evidence, and repeatable catalog
+snapshots.`, true
+	case "catalog import":
+		return `Usage:
+  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
+
+Import data.go.kr catalog metadata into Datapan's normalized registry format.`, true
+	case "catalog update":
+		return `Usage:
+  datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
+
+Compare or apply a fresh data.go.kr catalog update against an existing registry.`, true
+	case "catalog install":
+		return `Usage:
+  datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
+
+Install the latest released datapan-registry zip without relying on Git LFS.`, true
+	case "catalog overview":
+		return `Usage:
+  datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]
+
+Write a registry overview for humans, agents, or Studio-like consumers.`, true
+	case "catalog coverage":
+		return `Usage:
+  datapan catalog coverage [--registry PATH] [--verification REPORT] [--limit N] [--output PATH|-] [--json]
+
+Write coverage evidence for callable APIs, external dependencies, and adapters.`, true
+	case "catalog diff":
+		return `Usage:
+  datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json]
+
+Compare two normalized registry snapshots.`, true
+	case "catalog audit":
+		return `Usage:
+  datapan catalog audit [--registry PATH] [--sample N] [--output PATH|-] [--json]
+
+Audit registry quality and metadata normalization gaps.`, true
+	case "catalog errors":
+		return `Usage:
+  datapan catalog errors [--registry PATH] [--limit N] [--output PATH|-] [--json]
+
+Extract provider error metadata from the registry.`, true
+	case "catalog providers":
+		return `Usage:
+  datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
+
+Write provider adapter coverage and split-readiness metadata.`, true
+	case "catalog dependencies":
+		return `Usage:
+  datapan catalog dependencies [--registry PATH] [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--output PATH|-] [--json]
+
+Write operation dependency inventory for gateway and external endpoints.`, true
+	case "catalog adapter-targets":
+		return `Usage:
+  datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
+
+Write the prioritized queue of external provider hosts needing adapters.`, true
+	case "catalog studio":
+		return `Usage:
+  datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]
+
+Generate static Studio data files and viewer HTML from the registry.`, true
+	case "catalog verify":
+		return `Usage:
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
+  datapan catalog verify merge --input REPORT --input REPORT [--input REPORT ...] --output PATH|- [--json]
+
+Create, inspect, summarize, and merge bounded runtime verification evidence.`, true
+	case "catalog release":
+		return `Usage:
+  datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
+  datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
+  datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
+
+Draft and verify repeatable datapan-registry release artifacts.`, true
+	case "access":
+		return `Usage:
+  datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
+  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
+
+Open or assist data.go.kr API access application workflows.`, true
+	case "access login":
+		return `Usage:
+  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
+
+Prepare a browser session for later access application automation.`, true
+	case "get", "call":
+		return `Usage:
+  datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
+  datapan call <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
+
+Call one public data operation from the local machine. Use --dry-run to inspect
+the redacted request first.`, true
+	case "curl":
+		return `Usage:
+  datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
+
+Print a copyable curl command without exposing credential values.`, true
+	case "save":
+		return `Usage:
+  datapan save <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--format csv|json] [--output PATH|-] [--timeout DURATION] [--json]
+
+Call an operation and save rows as CSV or JSON.`, true
+	case "export":
+		return `Usage:
+  datapan export --input PATH|- [--format csv|json]
+  datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
+  datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan export [--format csv|json] <ref> [KEY=VALUE ...] [--timeout DURATION]
+
+Export planned requests to curl, Postman, OpenAPI, or export response rows to
+CSV/JSON.`, true
+	case "preview":
+		return `Usage:
+  datapan preview --input PATH|- [--format auto|json|csv] [--limit N] [--json]
+
+Preview saved JSON or CSV rows in a compact table or machine-readable JSON.`, true
+	case "codegen":
+		return `Usage:
+  datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
+  datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+
+Generate a small dependency-light client for one planned public data operation.`, true
+	case "version":
+		return `Usage:
+  datapan version [--json]
+
+Print the Datapan CLI version.`, true
+	default:
+		return "", false
+	}
+}
+
 type errNotFound struct{ id string }
 
 func (e errNotFound) Error() string { return "not found: " + e.id }
@@ -7900,6 +8308,10 @@ func consumeBool(args []string, name string) (bool, []string) {
 		out = append(out, arg)
 	}
 	return found, out
+}
+
+func hasHelpArg(args []string, names ...string) bool {
+	return hasAnyArg(args, names...)
 }
 
 func boolCount(values ...bool) int {

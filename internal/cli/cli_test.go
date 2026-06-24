@@ -181,6 +181,41 @@ func TestStatusHumanTitle(t *testing.T) {
 	}
 }
 
+func TestCommandHelpDoesNotExecuteRefCommands(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`not-json`)); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "kit", args: []string{"kit", "--help"}, want: "datapan kit <ref>"},
+		{name: "export", args: []string{"export", "--help"}, want: "datapan export --format postman"},
+		{name: "codegen", args: []string{"codegen", "go", "--help"}, want: "datapan codegen go <ref>"},
+		{name: "catalog release", args: []string{"catalog", "release", "verify", "--help"}, want: "datapan catalog release verify --manifest PATH"},
+		{name: "help topic", args: []string{"help", "access", "login"}, want: "datapan access login"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := runTest(tt.args, nil, nil)
+			if code != exitOK {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if stderr != "" {
+				t.Fatalf("expected no stderr, got %s", stderr)
+			}
+			if !strings.Contains(stdout, tt.want) {
+				t.Fatalf("expected %q in command help: %s", tt.want, stdout)
+			}
+		})
+	}
+}
+
 func TestInitNextStepsUseTopLevelShortcuts(t *testing.T) {
 	steps := fmt.Sprint(initNextSteps(defaultRegistryPath, true))
 	for _, want := range []string{
