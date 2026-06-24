@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "ready", "providers", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "ready", "providers", "targets", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -234,6 +234,8 @@ func (a app) run() int {
 		return a.ready(args[1:], jsonOut)
 	case "providers":
 		return a.providers(args[1:], jsonOut)
+	case "targets":
+		return a.targets(args[1:], jsonOut)
 	case "list", "ls":
 		return a.list(args[1:], jsonOut)
 	case "info":
@@ -309,6 +311,10 @@ func (a app) providers(args []string, jsonOut bool) int {
 		args = append(args, "--status", "missing", "--kind", "external_endpoint")
 	}
 	return a.catalogProviders(args, jsonOut)
+}
+
+func (a app) targets(args []string, jsonOut bool) int {
+	return a.catalogAdapterTargets(args, jsonOut)
 }
 
 func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
@@ -2523,7 +2529,7 @@ func providerNextCommands(providers []datago.ProviderSummary, registryPath strin
 			Dependencies: providerCommand(registryPath, "dependencies", host, "20"),
 		}
 		if provider.AdapterStatus == "missing" {
-			command.AdapterTargets = providerCommand(registryPath, "adapter-targets", host, "5")
+			command.AdapterTargets = targetCommand(registryPath, host, "5")
 		}
 		if provider.AdapterStatus == "adapter" || provider.AdapterStatus == "builtin" {
 			args := []string{"datapan", "catalog", "verify"}
@@ -2540,6 +2546,15 @@ func providerNextCommands(providers []datago.ProviderSummary, registryPath strin
 
 func providerCommand(registryPath, command, host, limit string) string {
 	args := []string{"datapan", "catalog", command}
+	if registryPath != "" {
+		args = append(args, "--registry", registryPath)
+	}
+	args = append(args, "--host", host, "--limit", limit, "--json")
+	return datago.CommandString(args)
+}
+
+func targetCommand(registryPath, host, limit string) string {
+	args := []string{"datapan", "targets"}
 	if registryPath != "" {
 		args = append(args, "--registry", registryPath)
 	}
@@ -7323,6 +7338,7 @@ Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
+  datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]

@@ -177,6 +177,7 @@ datapan init --json
 datapan ready --limit 10 --json
 datapan providers --adapters --json
 datapan providers --gaps --limit 10 --json
+datapan targets --limit 10 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -194,8 +195,11 @@ already owned by registered provider adapters, and `datapan providers --gaps
 --json` when you want the missing external endpoint host backlog without
 remembering the longer `catalog providers --status missing --kind
 external_endpoint` form. The JSON envelope includes `next_commands` so an
-agent or human can jump directly from a provider host to `catalog
-adapter-targets`, `catalog dependencies`, or bounded `catalog verify` commands.
+agent or human can jump directly from a provider host to `datapan targets`,
+`catalog dependencies`, or bounded `catalog verify` commands.
+Use `datapan targets --json` when you want the ranked adapter work queue
+directly: target host, operation/spec counts, organizations, categories, formats,
+and sample operations for the next external provider adapter decision.
 Use `datapan list` or `datapan ls` when you want a data-CLI-style dataset list
 without inventing a search term. They accept the same `--org`, `--category`,
 `--priority`, `--provider`, `--callable`, `--call-ready`, `--limit`, and
@@ -273,12 +277,12 @@ an agent, UI, or SDK generator needs to know which exact operations are
 gateway-hosted, externally hosted, service-root-only, unsupported, missing an
 adapter, or owned by a registered adapter. With `--output`, it writes a
 `datapan.dependencies.v1` report.
-Use `datapan catalog adapter-targets` to turn missing external/service-root
+Use `datapan targets` or `datapan catalog adapter-targets` to turn missing external/service-root
 operations into a prioritized adapter work queue by host. It ranks target hosts
 by operation coverage, includes provider family, kinds, organizations, formats,
 approval and missing-parameter counts, and bounded sample operations. With
-`--output`, it writes a `datapan.adapter-targets.v1` report for release,
-planning, or issue creation.
+`catalog adapter-targets --output`, it writes a `datapan.adapter-targets.v1`
+report for release, planning, or issue creation.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, registered adapter hosts, missing adapter hosts,

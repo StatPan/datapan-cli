@@ -308,13 +308,46 @@ func TestProvidersTopLevelShortcutsLoadDefaultInstalledRegistry(t *testing.T) {
 		`"kind": "external_endpoint"`,
 		`"host": "missing.example.test"`,
 		`"adapter_status": "missing"`,
-		`"adapter_targets": "datapan catalog adapter-targets --host missing.example.test --limit 5 --json"`,
+		`"adapter_targets": "datapan targets --host missing.example.test --limit 5 --json"`,
 		`"dependencies": "datapan catalog dependencies --host missing.example.test --limit 20 --json"`,
 		`"filtered_count": 1`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in provider gap output: %s", want, stdout)
 		}
+	}
+}
+
+func TestTargetsTopLevelLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://missing.example.test/api/list","request_params":[{"name":"q"}]}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"targets", "--host", "missing.example.test", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"filtered_count": 1`,
+		`"host": "missing.example.test"`,
+		`"rank": 1`,
+		`"sample_operations":`,
+		`"dataset_id": "100"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in target output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"host": "openapi.q-net.or.kr"`) {
+		t.Fatalf("target output included registered adapter host: %s", stdout)
 	}
 }
 
