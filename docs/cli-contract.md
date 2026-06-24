@@ -242,7 +242,7 @@ to `--status adapter`; `--gaps` and `--missing` are equivalent to `--status
 missing --kind external_endpoint`. These shortcuts must not be combined with
 explicit conflicting `--status` or `--kind` filters. The command envelope may
 include `next_commands` entries keyed by host; these are convenience commands
-for inspecting `datapan targets`, `datapan ops`, or bounded verification
+for inspecting `datapan targets`, `datapan ops`, or bounded `datapan verify`
 without changing the pure provider backlog report schema.
 
 `datapan catalog providers [--registry PATH] --json` converts dependency
@@ -318,6 +318,14 @@ report containing `generated_at`, `provider`, `registry`, `limit`,
 `--provider`, `--host`, and `--kind` narrow the target list before limit is
 applied. `--json` may wrap that report in a command envelope for agent use and
 must not be combined with `--output -`.
+
+`datapan verify [--registry PATH] --json` is the consumer-facing shortcut for
+bounded runtime evidence collection. It accepts the same `--ref`,
+`--operation`, `--limit`, `--provider`, `--host`, `--kind`, `--exclude-input`,
+`--timeout`, and `--output` options as `catalog verify`; it also preserves
+`verify plan`, `verify summary`, and `verify merge` as shortcuts to the
+corresponding catalog subcommands. Release jobs can continue to use
+`catalog verify` when they need the full maintenance namespace.
 
 `datapan catalog verify [--registry PATH] --json` collects bounded runtime
 evidence. It must not blindly call the whole catalog. By default it should

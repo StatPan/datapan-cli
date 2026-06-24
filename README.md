@@ -179,6 +179,7 @@ datapan providers --adapters --json
 datapan providers --gaps --limit 10 --json
 datapan targets --limit 10 --json
 datapan ops --host openapi.jeonju.go.kr --limit 10 --json
+datapan verify --host openapi.q-net.or.kr --limit 3 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -197,13 +198,16 @@ already owned by registered provider adapters, and `datapan providers --gaps
 remembering the longer `catalog providers --status missing --kind
 external_endpoint` form. The JSON envelope includes `next_commands` so an
 agent or human can jump directly from a provider host to `datapan targets`,
-`datapan ops`, or bounded `catalog verify` commands.
+`datapan ops`, or bounded `datapan verify` commands.
 Use `datapan targets --json` when you want the ranked adapter work queue
 directly: target host, operation/spec counts, organizations, categories, formats,
 and sample operations for the next external provider adapter decision.
 Use `datapan ops --host HOST --json` when you want the exact operation-level
 inventory behind a host: dataset ID, operation name, dependency class, adapter
 status, approval state, parameter counts, and skip reason.
+Use `datapan verify --host HOST --limit N --json` when you want bounded runtime
+evidence for a registered adapter or gateway host without remembering the
+longer `catalog verify` form.
 Use `datapan list` or `datapan ls` when you want a data-CLI-style dataset list
 without inventing a search term. They accept the same `--org`, `--category`,
 `--priority`, `--provider`, `--callable`, `--call-ready`, `--limit`, and
@@ -304,7 +308,7 @@ After `datapan init`, catalog observation commands such as `catalog providers`,
 `catalog dependencies`, `catalog adapter-targets`, and `catalog verify`
 automatically use `.datapan/data-go-kr.registry.json` when `--registry` is not
 provided.
-Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
+Use `datapan verify` or `datapan catalog verify` to collect bounded runtime evidence. It attempts
 only operations Datapan can call conservatively with known smoke/default/safe
 paging parameters or a registered provider adapter, then records `verified`,
 `failed`, or `skipped` with provider status, HTTP status, dependency class,
