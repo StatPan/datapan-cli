@@ -283,6 +283,9 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	callableOnly, args := consumeBool(args, "--callable")
+	callReadyOnly, args := consumeBool(args, "--call-ready")
+	readyOnly, args := consumeBool(args, "--ready")
+	callReadyOnly = callReadyOnly || readyOnly
 	limit, args, err := consumeInt(args, "--limit", 20)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -326,13 +329,13 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 		Priority:       priority,
 	}
 	emptySourceFilter := filters == (datago.SearchFilters{})
-	if query == "" && emptySourceFilter && !callableOnly {
+	if query == "" && emptySourceFilter && !callableOnly && !callReadyOnly {
 		if !allowEmpty {
-			return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]")
+			return a.fail(exitUsage, "usage: datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]")
 		}
 	}
 	searchLimit := limit
-	if callableOnly {
+	if callableOnly || callReadyOnly {
 		searchLimit = 0
 	}
 	var results []datago.Spec
@@ -344,15 +347,19 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 	if callableOnly {
 		results = filterCallableSpecs(results)
 	}
+	if callReadyOnly {
+		results = filterCallReadySpecs(results)
+	}
 	results = limitSpecs(results, limit)
 	if jsonOut {
 		return a.writeJSON(map[string]any{
-			"ok":            true,
-			"query":         query,
-			"filters":       filters,
-			"callable_only": callableOnly,
-			"count":         len(results),
-			"results":       specSummaries(results),
+			"ok":              true,
+			"query":           query,
+			"filters":         filters,
+			"callable_only":   callableOnly,
+			"call_ready_only": callReadyOnly,
+			"count":           len(results),
+			"results":         specSummaries(results),
 		})
 	}
 	if len(results) == 0 {
@@ -1892,10 +1899,20 @@ type callRouteMetadata struct {
 }
 
 func specCallRoute(spec datago.Spec) callRouteMetadata {
+	var firstEndpointRoute callRouteMetadata
 	for _, op := range spec.Operations {
 		if strings.TrimSpace(op.Endpoint) != "" {
-			return operationCallRoute(spec, op)
+			route := operationCallRoute(spec, op)
+			if route.Ready {
+				return route
+			}
+			if firstEndpointRoute.Route == "" {
+				firstEndpointRoute = route
+			}
 		}
+	}
+	if firstEndpointRoute.Route != "" {
+		return firstEndpointRoute
 	}
 	for _, op := range spec.Operations {
 		if datago.OperationDependencyClass(spec, op) == "service_root" {
@@ -4723,6 +4740,19 @@ func filterCallableSpecs(specs []datago.Spec) []datago.Spec {
 	return out
 }
 
+func filterCallReadySpecs(specs []datago.Spec) []datago.Spec {
+	var out []datago.Spec
+	for _, spec := range specs {
+		for _, op := range spec.Operations {
+			if operationCallRoute(spec, op).Ready {
+				out = append(out, spec)
+				break
+			}
+		}
+	}
+	return out
+}
+
 func limitChanges(changes []datago.SpecChange, limit int) []datago.SpecChange {
 	if limit <= 0 || len(changes) <= limit {
 		return changes
@@ -7080,9 +7110,9 @@ func (a app) printHelp() {
 
 Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
-  datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]
-  datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]
-  datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]
+  datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
+  datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
+  datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]

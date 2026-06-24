@@ -49,6 +49,7 @@ is present in the imported catalog.
 ```bash
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
+datapan list --call-ready --limit 10 --json
 datapan search "실거래" --org 국토교통부 --json
 datapan ls --org 기상청 --json
 datapan search --org 기상청 --json
@@ -75,6 +76,7 @@ Catalog mutation and release commands such as `import`, `update`, `install`,
 datapan init --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
+datapan list --call-ready --limit 10 --json
 datapan search "실거래" --org 국토교통부 --json
 ```
 
@@ -102,9 +104,12 @@ adapter. `call_route` should use stable values such as `data_go_kr_gateway`,
 unlike `search`, they may run with no query or filters and should return a
 bounded dataset list. `--callable` is also accepted by `search`, `list`, and
 `ls`; it filters results to specs with at least one operation endpoint and may
-be used without a search query. JSON output must include `callable_only` so
-agents can tell whether the callable filter was applied. Human output should
-include `callable: yes|no`, `call ready: yes|no (...)`, and at least a
+be used without a search query. `--call-ready` is also accepted by `search`,
+`list`, and `ls`; it filters to specs with at least one `call_ready` operation.
+`--ready` is a short human-friendly alias for `--call-ready`. JSON output must
+include `callable_only` and `call_ready_only` so agents can tell which filters
+were applied. Human output should include `callable: yes|no`,
+`call ready: yes|no (...)`, and at least a
 `next: datapan show <id>` line and, when callable, a
 `try: datapan get ...` line plus a `kit: datapan kit ... --json` line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,

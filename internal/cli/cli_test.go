@@ -572,6 +572,55 @@ func TestSearchCallableCountsAsFilter(t *testing.T) {
 	}
 }
 
+func TestSearchCallReadyFiltersBeforeLimit(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"Not Callable API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]},
+		{"id":"200","title":"QNet Verification Only API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"자격","endpoint":"http://openapi.q-net.or.kr/api"}]},
+		{"id":"300","title":"Ready Gateway API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"400","title":"Ready Provider API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"요금","endpoint":"http://openapi.epost.go.kr/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"search", "--call-ready", "--limit", "1", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"call_ready_only": true`,
+		`"count": 1`,
+		`"id": "300"`,
+		`"call_ready": true`,
+		`"call_route": "data_go_kr_gateway"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in call-ready list output: %s", want, stdout)
+		}
+	}
+	for _, notWant := range []string{`"id": "100"`, `"id": "200"`} {
+		if strings.Contains(stdout, notWant) {
+			t.Fatalf("expected not-ready spec to be filtered out: %s", stdout)
+		}
+	}
+}
+
+func TestSearchReadyAlias(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"Generic External API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://partner.example.test/api"}]},
+		{"id":"200","title":"Ready Provider API","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"요금","endpoint":"http://openapi.epost.go.kr/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"ls", "--ready", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"id": "200"`) || strings.Contains(stdout, `"id": "100"`) {
+		t.Fatalf("expected --ready alias to filter call-ready specs: %s", stdout)
+	}
+}
+
 func TestShowResolvesURLAndTitle(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"show", "https://www.data.go.kr/data/15126469/openapi.do", "--json"}, nil, nil)
 	if code != exitOK {
