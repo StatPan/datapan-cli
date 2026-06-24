@@ -122,6 +122,7 @@ Purpose:
 - publish dependency classifications;
 - publish adapter target work queues;
 - publish verification reports;
+- publish verification plans;
 - publish provider coverage status;
 - version catalog changes separately from CLI code;
 - make Datapan's evidence usable without requiring every user to re-import the
@@ -147,6 +148,7 @@ Likely artifacts:
 - `schemas/datapan.studio-datasets.v1.schema.json`;
 - `schemas/datapan.studio-bundle.v1.schema.json`;
 - `schemas/datapan.verification.v1.schema.json`;
+- `schemas/datapan.verification-plan.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
 - `schemas/datapan.release-manifest.v1.schema.json`;
 - `schemas/datapan.release-verification.v1.schema.json`;
@@ -159,6 +161,7 @@ Likely artifacts:
 - `reports/dependencies.json`;
 - `reports/adapter-targets.json`;
 - `reports/coverage.json`;
+- `reports/verification-plan.json`;
 - `reports/latest-verification.json`;
 - `reports/latest-verification-summary.json`;
 - `reports/latest-release-readiness.json`;
@@ -536,6 +539,7 @@ Required:
 - publish error catalog reports;
 - publish verification reports;
 - publish verification summaries;
+- publish verification plans;
 - publish release manifests with artifact checksums;
 - publish release verification reports;
 - publish release readiness reports;

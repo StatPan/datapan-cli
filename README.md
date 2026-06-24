@@ -88,7 +88,9 @@ datapan catalog errors --registry .datapan/data-go-kr.registry.json --output .da
 datapan catalog dependencies --registry .datapan/data-go-kr.registry.json --kind external_endpoint --status missing --output .datapan/dependencies.json --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --output .datapan/adapter-targets.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
+datapan catalog verify plan --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --timeout 10s --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --kind data_go_kr_gateway --exclude-input .datapan/latest-verification.json --limit 20 --timeout 10s --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider airport --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ekape --kind external_endpoint --limit 5 --json
@@ -270,6 +272,10 @@ redacted URL, skip reasons, and the per-call timeout used for the run. Q-Net has
 a narrow verification path for proven XML endpoints. Use `--timeout` to bound
 each provider call, and use `--provider`, `--host`, and `--kind` to collect
 bounded adapter evidence without blindly calling the whole catalog.
+Use `datapan catalog verify plan --verification REPORT` to generate the next
+bounded verification batches. The plan emits ready-to-run commands and includes
+`--exclude-input REPORT` so repeated runs grow evidence instead of rechecking
+operations already present in the current report.
 Use `datapan catalog verify --input REPORT` to reread an existing verification
 artifact and filter results by status without making new provider calls.
 Use `datapan catalog verify summary --input REPORT` to turn verification
