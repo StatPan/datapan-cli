@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -258,7 +258,7 @@ func (a app) run() int {
 		return a.params(args[1:], jsonOut)
 	case "auth":
 		return a.auth(args[1:], jsonOut)
-	case "doctor":
+	case "doctor", "status":
 		return a.doctor(args[1:], jsonOut)
 	case "catalog":
 		return a.catalog(args[1:], jsonOut)
@@ -1007,10 +1007,12 @@ func initNextSteps(registryPath string, credentialPresent bool) []string {
 	}
 	steps = append(steps,
 		"datapan ready --limit 10 --json",
+		"datapan coverage --json",
+		"datapan studio --output-dir .datapan/studio --limit 200 --json",
 		"datapan list --org 국토교통부 --json",
 		"datapan search \"실거래\" --org 국토교통부 --json",
 		"datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json",
-		"datapan doctor --json",
+		"datapan status --json",
 	)
 	return steps
 }
@@ -5371,7 +5373,7 @@ func (a app) doctor(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan doctor [--json]")
+		return a.fail(exitUsage, "usage: datapan status [--json] | datapan doctor [--json]")
 	}
 	specs := a.reg.Specs()
 	operationCount := registryOperationCount(specs)
@@ -5411,7 +5413,11 @@ func (a app) doctor(args []string, jsonOut bool) int {
 	if jsonOut {
 		return a.writeJSON(payload)
 	}
-	fmt.Fprintf(a.stdout, "Datapan doctor\n")
+	title := "Datapan doctor"
+	if len(a.args) > 0 && a.args[0] == "status" {
+		title = "Datapan status"
+	}
+	fmt.Fprintf(a.stdout, "%s\n", title)
 	fmt.Fprintf(a.stdout, "  registry: %s", a.registrySource)
 	if a.registryPath != "" {
 		fmt.Fprintf(a.stdout, " (%s)", a.registryPath)
@@ -5450,6 +5456,8 @@ func doctorNextSteps(registrySource string, credentialPresent bool) []string {
 	}
 	steps = append(steps,
 		"datapan ready --limit 10 --json",
+		"datapan coverage --json",
+		"datapan studio --output-dir .datapan/studio --limit 200 --json",
 		"datapan search \"실거래\" --org 국토교통부 --json",
 	)
 	return steps
@@ -7408,6 +7416,7 @@ Usage:
   datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
   datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
   datapan auth check [--json]
+  datapan status [--json]
   datapan doctor [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]

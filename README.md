@@ -174,6 +174,7 @@ returns next commands.
 
 ```bash
 datapan init --json
+datapan status --json
 datapan ready --limit 10 --json
 datapan coverage --json
 datapan studio --output-dir .datapan/studio --limit 200 --json
@@ -190,7 +191,7 @@ datapan search "실거래" --org 국토교통부 --json
 ```
 
 Use `datapan catalog install datapan-registry --json` when you want only the
-registry download/install step, and `datapan doctor --json` when you want to
+registry download/install step, and `datapan status --json` or `datapan doctor --json` when you want to
 recheck which registry is active, how many specs and operations it contains,
 whether a data.go.kr API key is present, and which external provider adapters
 are registered.

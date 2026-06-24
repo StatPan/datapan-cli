@@ -132,8 +132,67 @@ func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
 		t.Fatalf("unexpected readiness: %#v", payload)
 	}
 	nextSteps := fmt.Sprint(payload["next_steps"])
-	if !strings.Contains(nextSteps, "datapan ready --limit 10 --json") {
-		t.Fatalf("expected ready next step: %#v", payload["next_steps"])
+	for _, want := range []string{
+		"datapan ready --limit 10 --json",
+		"datapan coverage --json",
+		"datapan studio --output-dir .datapan/studio --limit 200 --json",
+	} {
+		if !strings.Contains(nextSteps, want) {
+			t.Fatalf("expected %q next step: %#v", want, payload["next_steps"])
+		}
+	}
+}
+
+func TestStatusJSONAliasesDoctor(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test"}]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"status", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"source": "default"`,
+		`"ready_for_calls": true`,
+		`"credential_present": true`,
+		`datapan coverage --json`,
+		`datapan studio --output-dir .datapan/studio --limit 200 --json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in status output: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusHumanTitle(t *testing.T) {
+	code, stdout, stderr := runTest([]string{"status"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "Datapan status") {
+		t.Fatalf("expected status title: %s", stdout)
+	}
+}
+
+func TestInitNextStepsUseTopLevelShortcuts(t *testing.T) {
+	steps := fmt.Sprint(initNextSteps(defaultRegistryPath, true))
+	for _, want := range []string{
+		"datapan ready --limit 10 --json",
+		"datapan coverage --json",
+		"datapan studio --output-dir .datapan/studio --limit 200 --json",
+		"datapan status --json",
+	} {
+		if !strings.Contains(steps, want) {
+			t.Fatalf("expected %q in init next steps: %s", want, steps)
+		}
+	}
+	if strings.Contains(steps, "datapan doctor --json") {
+		t.Fatalf("expected status shortcut instead of doctor in init next steps: %s", steps)
 	}
 }
 

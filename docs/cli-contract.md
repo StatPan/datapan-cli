@@ -84,7 +84,7 @@ datapan search "실거래" --org 국토교통부 --json
 
 `datapan catalog install datapan-registry` remains the lower-level install
 command when callers only want to download and write the released registry.
-`datapan doctor --json` reports the active registry source, default registry
+`datapan status --json` and `datapan doctor --json` report the active registry source, default registry
 path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
