@@ -39,14 +39,21 @@ func runTest(args []string, env fakeEnv, client HTTPClient) (int, string, string
 
 func zipBytesForTest(t *testing.T, name string, data string) []byte {
 	t.Helper()
+	return zipFilesForTest(t, map[string]string{name: data})
+}
+
+func zipFilesForTest(t *testing.T, files map[string]string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	w, err := zw.Create(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Write([]byte(data)); err != nil {
-		t.Fatal(err)
+	for name, data := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(data)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
@@ -1087,7 +1094,53 @@ func TestCatalogImportOutputFailureJSON(t *testing.T) {
 func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
-	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	zipData := zipFilesForTest(t, map[string]string{
+		datapanRegistryZipRegistryPath: registry,
+		"manifest.json": `{
+			"schema_version": "datapan.release-manifest.v1",
+			"generated_at": "2026-06-24T00:00:00Z",
+			"datapan_version": "test",
+			"provider": "data.go.kr",
+			"source_registry": "registry.json",
+			"output_dir": ".",
+			"artifact_count": 29,
+			"artifacts": []
+		}`,
+		"RELEASE_NOTES.md": "# Datapan Registry Release\n",
+		"reports/latest-release-verification.json": `{
+			"manifest": "manifest.json",
+			"root": ".",
+			"schema_version": "datapan.release-verification.v1",
+			"manifest_schema_version": "datapan.release-manifest.v1",
+			"artifact_count": 29,
+			"checked": 29,
+			"failed": 0,
+			"ok": true,
+			"results": []
+		}`,
+		"reports/latest-release-readiness.json": `{
+			"manifest": "manifest.json",
+			"root": ".",
+			"schema_version": "datapan.release-readiness.v1",
+			"generated_at": "2026-06-24T00:00:00Z",
+			"datapan_version": "test",
+			"provider": "data.go.kr",
+			"ready": true,
+			"summary": {
+				"gates_total": 16,
+				"passed": 16,
+				"warned": 0,
+				"failed": 0,
+				"required_artifacts": 10,
+				"missing_required_artifacts": 0,
+				"recommended_artifacts": 3,
+				"missing_recommended_artifacts": 0,
+				"schema_artifacts": 16,
+				"registry_specs": 12060
+			},
+			"gates": []
+		}`,
+	})
 	var urls []string
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		urls = append(urls, req.URL.String())
@@ -1130,6 +1183,22 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	}
 	if payload["ok"] != true || int(payload["specs"].(float64)) != 1 || payload["registry"] != output {
 		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	release := payload["release"].(map[string]any)
+	for _, want := range []string{
+		`"manifest_present": true`,
+		`"release_notes_present": true`,
+		`"verification_ok": true`,
+		`"readiness_ready": true`,
+		`"manifest_artifacts": 29`,
+		`"readiness_registry_specs": 12060`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in install release evidence: %s", want, stdout)
+		}
+	}
+	if release["manifest_generated_at"] != "2026-06-24T00:00:00Z" {
+		t.Fatalf("unexpected release evidence: %#v", release)
 	}
 	data, err := os.ReadFile(output)
 	if err != nil {

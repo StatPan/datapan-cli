@@ -323,9 +323,12 @@ decodes as a Datapan registry, and writes it to `PATH` without calling
 data.go.kr. Use `--url URL` to install from an explicit release zip and skip
 release metadata lookup. Use `--release-url URL` to point at a different
 compatible GitHub release API endpoint. JSON output reports `ok`, `provider`,
-`registry`, `url`, `bytes`, `specs`, and `installed`. `--json` must not be
-combined with `--registry -`, because `--registry -` writes the raw registry
-JSON to stdout.
+`registry`, `url`, `bytes`, `specs`, `installed`, and `release`. `release`
+must report whether the downloaded zip included `manifest.json`,
+`RELEASE_NOTES.md`, release verification, and release readiness artifacts, plus
+parsed readiness/verification summaries when those files are present. `--json`
+must not be combined with `--registry -`, because `--registry -` writes the raw
+registry JSON to stdout.
 
 `datapan init [--registry PATH] [--url URL] [--release-url URL] --json` wraps
 that install path for first-run setup. JSON output must include `install`,

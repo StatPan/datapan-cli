@@ -725,6 +725,12 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
 	fmt.Fprintf(a.stdout, "  specs: %d\n", len(install.Specs))
 	fmt.Fprintf(a.stdout, "  bytes: %d\n", len(install.RegistryData))
+	if install.Release.ReadinessReady != nil {
+		fmt.Fprintf(a.stdout, "  release readiness: %t\n", *install.Release.ReadinessReady)
+	}
+	if install.Release.ReleaseNotesPresent {
+		fmt.Fprintln(a.stdout, "  release notes: included")
+	}
 	return exitOK
 }
 
@@ -733,6 +739,23 @@ type datapanRegistryInstall struct {
 	AssetURL     string
 	RegistryData []byte
 	Specs        []datago.Spec
+	Release      datapanRegistryInstallRelease
+}
+
+type datapanRegistryInstallRelease struct {
+	ManifestPresent        bool   `json:"manifest_present"`
+	ReleaseNotesPresent    bool   `json:"release_notes_present"`
+	VerificationPresent    bool   `json:"verification_present"`
+	ReadinessPresent       bool   `json:"readiness_present"`
+	ManifestGeneratedAt    string `json:"manifest_generated_at,omitempty"`
+	ManifestArtifacts      int    `json:"manifest_artifacts,omitempty"`
+	VerificationOK         *bool  `json:"verification_ok,omitempty"`
+	VerificationChecked    int    `json:"verification_checked,omitempty"`
+	VerificationFailed     int    `json:"verification_failed,omitempty"`
+	ReadinessReady         *bool  `json:"readiness_ready,omitempty"`
+	ReadinessPassed        int    `json:"readiness_passed,omitempty"`
+	ReadinessFailed        int    `json:"readiness_failed,omitempty"`
+	ReadinessRegistrySpecs int    `json:"readiness_registry_specs,omitempty"`
 }
 
 func (i datapanRegistryInstall) Payload() map[string]any {
@@ -744,6 +767,7 @@ func (i datapanRegistryInstall) Payload() map[string]any {
 		"bytes":     len(i.RegistryData),
 		"specs":     len(i.Specs),
 		"installed": i.RegistryPath != "-",
+		"release":   i.Release,
 	}
 }
 
@@ -762,22 +786,23 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 	if err != nil {
 		return datapanRegistryInstall{}, err
 	}
-	registryData, err := registryFromDatapanRegistryZip(zipData)
+	snapshot, err := datapanRegistrySnapshotFromZip(zipData)
 	if err != nil {
 		return datapanRegistryInstall{}, err
 	}
-	specs, err := decodeRegistryBytes(registryData)
+	specs, err := decodeRegistryBytes(snapshot.RegistryData)
 	if err != nil {
 		return datapanRegistryInstall{}, err
 	}
-	if err := writeOutput(registryPath, registryData, a.stdout); err != nil {
+	if err := writeOutput(registryPath, snapshot.RegistryData, a.stdout); err != nil {
 		return datapanRegistryInstall{}, err
 	}
 	return datapanRegistryInstall{
 		RegistryPath: registryPath,
 		AssetURL:     assetURL,
-		RegistryData: registryData,
+		RegistryData: snapshot.RegistryData,
 		Specs:        specs,
+		Release:      snapshot.Release,
 	}, nil
 }
 
@@ -952,27 +977,94 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 	return body, nil
 }
 
-func registryFromDatapanRegistryZip(data []byte) ([]byte, error) {
+type datapanRegistryZipSnapshot struct {
+	RegistryData []byte
+	Release      datapanRegistryInstallRelease
+}
+
+func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return nil, fmt.Errorf("open registry zip: %w", err)
+		return datapanRegistryZipSnapshot{}, fmt.Errorf("open registry zip: %w", err)
 	}
+	entries := map[string][]byte{}
 	for _, file := range reader.File {
-		if filepath.ToSlash(file.Name) != datapanRegistryZipRegistryPath {
+		name := filepath.ToSlash(file.Name)
+		if name != datapanRegistryZipRegistryPath &&
+			name != "manifest.json" &&
+			name != "RELEASE_NOTES.md" &&
+			name != "reports/latest-release-verification.json" &&
+			name != "reports/latest-release-readiness.json" {
 			continue
 		}
-		rc, err := file.Open()
+		data, err := readZipFile(file)
 		if err != nil {
-			return nil, err
+			return datapanRegistryZipSnapshot{}, err
 		}
-		defer rc.Close()
-		out, err := io.ReadAll(rc)
-		if err != nil {
-			return nil, err
-		}
-		return out, nil
+		entries[name] = data
 	}
-	return nil, fmt.Errorf("zip does not contain %s", datapanRegistryZipRegistryPath)
+	registryData, ok := entries[datapanRegistryZipRegistryPath]
+	if !ok {
+		return datapanRegistryZipSnapshot{}, fmt.Errorf("zip does not contain %s", datapanRegistryZipRegistryPath)
+	}
+	return datapanRegistryZipSnapshot{
+		RegistryData: registryData,
+		Release:      installReleaseEvidenceFromZip(entries),
+	}, nil
+}
+
+func registryFromDatapanRegistryZip(data []byte) ([]byte, error) {
+	snapshot, err := datapanRegistrySnapshotFromZip(data)
+	if err != nil {
+		return nil, err
+	}
+	return snapshot.RegistryData, nil
+}
+
+func readZipFile(file *zip.File) ([]byte, error) {
+	rc, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(rc)
+}
+
+func installReleaseEvidenceFromZip(entries map[string][]byte) datapanRegistryInstallRelease {
+	var evidence datapanRegistryInstallRelease
+	if data, ok := entries["manifest.json"]; ok {
+		evidence.ManifestPresent = true
+		var manifest releaseManifest
+		if err := json.Unmarshal(data, &manifest); err == nil {
+			evidence.ManifestGeneratedAt = manifest.GeneratedAt
+			evidence.ManifestArtifacts = manifest.ArtifactCount
+		}
+	}
+	if _, ok := entries["RELEASE_NOTES.md"]; ok {
+		evidence.ReleaseNotesPresent = true
+	}
+	if data, ok := entries["reports/latest-release-verification.json"]; ok {
+		evidence.VerificationPresent = true
+		var report releaseManifestVerificationReport
+		if err := json.Unmarshal(data, &report); err == nil {
+			ok := report.OK
+			evidence.VerificationOK = &ok
+			evidence.VerificationChecked = report.Checked
+			evidence.VerificationFailed = report.Failed
+		}
+	}
+	if data, ok := entries["reports/latest-release-readiness.json"]; ok {
+		evidence.ReadinessPresent = true
+		var report releaseReadinessReport
+		if err := json.Unmarshal(data, &report); err == nil {
+			ready := report.Ready
+			evidence.ReadinessReady = &ready
+			evidence.ReadinessPassed = report.Summary.Passed
+			evidence.ReadinessFailed = report.Summary.Failed
+			evidence.ReadinessRegistrySpecs = report.Summary.RegistrySpecs
+		}
+	}
+	return evidence
 }
 
 func decodeRegistryBytes(data []byte) ([]datago.Spec, error) {
