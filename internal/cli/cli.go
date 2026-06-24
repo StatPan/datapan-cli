@@ -2440,6 +2440,7 @@ func (a app) catalogProviders(args []string, jsonOut bool) int {
 		}
 	}
 	if jsonOut {
+		nextCommands := providerNextCommands(providers, registryPath)
 		return a.writeJSON(map[string]any{
 			"ok":             true,
 			"output":         output,
@@ -2450,6 +2451,7 @@ func (a app) catalogProviders(args []string, jsonOut bool) int {
 			"filtered_count": len(filteredProviders),
 			"summary":        backlog.Summary,
 			"providers":      providers,
+			"next_commands":  nextCommands,
 			"report":         report,
 		})
 	}
@@ -2484,11 +2486,65 @@ func (a app) catalogProviders(args []string, jsonOut bool) int {
 		if len(provider.SampleIDs) > 0 {
 			fmt.Fprintf(a.stdout, "  sample ids: %s\n", strings.Join(provider.SampleIDs, ", "))
 		}
+		for _, command := range providerNextCommands([]datago.ProviderSummary{provider}, registryPath) {
+			if command.AdapterTargets != "" {
+				fmt.Fprintf(a.stdout, "  inspect targets: %s\n", command.AdapterTargets)
+			}
+			if command.Dependencies != "" {
+				fmt.Fprintf(a.stdout, "  inspect ops: %s\n", command.Dependencies)
+			}
+			if command.Verify != "" {
+				fmt.Fprintf(a.stdout, "  verify: %s\n", command.Verify)
+			}
+		}
 	}
 	if truncated {
 		fmt.Fprintf(a.stdout, "  output truncated to %d providers; use --limit 0 for all\n", limit)
 	}
 	return exitOK
+}
+
+type providerNextCommand struct {
+	Host           string `json:"host"`
+	AdapterTargets string `json:"adapter_targets,omitempty"`
+	Dependencies   string `json:"dependencies"`
+	Verify         string `json:"verify,omitempty"`
+}
+
+func providerNextCommands(providers []datago.ProviderSummary, registryPath string) []providerNextCommand {
+	out := make([]providerNextCommand, 0, len(providers))
+	for _, provider := range providers {
+		host := strings.TrimSpace(provider.Host)
+		if host == "" {
+			continue
+		}
+		command := providerNextCommand{
+			Host:         host,
+			Dependencies: providerCommand(registryPath, "dependencies", host, "20"),
+		}
+		if provider.AdapterStatus == "missing" {
+			command.AdapterTargets = providerCommand(registryPath, "adapter-targets", host, "5")
+		}
+		if provider.AdapterStatus == "adapter" || provider.AdapterStatus == "builtin" {
+			args := []string{"datapan", "catalog", "verify"}
+			if registryPath != "" {
+				args = append(args, "--registry", registryPath)
+			}
+			args = append(args, "--host", host, "--limit", "3", "--json")
+			command.Verify = datago.CommandString(args)
+		}
+		out = append(out, command)
+	}
+	return out
+}
+
+func providerCommand(registryPath, command, host, limit string) string {
+	args := []string{"datapan", "catalog", command}
+	if registryPath != "" {
+		args = append(args, "--registry", registryPath)
+	}
+	args = append(args, "--host", host, "--limit", limit, "--json")
+	return datago.CommandString(args)
 }
 
 func (a app) catalogDependencies(args []string, jsonOut bool) int {

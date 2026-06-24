@@ -240,7 +240,10 @@ installed registry when no `--registry` is supplied and delegates to the same
 provider backlog contract as `catalog providers`. `--adapters` is equivalent
 to `--status adapter`; `--gaps` and `--missing` are equivalent to `--status
 missing --kind external_endpoint`. These shortcuts must not be combined with
-explicit conflicting `--status` or `--kind` filters.
+explicit conflicting `--status` or `--kind` filters. The command envelope may
+include `next_commands` entries keyed by host; these are convenience commands
+for inspecting adapter targets, operation dependencies, or bounded verification
+without changing the pure provider backlog report schema.
 
 `datapan catalog providers [--registry PATH] --json` converts dependency
 classification into a host/provider backlog. When `--registry` is omitted, it

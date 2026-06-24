@@ -193,7 +193,9 @@ Use `datapan providers --adapters --json` when you want to see external hosts
 already owned by registered provider adapters, and `datapan providers --gaps
 --json` when you want the missing external endpoint host backlog without
 remembering the longer `catalog providers --status missing --kind
-external_endpoint` form.
+external_endpoint` form. The JSON envelope includes `next_commands` so an
+agent or human can jump directly from a provider host to `catalog
+adapter-targets`, `catalog dependencies`, or bounded `catalog verify` commands.
 Use `datapan list` or `datapan ls` when you want a data-CLI-style dataset list
 without inventing a search term. They accept the same `--org`, `--category`,
 `--priority`, `--provider`, `--callable`, `--call-ready`, `--limit`, and

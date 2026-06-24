@@ -262,6 +262,8 @@ func TestCatalogProvidersLoadsDefaultInstalledRegistry(t *testing.T) {
 		`"provider": "forest"`,
 		`"host": "api.forest.go.kr"`,
 		`"adapter_status": "adapter"`,
+		`"next_commands":`,
+		`"verify": "datapan catalog verify --host api.forest.go.kr --limit 3 --json"`,
 		`"filtered_count": 1`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -306,6 +308,8 @@ func TestProvidersTopLevelShortcutsLoadDefaultInstalledRegistry(t *testing.T) {
 		`"kind": "external_endpoint"`,
 		`"host": "missing.example.test"`,
 		`"adapter_status": "missing"`,
+		`"adapter_targets": "datapan catalog adapter-targets --host missing.example.test --limit 5 --json"`,
+		`"dependencies": "datapan catalog dependencies --host missing.example.test --limit 20 --json"`,
 		`"filtered_count": 1`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -2093,6 +2097,11 @@ func TestCatalogProvidersJSONReportsAdapterBacklog(t *testing.T) {
 		`"host": "openapi.q-net.or.kr"`,
 		`"provider": "q-net"`,
 		`"adapter_status": "adapter"`,
+		`"next_commands":`,
+		`"dependencies": "datapan catalog dependencies --registry`,
+		`--host openapi.q-net.or.kr --limit 20 --json"`,
+		`"verify": "datapan catalog verify --registry`,
+		`--host openapi.q-net.or.kr --limit 3 --json"`,
 		`"external_endpoint_operations": 1`,
 		`"sample_ids":`,
 		`"200"`,
