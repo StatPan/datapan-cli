@@ -72,10 +72,11 @@ path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, and next-step hints. It should not print credential values.
 
 `datapan search --json` must include per-result `examples` for immediate next
-steps: `show`, `params`, `get`, `curl`, `postman`, `openapi`, `codegen_go`,
-`codegen_node`, and `codegen_python` when those commands can be generated from
-the selected operation. Human search output should include at least a `next:
-datapan show <id>` line and, when callable, a `try: datapan get ...` line.
+steps: `show`, `use`, `params`, `get`, `curl`, `postman`, `openapi`,
+`codegen_go`, `codegen_node`, and `codegen_python` when those commands can be
+generated from the selected operation. Human search output should include at
+least a `next: datapan show <id>` line and, when callable, a
+`try: datapan get ...` line.
 Generated examples must omit auth parameters such as `serviceKey`, `apiKey`,
 `authApiKey`, and `authKey`; Datapan supplies credentials from environment
 variables.
@@ -320,6 +321,7 @@ must fail with exit code 5 and return candidate summaries under `--json`.
 
 ```bash
 datapan show "국토교통부_아파트 매매 실거래가 자료" --json
+datapan use 15084084 base_date=20260622 base_time=0500 --json
 datapan params 15084084 base_date=20260622 base_time=0500 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 --json
 datapan get 15084084 --params-file forecast.params.json --dry-run --json
@@ -341,6 +343,19 @@ addition to the normalized `spec`, it returns:
   parameter counts, and a generated `datapan get ...` example when callable.
 - `examples`: top-level `access`, `params`, `get`, export, and codegen commands
   for the selected dataset when those commands can be generated.
+
+`datapan use <ref> [KEY=VALUE ...] [--param k=v] [--params-file PATH|-]
+--json` is the stable planning handoff from a resolved dataset to concrete
+consumer actions. It must not call the provider. It must return `dataset`,
+`title`, `operation`, `application_url`, accepted credential env vars, the
+merged non-auth `params`, field labels, and a `commands` object containing
+copyable `params`, `dry_run`, `get`, `save_csv`, `curl`, `postman`, `openapi`,
+`codegen_go`, `codegen_node`, `codegen_python`, and `access` commands when the
+selected operation is callable. The merge order is operation defaults, smoke
+values, `--params-file`, positional `KEY=VALUE`, and `--param k=v`, with later
+sources overriding earlier sources. The command must preserve exact upstream
+parameter names and must never include credential values or auth parameters in
+the params object or generated commands.
 
 `datapan params <ref> [KEY=VALUE ...] [--param k=v] --output params.json`
 writes a JSON object that can be passed directly to

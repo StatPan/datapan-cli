@@ -100,6 +100,7 @@ datapan auth check --json
 datapan access 15126469 --purpose
 datapan access 15126469 --open
 datapan access 15126469 --start
+datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan params 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.params.json
 datapan get "기상청_단기예보 조회서비스" base_date=20260622 base_time=0500 nx=60 ny=127 --json
 datapan get 15084084 --params-file forecast.params.json --dry-run --json
@@ -125,9 +126,9 @@ Search can be narrowed with source metadata such as `--org`, `--category`,
 `data.go.kr`; `org` is the public agency or institution that provides the data.
 `category` maps to the upstream source category only when that value is present
 in the imported catalog; Datapan should not invent source categories.
-Search and show results include copyable next-step examples for `show`, `get`,
-`curl`, Postman export, OpenAPI export, and Go/Node/Python codegen when an
-operation has an endpoint.
+Search and show results include copyable next-step examples for `show`, `use`,
+`get`, `curl`, Postman export, OpenAPI export, and Go/Node/Python codegen when
+an operation has an endpoint.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 
@@ -260,6 +261,14 @@ a full machine-readable diff is needed.
 normalized spec, and also returns access metadata, operation parameter names,
 response-field counts, and copyable next-step examples where Datapan can
 synthesize them from the imported data.go.kr spec.
+
+`datapan use <ref> KEY=VALUE --json` is the shortest non-calling handoff from a
+dataset to action. It resolves the dataset, selects an operation, merges
+defaults, smoke values, `--params-file`, positional `KEY=VALUE`, and
+`--param k=v` overrides, then returns the exact params plus copyable commands
+for params-file creation, dry-run, get, CSV save, curl, Postman, OpenAPI, and
+Go/Node/Python codegen. It does not call the provider or print credential
+values.
 
 `datapan params <ref> KEY=VALUE --output params.json` writes a reusable JSON
 object for `--params-file`. The template keeps exact upstream parameter names,

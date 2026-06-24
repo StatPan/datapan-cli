@@ -437,6 +437,49 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	}
 }
 
+func TestUsePlansDatasetCommands(t *testing.T) {
+	paramsPath := t.TempDir() + "/params.json"
+	if err := osWriteFile(paramsPath, []byte(`{"base_date":"20240101","base_time":"0100","nx":"55"}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"use", "15084084", "--params-file", paramsPath, "base_date=20260622", "--param", "base_time=0500", "--param", "nx=60", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"dataset": "15084084"`,
+		`"operation": "getVilageFcst"`,
+		`"base_date": "20260622"`,
+		`"base_time": "0500"`,
+		`"nx": "60"`,
+		`"uses_params_file": "15084084_params.json"`,
+		`"params": "datapan params 15084084`,
+		`base_date=20260622`,
+		`base_time=0500`,
+		`nx=60`,
+		`"dry_run": "datapan get 15084084`,
+		`--params-file 15084084_params.json --dry-run --json`,
+		`"save_csv": "datapan save 15084084`,
+		`"postman": "datapan export --format postman 15084084`,
+		`"openapi": "datapan export --format openapi 15084084`,
+		`"codegen_go": "datapan codegen go 15084084`,
+		`"codegen_node": "datapan codegen node 15084084`,
+		`"codegen_python": "datapan codegen python 15084084`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in use plan: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") || strings.Contains(stdout, "serviceKey") || strings.Contains(stdout, "20240101") || strings.Contains(stdout, "0100") || strings.Contains(stdout, "nx=55") {
+		t.Fatalf("use plan should not leak credential material or auth params: %s", stdout)
+	}
+}
+
 func TestShowMarksImportedServiceRootNotCallable(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
@@ -2394,6 +2437,54 @@ func TestGetAcceptsPositionalParams(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"dataset": "15084084"`) || !strings.Contains(stdout, `"base_date": "20260622"`) {
 		t.Fatalf("expected resolved dry-run with positional params: %s", stdout)
+	}
+}
+
+func TestParamsFileHasLowerPrecedenceThanCLIParams(t *testing.T) {
+	paramsPath := t.TempDir() + "/params.json"
+	if err := osWriteFile(paramsPath, []byte(`{"base_date":"20240101","base_time":"0100","nx":"55"}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--params-file", paramsPath, "base_date=20260622", "--param", "base_time=0500", "--param", "nx=60", "--dry-run", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"base_date": "20260622"`,
+		`"base_time": "0500"`,
+		`"nx": "60"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in get dry-run: %s", want, stdout)
+		}
+	}
+	for _, bad := range []string{"20240101", "0100", `"nx": "55"`, "secret-value"} {
+		if strings.Contains(stdout, bad) {
+			t.Fatalf("unexpected %q in get dry-run: %s", bad, stdout)
+		}
+	}
+
+	code, stdout, stderr = runTest(
+		[]string{"curl", "15084084", "--params-file", paramsPath, "base_date=20260622", "--param", "base_time=0500", "--param", "nx=60", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`base_date=20260622`, `base_time=0500`, `nx=60`, `serviceKey=${DATA_PORTAL_API_KEY}`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in curl plan: %s", want, stdout)
+		}
+	}
+	for _, bad := range []string{"20240101", "0100", "nx=55", "secret-value"} {
+		if strings.Contains(stdout, bad) {
+			t.Fatalf("unexpected %q in curl plan: %s", bad, stdout)
+		}
 	}
 }
 

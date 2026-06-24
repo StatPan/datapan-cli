@@ -141,7 +141,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "show", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -221,6 +221,8 @@ func (a app) run() int {
 		return a.info(args[1:], jsonOut)
 	case "show":
 		return a.info(args[1:], jsonOut)
+	case "use":
+		return a.use(args[1:], jsonOut)
 	case "params":
 		return a.params(args[1:], jsonOut)
 	case "auth":
@@ -2679,6 +2681,93 @@ func showPayload(spec datago.Spec) map[string]any {
 	}
 }
 
+func (a app) use(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	operation, args, err := consumeString(args, "--operation", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	paramsFile, args, err := consumeString(args, "--params-file", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	flagParams, args, err := consumeParams(args)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) < 1 {
+		return a.fail(exitUsage, "usage: datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]")
+	}
+	positionalParams, err := parseKeyValueArgs(args[1:])
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	fileParams, err := readParamsFile(paramsFile, os.Stdin)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	overrides := mergeParamMaps(fileParams, positionalParams, flagParams)
+	spec, code, ok := a.resolveOne(args[0], jsonOut)
+	if !ok {
+		return code
+	}
+	op, ok := spec.Operation(operation)
+	if !ok {
+		if operation == "" {
+			return a.mapError(fmt.Errorf("spec %s has no callable operation endpoint yet", spec.ID), jsonOut)
+		}
+		return a.mapError(fmt.Errorf("unknown operation %q for %s", operation, spec.ID), jsonOut)
+	}
+	params, fields := paramsTemplateForOperation(spec, op, overrides)
+	paramsOutput := spec.ID + "_params.json"
+	commands := useCommandsForOperation(spec, op, params, paramsOutput)
+	payload := map[string]any{
+		"ok":                 true,
+		"dataset":            spec.ID,
+		"title":              spec.Title,
+		"provider":           spec.Provider,
+		"organization":       spec.Organization,
+		"operation":          op.Name,
+		"application_url":    spec.ApplicationURL(),
+		"credential_env":     datago.KeyEnvNames,
+		"params":             params,
+		"fields":             fields,
+		"commands":           commands,
+		"registry_source":    a.registrySource,
+		"registry_path":      a.registryPath,
+		"uses_params_file":   paramsOutput,
+		"provided_overrides": len(overrides),
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	fmt.Fprintf(a.stdout, "%s\n", spec.Title)
+	fmt.Fprintf(a.stdout, "  id: %s\n", spec.ID)
+	if spec.Organization != "" {
+		fmt.Fprintf(a.stdout, "  organization: %s\n", spec.Organization)
+	}
+	fmt.Fprintf(a.stdout, "  operation: %s\n", op.Name)
+	fmt.Fprintf(a.stdout, "  application: %s\n", spec.ApplicationURL())
+	if len(fields) > 0 {
+		fmt.Fprintln(a.stdout, "  params:")
+		for _, field := range fields {
+			line := fmt.Sprintf("    %s=%s", field["name"], field["value"])
+			if label := strings.TrimSpace(field["label"]); label != "" {
+				line += "  # " + label
+			}
+			fmt.Fprintln(a.stdout, line)
+		}
+	}
+	fmt.Fprintln(a.stdout, "  commands:")
+	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
+		if value := strings.TrimSpace(commands[key]); value != "" {
+			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
+		}
+	}
+	return exitOK
+}
+
 func showAccessSummary(spec datago.Spec) map[string]any {
 	raw := specRaw(spec)
 	out := map[string]any{
@@ -2739,7 +2828,7 @@ func (a app) params(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	overrides, args, err := consumeParams(args)
+	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
@@ -2757,9 +2846,7 @@ func (a app) params(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	for k, v := range positionalParams {
-		overrides[k] = v
-	}
+	overrides := mergeParamMaps(positionalParams, flagParams)
 	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
 		return code
@@ -2957,6 +3044,7 @@ func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
 func specExampleCommands(spec datago.Spec) map[string]string {
 	examples := map[string]string{
 		"show":           showCommand(spec),
+		"use":            exampleUseCommand(spec),
 		"access":         "datapan access " + spec.ID + " --start",
 		"params":         exampleParamsCommand(spec),
 		"get":            exampleGetCommand(spec),
@@ -2975,8 +3063,88 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 	return examples
 }
 
+func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[string]string, paramsOutput string) map[string]string {
+	commands := map[string]string{
+		"access":         datago.CommandString([]string{"datapan", "access", spec.ID, "--start"}),
+		"params":         paramsCommandForOperation(spec, op, params, paramsOutput),
+		"dry_run":        commandWithParamsFile([]string{"datapan", "get", spec.ID}, op.Name, paramsOutput, "--dry-run", "--json"),
+		"get":            commandWithParamsFile([]string{"datapan", "get", spec.ID}, op.Name, paramsOutput, "--json"),
+		"save_csv":       commandWithParamsFile([]string{"datapan", "save", spec.ID}, op.Name, paramsOutput, "--format", "csv", "--output", spec.ID+".csv"),
+		"curl":           commandWithParamsFile([]string{"datapan", "curl", spec.ID}, op.Name, paramsOutput),
+		"postman":        commandWithParamsFile([]string{"datapan", "export", "--format", "postman", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+".postman_collection.json"),
+		"openapi":        commandWithParamsFile([]string{"datapan", "export", "--format", "openapi", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+".openapi.json"),
+		"codegen_go":     commandWithParamsFile([]string{"datapan", "codegen", "go", spec.ID}, op.Name, paramsOutput, "--package", "datapanclient", "--output", spec.ID+"_client.go"),
+		"codegen_node":   commandWithParamsFile([]string{"datapan", "codegen", "node", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+"_client.js"),
+		"codegen_python": commandWithParamsFile([]string{"datapan", "codegen", "python", spec.ID}, op.Name, paramsOutput, "--output", spec.ID+"_client.py"),
+	}
+	for key, value := range commands {
+		if strings.TrimSpace(value) == "" {
+			delete(commands, key)
+		}
+	}
+	return commands
+}
+
+func paramsCommandForOperation(spec datago.Spec, op datago.Operation, params map[string]string, output string) string {
+	args := []string{"datapan", "params", spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	for _, key := range sortedParamKeys(params) {
+		value := strings.TrimSpace(params[key])
+		if value == "" || value == "VALUE" || isAuthParam(key) {
+			continue
+		}
+		args = append(args, key+"="+value)
+	}
+	args = append(args, "--output", output)
+	return datago.CommandString(args)
+}
+
+func commandWithParamsFile(base []string, operation, paramsFile string, extra ...string) string {
+	args := append([]string(nil), base...)
+	if operation != "" {
+		args = append(args, "--operation", operation)
+	}
+	args = append(args, "--params-file", paramsFile)
+	args = append(args, extra...)
+	return datago.CommandString(args)
+}
+
+func sortedParamKeys(params map[string]string) []string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		if strings.TrimSpace(key) != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func showCommand(spec datago.Spec) string {
 	return datago.CommandString([]string{"datapan", "show", spec.ID})
+}
+
+func exampleUseCommand(spec datago.Spec) string {
+	if len(spec.Operations) == 0 {
+		return ""
+	}
+	op := spec.Operations[0]
+	if op.Endpoint == "" {
+		return ""
+	}
+	args := []string{"datapan", "use", spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	for _, param := range nonAuthParams(op.RequestParams) {
+		name := strings.TrimSpace(param.Name)
+		if name != "" {
+			args = append(args, name+"=VALUE")
+		}
+	}
+	return datago.CommandString(args)
 }
 
 func exampleParamsCommand(spec datago.Spec) string {
@@ -3759,7 +3927,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	params, args, err := consumeParams(args)
+	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
@@ -3770,16 +3938,11 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	for k, v := range positionalParams {
-		params[k] = v
-	}
 	fileParams, err := readParamsFile(paramsFile, os.Stdin)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	for k, v := range fileParams {
-		params[k] = v
-	}
+	params := mergeParamMaps(fileParams, positionalParams, flagParams)
 	reqPlan, keyName, err := a.requestPlan(args[0], operation, params)
 	if err != nil {
 		return a.mapError(err, jsonOut || exportMode)
@@ -4202,7 +4365,7 @@ func (a app) curlExportPlan(args []string) (curlExportPlan, error) {
 	if err != nil {
 		return curlExportPlan{}, errUsage{err.Error()}
 	}
-	params, args, err := consumeParams(args)
+	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return curlExportPlan{}, errUsage{err.Error()}
 	}
@@ -4213,16 +4376,11 @@ func (a app) curlExportPlan(args []string) (curlExportPlan, error) {
 	if err != nil {
 		return curlExportPlan{}, errUsage{err.Error()}
 	}
-	for k, v := range positionalParams {
-		params[k] = v
-	}
 	fileParams, err := readParamsFile(paramsFile, os.Stdin)
 	if err != nil {
 		return curlExportPlan{}, errUsage{err.Error()}
 	}
-	for k, v := range fileParams {
-		params[k] = v
-	}
+	params := mergeParamMaps(fileParams, positionalParams, flagParams)
 	return a.curlExportPlanForRef(args[0], operation, params)
 }
 
@@ -5182,6 +5340,7 @@ Usage:
   datapan catalog release verify --manifest PATH [--output PATH|-] [--json]
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
+  datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
   datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
   datapan auth check [--json]
   datapan doctor [--json]
@@ -5191,7 +5350,7 @@ Usage:
   datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
   datapan save <ref> [KEY=VALUE ...] [--format csv|json] [--output PATH|-] [--json]
-  datapan call <ref> [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
+  datapan call <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
@@ -5355,6 +5514,18 @@ func readParamsFile(path string, stdin io.Reader) (map[string]string, error) {
 		params[k] = fmt.Sprint(v)
 	}
 	return params, nil
+}
+
+func mergeParamMaps(sources ...map[string]string) map[string]string {
+	merged := map[string]string{}
+	for _, source := range sources {
+		for key, value := range source {
+			if strings.TrimSpace(key) != "" {
+				merged[key] = value
+			}
+		}
+	}
+	return merged
 }
 
 func readAllInput(path string, stdin io.Reader) ([]byte, error) {
