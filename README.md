@@ -253,6 +253,10 @@ be published by `datapan-registry`. Use `--status`, `--kind`, and
 `--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
 registered external adapters such as airport, q-net, epost, ekape, forest, and
 folk.
+After `datapan init`, catalog observation commands such as `catalog providers`,
+`catalog dependencies`, `catalog adapter-targets`, and `catalog verify`
+automatically use `.datapan/data-go-kr.registry.json` when `--registry` is not
+provided.
 Use `datapan catalog verify` to collect bounded runtime evidence. It attempts
 only operations Datapan can call conservatively with known smoke/default/safe
 paging parameters or a registered provider adapter, then records `verified`,

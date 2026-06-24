@@ -146,7 +146,16 @@ func shouldLoadDefaultRegistry(args []string) bool {
 	case "access":
 		return len(args) < 2 || args[1] != "login"
 	case "catalog":
-		return len(args) > 1 && (args[1] == "overview" || args[1] == "studio")
+		return len(args) > 1 && defaultRegistryCatalogCommand(args[1])
+	default:
+		return false
+	}
+}
+
+func defaultRegistryCatalogCommand(command string) bool {
+	switch command {
+	case "overview", "studio", "audit", "errors", "providers", "dependencies", "adapter-targets", "verify":
+		return true
 	default:
 		return false
 	}
@@ -6312,9 +6321,9 @@ func (a app) printHelp() {
 
 Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
-  datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
-  datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
-  datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]
+  datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]
+  datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]

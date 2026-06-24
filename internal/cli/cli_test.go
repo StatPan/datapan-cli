@@ -167,6 +167,58 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 	}
 }
 
+func TestCatalogProvidersLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"500","title":"산림청_숲 이야기","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "providers", "--status", "adapter", "--provider", "forest", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"provider": "forest"`,
+		`"host": "api.forest.go.kr"`,
+		`"adapter_status": "adapter"`,
+		`"filtered_count": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in provider output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogDependenciesLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"500","title":"산림청_숲 이야기","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "dependencies", "--status", "adapter", "--provider", "forest", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"provider_family": "forest"`,
+		`"endpoint_host": "api.forest.go.kr"`,
+		`"adapter_status": "adapter"`,
+		`"filtered_count": 1`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in dependencies output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
 	dir := t.TempDir()
 	registryPath := filepath.Join(dir, "registry.json")

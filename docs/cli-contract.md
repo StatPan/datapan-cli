@@ -65,6 +65,11 @@ Consumer commands that resolve datasets, such as `search`, `show`, `use`,
 automatically load that default registry file from the current project
 directory when `DATAPAN_REGISTRY_PATH` is not set. `DATAPAN_REGISTRY_PATH`
 remains the explicit override for alternate registry files.
+Catalog observation commands with optional `--registry`, including `overview`,
+`studio`, `audit`, `errors`, `providers`, `dependencies`, `adapter-targets`,
+and `verify`, should also load the default installed registry automatically.
+Catalog mutation and release commands such as `import`, `update`, `install`,
+`diff`, and `release` keep their explicit path contracts.
 
 ```bash
 datapan init --json
@@ -188,8 +193,9 @@ installed registry discovery used by consumer commands. The command may accept
 `--query`, `--org`, `--category`, `--provider`, `--priority`, and `--limit` to
 build a focused bundle.
 
-`datapan catalog providers --registry PATH --json` converts dependency
-classification into a host/provider backlog. The response includes summary
+`datapan catalog providers [--registry PATH] --json` converts dependency
+classification into a host/provider backlog. When `--registry` is omitted, it
+uses the default installed registry. The response includes summary
 counts for data.go.kr gateway hosts, external endpoint hosts, external guide
 hosts, registered adapter hosts, missing adapter hosts, operations that need
 adapters, approval-required operations, unsupported protocol operations,
@@ -208,8 +214,9 @@ provider list for adapter planning; the report must preserve those filters so
 the artifact remains explainable. `--json` may wrap that report in a command
 envelope for agent use.
 
-`datapan catalog dependencies --registry PATH --json` emits an operation-level
-dependency inventory. The response includes summary counts for gateway,
+`datapan catalog dependencies [--registry PATH] --json` emits an
+operation-level dependency inventory. When `--registry` is omitted, it uses the
+default installed registry. The response includes summary counts for gateway,
 external endpoint, service-root, missing endpoint, malformed endpoint, SOAP,
 WMS, approval-required, registered-adapter, and missing-adapter operations.
 Each dependency item includes dataset ID, title, operation name, upstream
@@ -227,9 +234,10 @@ non-callable classes. With `--output PATH|-`, the command writes a pure
 operation list before limit is applied. `--json` may wrap that report in a
 command envelope for agent use and must not be combined with `--output -`.
 
-`datapan catalog adapter-targets --registry PATH --json` converts missing
+`datapan catalog adapter-targets [--registry PATH] --json` converts missing
 external endpoint and service-root operations into a prioritized adapter work
-queue by host. The response includes summary counts for target hosts, target
+queue by host. When `--registry` is omitted, it uses the default installed
+registry. The response includes summary counts for target hosts, target
 operations, external endpoint operations, service-root operations,
 approval-required operations, missing-parameter operations, and unsupported
 protocol operations. Each target includes rank, host, inferred provider family,
@@ -244,9 +252,10 @@ report containing `generated_at`, `provider`, `registry`, `limit`,
 applied. `--json` may wrap that report in a command envelope for agent use and
 must not be combined with `--output -`.
 
-`datapan catalog verify --registry PATH --json` collects bounded runtime
+`datapan catalog verify [--registry PATH] --json` collects bounded runtime
 evidence. It must not blindly call the whole catalog. By default it should
-consider a small bounded set of operations; callers may pass `--ref REF`,
+consider a small bounded set of operations; when `--registry` is omitted, it
+uses the default installed registry. Callers may pass `--ref REF`,
 `--operation NAME`, `--limit N`, `--provider NAME`, `--host HOST`, `--kind
 KIND`, and `--output PATH|-`. Provider, host, and kind filters apply before the
 limit, so `--provider q-net --limit 5` means five q-net candidates, not the
