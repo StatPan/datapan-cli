@@ -93,6 +93,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider folk --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider folk --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider airport --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider airport --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
@@ -103,6 +105,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ekape --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider folk --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
 ```
 
 The current imported registry shows q-net as a strong early adapter family:
@@ -128,6 +131,10 @@ The forest adapter owns `api.forest.go.kr` and verifies a small but real
 external provider family with observed `NORMAL SERVICE` XML responses.
 The folk adapter owns `folkency.nfm.go.kr` and verifies National Folk Museum
 multimedia list APIs with provider-specific JSON `result_code=200` responses.
+The airport adapter owns `openapi.airport.co.kr` and captures Korea Airports
+Corporation low-visibility API credential-registration responses as
+provider-specific evidence instead of leaving those operations as generic
+missing-adapter gaps.
 Release drafts also publish `data/provider-index.json` using
 `schemas/datapan.provider-index.v1.schema.json` so consumers can distinguish
 registered adapter ownership from backlog observations.
@@ -290,6 +297,30 @@ Expected evidence shape: `provider=folk`, `endpoint_host=folkency.nfm.go.kr`,
 redacted URLs, `semantic_status=provider_ok` for list operations,
 `body_shape=json_items`, and `folk_missing_required_params` for detail
 operations that lack required identifiers.
+
+## Sixth Adapter: airport
+
+The airport adapter covers Korea Airports Corporation APIs hosted at
+`openapi.airport.co.kr`. The current registry exposes low-visibility warning
+operations where several endpoints need no domain-specific search parameter and
+list endpoints only need safe paging defaults such as `pageNo=1` and
+`numOfRows=1`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider airport --kind external_endpoint --limit 6 --output .datapan/airport-verification.json --json
+datapan catalog verify summary --input .datapan/airport-verification.json --json
+```
+
+Expected evidence shape: `provider=airport`,
+`endpoint_host=openapi.airport.co.kr`, redacted URLs, XML or JSON provider
+status bodies, and stable provider-specific reasons such as
+`airport_service_key_not_registered` when the upstream service rejects the
+current data.go.kr key registration state. A failed airport verification can
+still be useful evidence when it proves that the request reached the external
+provider and the provider rejected credential registration.
 
 ## Adapter Readiness Bar
 

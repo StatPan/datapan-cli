@@ -194,6 +194,8 @@ Adapter status:
   culture information APIs with verified XML response evidence;
 - `folk`: registered observation-stage adapter for National Folk Museum
   multimedia APIs with provider-specific JSON result evidence;
+- `airport`: registered observation-stage adapter for Korea Airports
+  Corporation APIs with provider key-registration error evidence;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;

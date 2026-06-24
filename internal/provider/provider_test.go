@@ -441,6 +441,70 @@ func TestFolkAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	}
 }
 
+func TestAirportAdapterClassifiesServiceKeyRegistrationErrors(t *testing.T) {
+	adapter := NewAirportAdapter()
+	if !adapter.MatchHost("openapi.airport.co.kr") {
+		t.Fatal("expected airport adapter to match openapi.airport.co.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("airport adapter should not match data.go.kr gateway")
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in airport request: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":99,"resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR."}}}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "700", Title: "Airport low visibility", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "latest", Endpoint: "http://openapi.airport.co.kr/service/rest/airportLowVisibility/getAirportLowVisibilityLast"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       httpClient,
+		VerifiedAt: "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "airport" || result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "airport_service_key_not_registered" {
+		t.Fatalf("unexpected airport result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "99" {
+		t.Fatalf("unexpected airport provider status: %#v", result.ProviderStatus)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || result.BodyShape != "json_status" {
+		t.Fatalf("unexpected airport URL/body shape: url=%s shape=%s", result.URL, result.BodyShape)
+	}
+}
+
+func TestAirportAdapterSuppliesSafePagingDefaults(t *testing.T) {
+	adapter := NewAirportAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" || req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("unexpected airport query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><airport>GMP</airport></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "701", Title: "Airport list", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "list", Endpoint: "http://openapi.airport.co.kr/service/rest/airportLowVisibility/getAirportLowVisibility"},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected airport success result: %#v", result)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
+		t.Fatalf("unexpected airport params: %#v", result.Params)
+	}
+}
+
 func TestFolkAdapterSkipsDetailEndpointsWithoutIdentifiers(t *testing.T) {
 	adapter := NewFolkAdapter()
 	result := adapter.Verify(context.Background(), VerificationRequest{

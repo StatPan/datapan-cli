@@ -135,6 +135,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 			Title:    "산림청_외부",
 			Provider: "data.go.kr",
 			Operations: []Operation{
+				{Name: "공항", Endpoint: "http://openapi.airport.co.kr/service/rest/airportLowVisibility/getAirportLowVisibilityLast"},
 				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
 				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
@@ -142,7 +143,11 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "folkency.nfm.go.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr"})
+	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
+	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
+		t.Fatalf("unexpected airport summary: %#v", airport)
+	}
 	forest := findProviderSummary(backlog.Providers, "api.forest.go.kr")
 	if forest == nil || forest.AdapterStatus != "adapter" || forest.Provider != "forest" {
 		t.Fatalf("unexpected forest summary: %#v", forest)

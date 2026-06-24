@@ -55,11 +55,12 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		t.Fatal(err)
 	}
 	for host, name := range map[string]string{
-		"openapi.q-net.or.kr": "q-net",
-		"openapi.epost.go.kr": "epost",
-		"data.ekape.or.kr":    "ekape",
-		"folkency.nfm.go.kr":  "folk",
-		"api.forest.go.kr":    "forest",
+		"openapi.airport.co.kr": "airport",
+		"openapi.q-net.or.kr":   "q-net",
+		"openapi.epost.go.kr":   "epost",
+		"data.ekape.or.kr":      "ekape",
+		"folkency.nfm.go.kr":    "folk",
+		"api.forest.go.kr":      "forest",
 	} {
 		adapter, ok := registry.MatchHost(host)
 		if !ok {
@@ -70,28 +71,31 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 5 || report.HostCount != 8 {
+	if report.AdapterCount != 6 || report.HostCount != 9 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
-	if len(report.Adapters) != 5 || report.Adapters[0].Name != "ekape" || report.Adapters[1].Name != "epost" || report.Adapters[2].Name != "folk" || report.Adapters[3].Name != "forest" || report.Adapters[4].Name != "q-net" {
+	if len(report.Adapters) != 6 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "ekape" || report.Adapters[2].Name != "epost" || report.Adapters[3].Name != "folk" || report.Adapters[4].Name != "forest" || report.Adapters[5].Name != "q-net" {
 		t.Fatalf("unexpected provider index adapter: %#v", report)
 	}
-	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" || report.Adapters[3].Status != "registered" || report.Adapters[4].Status != "registered" {
+	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" || report.Adapters[3].Status != "registered" || report.Adapters[4].Status != "registered" || report.Adapters[5].Status != "registered" {
 		t.Fatalf("unexpected provider index adapter status: %#v", report)
 	}
-	if strings.Join(report.Adapters[0].Hosts, ",") != "data.ekape.or.kr" {
+	if strings.Join(report.Adapters[0].Hosts, ",") != "openapi.airport.co.kr" {
+		t.Fatalf("unexpected airport provider index hosts: %#v", report.Adapters[0].Hosts)
+	}
+	if strings.Join(report.Adapters[1].Hosts, ",") != "data.ekape.or.kr" {
 		t.Fatalf("unexpected ekape provider index hosts: %#v", report.Adapters[0].Hosts)
 	}
-	if strings.Join(report.Adapters[1].Hosts, ",") != "openapi.epost.go.kr,openapi.epost.go.kr:80" {
-		t.Fatalf("unexpected epost provider index hosts: %#v", report.Adapters[1].Hosts)
+	if strings.Join(report.Adapters[2].Hosts, ",") != "openapi.epost.go.kr,openapi.epost.go.kr:80" {
+		t.Fatalf("unexpected epost provider index hosts: %#v", report.Adapters[2].Hosts)
 	}
-	if strings.Join(report.Adapters[2].Hosts, ",") != "folkency.nfm.go.kr" {
-		t.Fatalf("unexpected folk provider index hosts: %#v", report.Adapters[2].Hosts)
+	if strings.Join(report.Adapters[3].Hosts, ",") != "folkency.nfm.go.kr" {
+		t.Fatalf("unexpected folk provider index hosts: %#v", report.Adapters[3].Hosts)
 	}
-	if strings.Join(report.Adapters[3].Hosts, ",") != "api.forest.go.kr" {
-		t.Fatalf("unexpected forest provider index hosts: %#v", report.Adapters[3].Hosts)
+	if strings.Join(report.Adapters[4].Hosts, ",") != "api.forest.go.kr" {
+		t.Fatalf("unexpected forest provider index hosts: %#v", report.Adapters[4].Hosts)
 	}
-	if strings.Join(report.Adapters[4].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
-		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[4].Hosts)
+	if strings.Join(report.Adapters[5].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
+		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[5].Hosts)
 	}
 }
