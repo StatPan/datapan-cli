@@ -181,12 +181,13 @@ func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
 		`"kind": "overview"`,
 		`"kind": "datasets"`,
 		`"kind": "bundle"`,
+		`"kind": "viewer"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in studio output: %s", want, stdout)
 		}
 	}
-	for _, name := range []string{"overview.json", "datasets.json", "studio.json"} {
+	for _, name := range []string{"overview.json", "datasets.json", "studio.json", "index.html"} {
 		if _, err := os.Stat(filepath.Join(outputDir, name)); err != nil {
 			t.Fatalf("expected %s: %v", name, err)
 		}
@@ -214,6 +215,20 @@ func TestCatalogStudioWritesConsumerBundle(t *testing.T) {
 	}
 	if !strings.Contains(string(bundle), `"schema_version": "datapan.studio-bundle.v1"`) || !strings.Contains(string(bundle), `"split_readiness"`) {
 		t.Fatalf("unexpected studio bundle: %s", bundle)
+	}
+	viewer, err := osReadFile(filepath.Join(outputDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<title>Datapan Studio Bundle</title>`,
+		`id="datapan-data"`,
+		`Search datasets, organizations, commands`,
+		`datapan.studio-bundle.v1`,
+	} {
+		if !strings.Contains(string(viewer), want) {
+			t.Fatalf("expected %q in studio viewer: %s", want, viewer)
+		}
 	}
 }
 

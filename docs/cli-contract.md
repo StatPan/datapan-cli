@@ -164,14 +164,15 @@ same default installed registry discovery used by consumer commands.
 
 `datapan catalog studio --output-dir DIR --json` writes a static consumer
 bundle for Studio-like tools. It must create `overview.json`, `datasets.json`,
-and `studio.json`. `overview.json` reuses the catalog overview report;
-`datasets.json` contains bounded dataset cards with operation summaries,
-access metadata, and the same `examples` map used by search/show; `studio.json`
-wraps the bundle manifest, overview, dataset cards, provider readiness, and
-next-step commands. With no `--registry`, it follows the default installed
-registry discovery used by consumer commands. The command may accept `--query`,
-`--org`, `--category`, `--provider`, `--priority`, and `--limit` to build a
-focused bundle.
+`studio.json`, and `index.html`. `overview.json` reuses the catalog overview
+report; `datasets.json` contains bounded dataset cards with operation
+summaries, access metadata, and the same `examples` map used by search/show;
+`studio.json` wraps the bundle manifest, overview, dataset cards, provider
+readiness, and next-step commands; `index.html` is a static local viewer over
+that same embedded bundle. With no `--registry`, it follows the default
+installed registry discovery used by consumer commands. The command may accept
+`--query`, `--org`, `--category`, `--provider`, `--priority`, and `--limit` to
+build a focused bundle.
 
 `datapan catalog providers --registry PATH --json` converts dependency
 classification into a host/provider backlog. The response includes summary

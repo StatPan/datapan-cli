@@ -1249,6 +1249,7 @@ func (a app) catalogStudio(args []string, jsonOut bool) int {
 		{Kind: "overview", Path: joinPath(outputDir, "overview.json")},
 		{Kind: "datasets", Path: joinPath(outputDir, "datasets.json")},
 		{Kind: "bundle", Path: joinPath(outputDir, "studio.json")},
+		{Kind: "viewer", Path: joinPath(outputDir, "index.html")},
 	}
 	bundle := catalogStudioBundle{
 		SchemaVersion:  "datapan.studio-bundle.v1",
@@ -1288,6 +1289,13 @@ func (a app) catalogStudio(args []string, jsonOut bool) int {
 		return a.fail(exitRequest, "%v", err)
 	}
 	if err := writeJSONFile(files[2].Path, bundle); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	viewer, err := studioViewerHTML(bundle)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if err := writeOutput(files[3].Path, []byte(viewer), io.Discard); err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
 	if jsonOut {
@@ -1435,6 +1443,29 @@ func specHasCallableOperation(spec datago.Spec) bool {
 		}
 	}
 	return false
+}
+
+func studioViewerHTML(bundle catalogStudioBundle) (string, error) {
+	data, err := json.Marshal(bundle)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("<!doctype html>\n")
+	b.WriteString("<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n")
+	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
+	b.WriteString("<title>Datapan Studio Bundle</title>\n")
+	b.WriteString("<style>\n")
+	b.WriteString(":root{color-scheme:light;--ink:#172026;--muted:#5d6b75;--line:#d8e0e6;--soft:#f5f7f9;--accent:#176b87;--ok:#237a4b;--warn:#9b5f00}*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink);background:#ffffff}header{border-bottom:1px solid var(--line);padding:18px 24px;background:#fbfcfd}h1{font-size:22px;margin:0 0 6px}p{margin:0;color:var(--muted)}main{display:grid;grid-template-columns:280px 1fr;min-height:calc(100vh - 76px)}aside{border-right:1px solid var(--line);padding:18px;background:var(--soft)}section{padding:18px 22px}.metric{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}.metric strong{font-size:14px}.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px}input,select{height:34px;border:1px solid var(--line);border-radius:6px;padding:0 10px;background:#fff;color:var(--ink)}input{min-width:260px;flex:1}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}.card{border:1px solid var(--line);border-radius:8px;padding:14px;background:#fff}.card h2{font-size:16px;margin:0 0 8px}.meta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.pill{border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:12px;color:var(--muted);background:#fff}.pill.ok{color:var(--ok);border-color:#a9d7be}.pill.warn{color:var(--warn);border-color:#e3c37f}.ops{font-size:12px;color:var(--muted);margin-top:8px}.cmd{margin-top:10px;display:block;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;background:#f9fbfc;color:var(--ink);font-family:Consolas,monospace;font-size:12px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.empty{padding:24px;border:1px dashed var(--line);border-radius:8px;color:var(--muted)}@media(max-width:800px){main{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}.toolbar{flex-direction:column;align-items:stretch}input{min-width:0;width:100%}}\n")
+	b.WriteString("</style>\n</head>\n<body>\n")
+	b.WriteString("<header><h1>Datapan Studio Bundle</h1><p id=\"subtitle\"></p></header>\n")
+	b.WriteString("<main><aside><div id=\"metrics\"></div></aside><section><div class=\"toolbar\"><input id=\"q\" placeholder=\"Search datasets, organizations, commands\"><select id=\"callable\"><option value=\"all\">All datasets</option><option value=\"yes\">Callable</option><option value=\"no\">Not callable</option></select></div><div id=\"cards\" class=\"grid\"></div></section></main>\n")
+	b.WriteString("<script id=\"datapan-data\" type=\"application/json\">")
+	b.Write(data)
+	b.WriteString("</script>\n<script>\n")
+	b.WriteString("const bundle=JSON.parse(document.getElementById('datapan-data').textContent);const datasets=bundle.datasets||[];const summary=bundle.summary||{};document.getElementById('subtitle').textContent=`${bundle.provider} / ${datasets.length} dataset cards / registry specs ${summary.specs||0}`;const metricKeys=['specs','operations','callable_operations','data_go_kr_gateway_operations','external_endpoint_operations','registered_adapter_operations','missing_adapter_operations','approval_required_operations'];document.getElementById('metrics').innerHTML=metricKeys.map(k=>`<div class=\"metric\"><span>${k.replaceAll('_',' ')}</span><strong>${summary[k]??0}</strong></div>`).join('')+`<div class=\"metric\"><span>provider split</span><strong>${bundle.overview?.adapters?.split_readiness?.status||'unknown'}</strong></div>`;const q=document.getElementById('q');const callable=document.getElementById('callable');const cards=document.getElementById('cards');function textOf(d){return [d.id,d.title,d.organization,d.source_category,d.description,Object.values(d.examples||{}).join(' ')].join(' ').toLowerCase()}function render(){const term=q.value.trim().toLowerCase();const mode=callable.value;const rows=datasets.filter(d=>(!term||textOf(d).includes(term))&&(mode==='all'||(mode==='yes')===!!d.callable));cards.innerHTML=rows.length?rows.map(card).join(''):'<div class=\"empty\">No datasets match the current filter.</div>'}function card(d){const ex=d.examples||{};const op=(d.operations&&d.operations[0])||{};const cmd=ex.kit||ex.show||'';return `<article class=\"card\"><h2>${esc(d.title)}</h2><div class=\"meta\"><span class=\"pill\">${esc(d.id)}</span><span class=\"pill\">${esc(d.organization||'unknown org')}</span><span class=\"pill ${d.callable?'ok':'warn'}\">${d.callable?'callable':'not callable'}</span></div><p>${esc(d.description||d.source_category||'')}</p><div class=\"ops\">${esc(op.name||'no operation')} ${op.response_params_count?`/ response fields ${op.response_params_count}`:''}</div>${cmd?`<button class=\"cmd\" data-cmd=\"${escAttr(cmd)}\" title=\"Copy command\">${esc(cmd)}</button>`:''}</article>`}function esc(v){return String(v??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}function escAttr(v){return esc(v).replace(/\"/g,'&quot;')}document.addEventListener('click',e=>{const btn=e.target.closest('.cmd');if(!btn)return;navigator.clipboard?.writeText(btn.dataset.cmd);btn.textContent='Copied: '+btn.dataset.cmd;setTimeout(render,900)});q.addEventListener('input',render);callable.addEventListener('change',render);render();\n")
+	b.WriteString("</script>\n</body>\n</html>\n")
+	return b.String(), nil
 }
 
 func topNameCounts(counts map[string]int, limit int) []nameCount {

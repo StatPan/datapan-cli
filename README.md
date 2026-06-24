@@ -167,8 +167,8 @@ organizations, top external hosts, missing adapter hosts, registered adapter
 hosts, and suggested next commands.
 Use `datapan catalog studio --output-dir DIR --json` when you want a static
 consumer bundle for a future Studio or local viewer. It writes `overview.json`,
-`datasets.json`, and `studio.json` with the same search examples, starter-kit
-commands, provider readiness, and registry summary used by the CLI.
+`datasets.json`, `studio.json`, and `index.html` with the same search examples,
+starter-kit commands, provider readiness, and registry summary used by the CLI.
 
 For registry maintainers and bounded upstream checks, import the upstream
 data.go.kr open-data list into a normalized Datapan registry:
