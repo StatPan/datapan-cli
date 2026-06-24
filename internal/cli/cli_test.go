@@ -79,6 +79,56 @@ func TestSearchLoadsDefaultInstalledRegistry(t *testing.T) {
 	}
 }
 
+func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test"}]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"doctor", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, stdout)
+	}
+	registry := payload["registry"].(map[string]any)
+	if registry["source"] != "default" || int(registry["specs"].(float64)) != 1 || int(registry["operations"].(float64)) != 1 {
+		t.Fatalf("unexpected registry status: %#v", registry)
+	}
+	auth := payload["auth"].(map[string]any)
+	if auth["credential_present"] != true || auth["selected_env_var"] != "DATA_PORTAL_API_KEY" {
+		t.Fatalf("unexpected auth status: %#v", auth)
+	}
+	providers := payload["providers"].(map[string]any)
+	if int(providers["adapter_count"].(float64)) < 2 || int(providers["host_count"].(float64)) < 2 {
+		t.Fatalf("unexpected provider status: %#v", providers)
+	}
+	if payload["ready_for_search"] != true || payload["ready_for_calls"] != true {
+		t.Fatalf("unexpected readiness: %#v", payload)
+	}
+}
+
+func TestDoctorJSONSuggestsInstallAndAuth(t *testing.T) {
+	t.Chdir(t.TempDir())
+	code, stdout, stderr := runTest([]string{"doctor", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"source": "embedded"`) {
+		t.Fatalf("expected embedded registry status: %s", stdout)
+	}
+	if !strings.Contains(stdout, `datapan catalog install datapan-registry --json`) {
+		t.Fatalf("expected install next step: %s", stdout)
+	}
+	if !strings.Contains(stdout, `DATAPAN_DATA_GO_KR_KEY`) {
+		t.Fatalf("expected auth next step: %s", stdout)
+	}
+}
+
 func TestReadDotEnvTrimsShellQuotes(t *testing.T) {
 	path := t.TempDir() + "/.env"
 	if err := osWriteFile(path, []byte("DATA_PORTAL_API_KEY='encoded-key'\nexport DATA_GO_KR_USER_ID=user\nPLAIN=value\n")); err != nil {

@@ -73,6 +73,7 @@ datapan search "아파트 실거래가" --json
 datapan search "실거래" --org 국토교통부 --json
 datapan search --org 기상청 --json
 datapan catalog install datapan-registry --json
+datapan doctor --json
 datapan catalog import data-go-kr --output .datapan/data-go-kr.registry.json --all --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/data-go-kr.registry.json --output .datapan/catalog-diff.json --json
 datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
@@ -122,8 +123,13 @@ the registry decodes, and writes it to `.datapan/data-go-kr.registry.json`.
 
 ```bash
 datapan catalog install datapan-registry --json
+datapan doctor --json
 datapan search "실거래" --org 국토교통부 --json
 ```
+
+Use `datapan doctor --json` after install to verify which registry is active,
+how many specs and operations it contains, whether a data.go.kr API key is
+present, and which external provider adapters are registered.
 
 For registry maintainers and bounded upstream checks, import the upstream
 data.go.kr open-data list into a normalized Datapan registry:

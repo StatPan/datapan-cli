@@ -84,22 +84,28 @@ var (
 )
 
 type app struct {
-	args   []string
-	stdout io.Writer
-	stderr io.Writer
-	env    Env
-	http   HTTPClient
-	reg    datago.Registry
+	args           []string
+	stdout         io.Writer
+	stderr         io.Writer
+	env            Env
+	http           HTTPClient
+	reg            datago.Registry
+	registryPath   string
+	registrySource string
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
 	env = maybeLoadDotEnv(env)
 	reg := datago.DefaultRegistry()
-	registryPath, registrySet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
-	registryPath = strings.TrimSpace(registryPath)
-	if (!registrySet || registryPath == "") && shouldLoadDefaultRegistry(args) {
+	registrySource := "embedded"
+	registryEnvPath, registryEnvSet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
+	registryEnvPath = strings.TrimSpace(registryEnvPath)
+	registryPath := registryEnvPath
+	registrySet := registryEnvSet && registryEnvPath != ""
+	if !registrySet && shouldLoadDefaultRegistry(args) {
 		if _, err := os.Stat(defaultRegistryPath); err == nil {
 			registryPath = defaultRegistryPath
+			registrySource = "default"
 			registrySet = true
 		} else if err != nil && !os.IsNotExist(err) {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
@@ -107,6 +113,9 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		}
 	}
 	if registrySet && registryPath != "" {
+		if registryEnvSet && registryEnvPath != "" {
+			registrySource = "env"
+		}
 		loaded, err := datago.LoadRegistry(registryPath)
 		if err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
@@ -115,12 +124,14 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg = loaded
 	}
 	a := app{
-		args:   args,
-		stdout: stdout,
-		stderr: stderr,
-		env:    env,
-		http:   httpClient,
-		reg:    reg,
+		args:           args,
+		stdout:         stdout,
+		stderr:         stderr,
+		env:            env,
+		http:           httpClient,
+		reg:            reg,
+		registryPath:   registryPath,
+		registrySource: registrySource,
 	}
 	return a.run()
 }
@@ -130,7 +141,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "show", "get", "curl", "save", "call", "apply", "export", "codegen":
+	case "search", "show", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -210,6 +221,8 @@ func (a app) run() int {
 		return a.info(args[1:], jsonOut)
 	case "auth":
 		return a.auth(args[1:], jsonOut)
+	case "doctor":
+		return a.doctor(args[1:], jsonOut)
 	case "catalog":
 		return a.catalog(args[1:], jsonOut)
 	case "access":
@@ -2813,6 +2826,90 @@ func (a app) auth(args []string, jsonOut bool) int {
 	return exitAuth
 }
 
+func (a app) doctor(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan doctor [--json]")
+	}
+	specs := a.reg.Specs()
+	operationCount := registryOperationCount(specs)
+	keyName, keyOK := a.resolveKey()
+	providerRegistry, err := providers.DefaultRegistry()
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	defaultExists := false
+	if _, err := os.Stat(defaultRegistryPath); err == nil {
+		defaultExists = true
+	}
+	nextSteps := doctorNextSteps(a.registrySource, keyOK)
+	payload := map[string]any{
+		"ok":               true,
+		"version":          version,
+		"ready_for_search": len(specs) > 0,
+		"ready_for_calls":  keyOK && len(specs) > 0,
+		"registry": map[string]any{
+			"source":         a.registrySource,
+			"path":           a.registryPath,
+			"default_path":   defaultRegistryPath,
+			"default_exists": defaultExists,
+			"installed":      a.registrySource != "embedded",
+			"specs":          len(specs),
+			"operations":     operationCount,
+		},
+		"auth": map[string]any{
+			"provider":           "data.go.kr",
+			"credential_present": keyOK,
+			"selected_env_var":   keyName,
+			"accepted_env_vars":  datago.KeyEnvNames,
+		},
+		"providers":  providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
+		"next_steps": nextSteps,
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	fmt.Fprintf(a.stdout, "Datapan doctor\n")
+	fmt.Fprintf(a.stdout, "  registry: %s", a.registrySource)
+	if a.registryPath != "" {
+		fmt.Fprintf(a.stdout, " (%s)", a.registryPath)
+	}
+	fmt.Fprintf(a.stdout, "\n")
+	fmt.Fprintf(a.stdout, "  specs: %d\n", len(specs))
+	fmt.Fprintf(a.stdout, "  operations: %d\n", operationCount)
+	if keyOK {
+		fmt.Fprintf(a.stdout, "  data.go.kr key: found in %s\n", keyName)
+	} else {
+		fmt.Fprintf(a.stdout, "  data.go.kr key: missing\n")
+	}
+	index := providerRegistry.IndexReport("", version)
+	fmt.Fprintf(a.stdout, "  provider adapters: %d adapters, %d hosts\n", index.AdapterCount, index.HostCount)
+	for _, step := range nextSteps {
+		fmt.Fprintf(a.stdout, "  next: %s\n", step)
+	}
+	return exitOK
+}
+
+func registryOperationCount(specs []datago.Spec) int {
+	count := 0
+	for _, spec := range specs {
+		count += len(spec.Operations)
+	}
+	return count
+}
+
+func doctorNextSteps(registrySource string, credentialPresent bool) []string {
+	var steps []string
+	if registrySource == "embedded" {
+		steps = append(steps, "datapan catalog install datapan-registry --json")
+	}
+	if !credentialPresent {
+		steps = append(steps, "set DATAPAN_DATA_GO_KR_KEY or DATA_PORTAL_API_KEY before calling approved APIs")
+	}
+	return steps
+}
+
 func (a app) access(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
@@ -4107,6 +4204,7 @@ Usage:
   datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]
   datapan show <ref> [--json]
   datapan auth check [--json]
+  datapan doctor [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
   datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
