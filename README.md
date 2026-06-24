@@ -107,6 +107,7 @@ datapan export --format curl 15084084 base_date=20260622 base_time=0500 nx=60 ny
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.postman_collection.json
 datapan export --format openapi 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.openapi.json
 datapan codegen go 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --package forecastclient --output forecast_client.go
+datapan codegen python 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast_client.py
 datapan export --input response.json --format csv
 ```
 
@@ -121,7 +122,8 @@ Search can be narrowed with source metadata such as `--org`, `--category`,
 `category` maps to the upstream source category only when that value is present
 in the imported catalog; Datapan should not invent source categories.
 Search and show results include copyable next-step examples for `show`, `get`,
-`curl`, Postman export, and OpenAPI export when an operation has an endpoint.
+`curl`, Postman export, OpenAPI export, and Go/Python codegen when an operation
+has an endpoint.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 
@@ -277,6 +279,10 @@ Use `datapan codegen go <ref> --output client.go` to generate a small
 compilable Go client for one operation. The generated client keeps public-data
 parameter names as `map[string]string`, reads the service key from the planned
 environment variable via `NewFromEnv`, and does not embed credential values.
+Use `datapan codegen python <ref> --output client.py` for a dependency-free
+Python client using `urllib`. It keeps upstream parameter names exact, reads
+the service key through `DatapanClient.from_env()`, and does not embed
+credential values.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider

@@ -2817,12 +2817,14 @@ func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
 
 func specExampleCommands(spec datago.Spec) map[string]string {
 	examples := map[string]string{
-		"show":    showCommand(spec),
-		"access":  "datapan access " + spec.ID + " --start",
-		"get":     exampleGetCommand(spec),
-		"curl":    exampleExportCommand(spec, "curl"),
-		"postman": exampleExportCommand(spec, "postman"),
-		"openapi": exampleExportCommand(spec, "openapi"),
+		"show":           showCommand(spec),
+		"access":         "datapan access " + spec.ID + " --start",
+		"get":            exampleGetCommand(spec),
+		"curl":           exampleExportCommand(spec, "curl"),
+		"postman":        exampleExportCommand(spec, "postman"),
+		"openapi":        exampleExportCommand(spec, "openapi"),
+		"codegen_go":     exampleCodegenCommand(spec, "go"),
+		"codegen_python": exampleCodegenCommand(spec, "python"),
 	}
 	for key, value := range examples {
 		if strings.TrimSpace(value) == "" {
@@ -2867,6 +2869,35 @@ func exampleExportCommand(spec datago.Spec, format string) string {
 		args = append(args, "--output", spec.ID+".postman_collection.json")
 	case "openapi":
 		args = append(args, "--output", spec.ID+".openapi.json")
+	}
+	return datago.CommandString(args)
+}
+
+func exampleCodegenCommand(spec datago.Spec, target string) string {
+	if len(spec.Operations) == 0 {
+		return ""
+	}
+	op := spec.Operations[0]
+	if op.Endpoint == "" {
+		return ""
+	}
+	args := []string{"datapan", "codegen", target, spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	for _, param := range nonAuthParams(op.RequestParams) {
+		name := strings.TrimSpace(param.Name)
+		if name != "" {
+			args = append(args, name+"=VALUE")
+		}
+	}
+	switch target {
+	case "go":
+		args = append(args, "--output", spec.ID+"_client.go")
+	case "python":
+		args = append(args, "--output", spec.ID+"_client.py")
+	default:
+		return ""
 	}
 	return datago.CommandString(args)
 }
@@ -3791,13 +3822,15 @@ func (a app) codegen(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--json]\n       datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "go", "golang":
 		return a.codegenGo(args[1:], jsonOut)
+	case "python", "py":
+		return a.codegenPython(args[1:], jsonOut)
 	default:
-		return a.fail(exitUsage, "unsupported codegen target %q; use go", args[0])
+		return a.fail(exitUsage, "unsupported codegen target %q; use go or python", args[0])
 	}
 }
 
@@ -3838,6 +3871,35 @@ func (a app) codegenGo(args []string, jsonOut bool) int {
 			"dataset":   plan.Spec.ID,
 			"operation": plan.Operation.Name,
 			"function":  goFunctionName(plan),
+		})
+	}
+	return exitOK
+}
+
+func (a app) codegenPython(args []string, jsonOut bool) int {
+	output, args, err := consumeString(args, "--output", "-")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes generated Python code to stdout")
+	}
+	plan, err := a.curlExportPlan(args)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	source := pythonClientForPlan(plan)
+	if err := writeOutput(output, []byte(source), a.stdout); err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":        true,
+			"target":    "python",
+			"output":    output,
+			"dataset":   plan.Spec.ID,
+			"operation": plan.Operation.Name,
+			"function":  pythonFunctionName(plan),
 		})
 	}
 	return exitOK
@@ -4345,6 +4407,65 @@ func goClientForPlan(plan curlExportPlan, pkg string) string {
 	return b.String()
 }
 
+func pythonClientForPlan(plan curlExportPlan) string {
+	endpoint, _ := url.Parse(plan.Operation.Endpoint)
+	endpoint.RawQuery = ""
+	endpoint.Fragment = ""
+	function := pythonFunctionName(plan)
+	defaults := pythonDefaultParamLiteral(plan.PublicParams)
+	var b strings.Builder
+	b.WriteString("\"\"\"Datapan-generated public data client.\"\"\"\n\n")
+	b.WriteString("from __future__ import annotations\n\n")
+	b.WriteString("import os\n")
+	b.WriteString("import urllib.error\n")
+	b.WriteString("import urllib.parse\n")
+	b.WriteString("import urllib.request\n")
+	b.WriteString("from typing import Mapping, Optional\n\n\n")
+	fmt.Fprintf(&b, "DEFAULT_BASE_URL = %s\n", jsonStringLiteral(endpoint.String()))
+	fmt.Fprintf(&b, "DEFAULT_SERVICE_KEY_ENV = %s\n", jsonStringLiteral(plan.EnvVar))
+	fmt.Fprintf(&b, "DEFAULT_PARAMS = %s\n\n\n", defaults)
+	b.WriteString("class DatapanClient:\n")
+	b.WriteString("    \"\"\"Client for one Datapan-planned data.go.kr operation.\"\"\"\n\n")
+	b.WriteString("    def __init__(self, service_key: str, base_url: str = DEFAULT_BASE_URL, opener=None):\n")
+	b.WriteString("        self.service_key = service_key.strip()\n")
+	b.WriteString("        if not self.service_key:\n")
+	b.WriteString("            raise ValueError(\"missing service key\")\n")
+	b.WriteString("        self.base_url = base_url\n")
+	b.WriteString("        self.opener = opener or urllib.request.urlopen\n\n")
+	b.WriteString("    @classmethod\n")
+	b.WriteString("    def from_env(cls, env_var: str = DEFAULT_SERVICE_KEY_ENV) -> \"DatapanClient\":\n")
+	b.WriteString("        key = os.getenv(env_var, \"\").strip()\n")
+	b.WriteString("        if not key:\n")
+	b.WriteString("            raise ValueError(f\"missing {env_var}\")\n")
+	b.WriteString("        return cls(key)\n\n")
+	b.WriteString("    def build_url(self, params: Optional[Mapping[str, str]] = None) -> str:\n")
+	b.WriteString("        query = dict(DEFAULT_PARAMS)\n")
+	b.WriteString("        for key, value in (params or {}).items():\n")
+	b.WriteString("            if key and key != \"serviceKey\":\n")
+	b.WriteString("                query[str(key)] = str(value)\n")
+	b.WriteString("        query[\"serviceKey\"] = self.service_key\n")
+	b.WriteString("        parsed = urllib.parse.urlparse(self.base_url)\n")
+	b.WriteString("        return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query)))\n\n")
+	fmt.Fprintf(&b, "    def %s(self, params: Optional[Mapping[str, str]] = None, timeout: float = 30.0) -> bytes:\n", function)
+	fmt.Fprintf(&b, "        \"\"\"Call %s (%s).\"\"\"\n", pythonDocText(plan.Operation.Name), plan.Spec.ID)
+	b.WriteString("        request = urllib.request.Request(self.build_url(params), method=\"GET\")\n")
+	b.WriteString("        try:\n")
+	b.WriteString("            with self.opener(request, timeout=timeout) as response:\n")
+	b.WriteString("                body = response.read()\n")
+	b.WriteString("                status = getattr(response, \"status\", None)\n")
+	b.WriteString("                if status is None:\n")
+	b.WriteString("                    status = response.getcode()\n")
+	b.WriteString("        except urllib.error.HTTPError as exc:\n")
+	b.WriteString("            body = exc.read()\n")
+	b.WriteString("            raise RuntimeError(f\"provider returned HTTP {exc.code}: {body.decode('utf-8', 'replace').strip()}\") from exc\n")
+	b.WriteString("        if status < 200 or status >= 300:\n")
+	b.WriteString("            raise RuntimeError(f\"provider returned HTTP {status}: {body.decode('utf-8', 'replace').strip()}\")\n")
+	b.WriteString("        return body\n\n\n")
+	fmt.Fprintf(&b, "def new_from_env() -> DatapanClient:\n")
+	b.WriteString("    return DatapanClient.from_env()\n")
+	return b.String()
+}
+
 func goDefaultParamLiteral(params map[string]string) string {
 	keys := make([]string, 0, len(params))
 	for key := range params {
@@ -4365,6 +4486,26 @@ func goDefaultParamLiteral(params map[string]string) string {
 	return b.String()
 }
 
+func pythonDefaultParamLiteral(params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		if strings.TrimSpace(key) != "" && !isAuthParam(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return "{}"
+	}
+	var b strings.Builder
+	b.WriteString("{\n")
+	for _, key := range keys {
+		fmt.Fprintf(&b, "    %s: %s,\n", jsonStringLiteral(key), jsonStringLiteral(params[key]))
+	}
+	b.WriteString("}")
+	return b.String()
+}
+
 func goFunctionName(plan curlExportPlan) string {
 	name := goExportedIdentifier(plan.Operation.Name)
 	if name == "" {
@@ -4372,6 +4513,27 @@ func goFunctionName(plan curlExportPlan) string {
 	}
 	if name == "Call" {
 		name = "CallOperation"
+	}
+	return name
+}
+
+func pythonFunctionName(plan curlExportPlan) string {
+	name := pythonIdentifier(plan.Operation.Name)
+	if name == "" {
+		endpoint, _ := url.Parse(plan.Operation.Endpoint)
+		parts := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
+		if len(parts) > 0 {
+			name = pythonIdentifier(parts[len(parts)-1])
+		}
+	}
+	if name == "" {
+		name = "call_" + pythonIdentifier(plan.Spec.ID)
+	}
+	if name == "call" || name == "" {
+		return "call_operation"
+	}
+	if isPythonKeyword(name) {
+		return name + "_operation"
 	}
 	return name
 }
@@ -4399,6 +4561,53 @@ func goExportedIdentifier(value string) string {
 	return b.String()
 }
 
+func pythonIdentifier(value string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for idx, r := range value {
+		isLower := r >= 'a' && r <= 'z'
+		isUpper := r >= 'A' && r <= 'Z'
+		isDigit := r >= '0' && r <= '9'
+		if isUpper {
+			if idx > 0 && !lastUnderscore && b.Len() > 0 {
+				b.WriteByte('_')
+			}
+			r += 'a' - 'A'
+			isLower = true
+		}
+		if isLower || isDigit {
+			if b.Len() == 0 && isDigit {
+				b.WriteString("call_")
+			}
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if b.Len() > 0 && !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func isPythonKeyword(value string) bool {
+	switch value {
+	case "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield":
+		return true
+	default:
+		return false
+	}
+}
+
+func jsonStringLiteral(value string) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return `""`
+	}
+	return string(encoded)
+}
+
 func validGoPackageName(value string) bool {
 	if value == "" {
 		return false
@@ -4415,6 +4624,15 @@ func validGoPackageName(value string) bool {
 		}
 	}
 	return true
+}
+
+func pythonDocText(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
+	value = strings.ReplaceAll(value, `"""`, `\"\"\"`)
+	if value == "" {
+		return "the planned operation"
+	}
+	return value
 }
 
 func goCommentText(value string) string {
@@ -4651,6 +4869,7 @@ Usage:
   datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
+  datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
   datapan version [--json]
 
 Accepted data.go.kr key env vars:

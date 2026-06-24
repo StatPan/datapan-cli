@@ -211,6 +211,8 @@ func TestSearchFiltersByOrganization(t *testing.T) {
 		`"show": "datapan show 15126469"`,
 		`"curl": "datapan curl 15126469`,
 		`"openapi": "datapan export --format openapi 15126469`,
+		`"codegen_go": "datapan codegen go 15126469`,
+		`"codegen_python": "datapan codegen python 15126469`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in search output: %s", want, stdout)
@@ -327,6 +329,8 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 		`"curl": "datapan curl 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE"`,
 		`"postman": "datapan export --format postman 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.postman_collection.json"`,
 		`"openapi": "datapan export --format openapi 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999.openapi.json"`,
+		`"codegen_go": "datapan codegen go 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.go"`,
+		`"codegen_python": "datapan codegen python 999 --operation \"목록 조회\" PAGE=VALUE ROWS=VALUE --output 999_client.py"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -2480,6 +2484,59 @@ func TestCodegenGoWritesCompilableClient(t *testing.T) {
 	}
 }
 
+func TestCodegenPythonWritesImportableClient(t *testing.T) {
+	dir := t.TempDir()
+	output := dir + "/client.py"
+	code, stdout, stderr := runTest(
+		[]string{"codegen", "python", "15084084", "--output", output, "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"target": "python"`,
+		`"function": "get_vilage_fcst"`,
+		`"dataset": "15084084"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in codegen summary: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`DEFAULT_SERVICE_KEY_ENV = "DATA_PORTAL_API_KEY"`,
+		`DEFAULT_PARAMS = {`,
+		`"base_date": "20260622"`,
+		`class DatapanClient:`,
+		`def from_env(cls, env_var: str = DEFAULT_SERVICE_KEY_ENV)`,
+		`def build_url(self, params: Optional[Mapping[str, str]] = None) -> str:`,
+		`def get_vilage_fcst(self, params: Optional[Mapping[str, str]] = None, timeout: float = 30.0) -> bytes:`,
+		`query["serviceKey"] = self.service_key`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in generated Python client: %s", want, data)
+		}
+	}
+	if strings.Contains(text, "secret-value") || strings.Contains(text, "${DATA_PORTAL_API_KEY}") {
+		t.Fatalf("generated Python client should not embed key material or shell placeholders: %s", data)
+	}
+	python, ok := findPythonForTest()
+	if !ok {
+		t.Skip("python executable not found")
+	}
+	cmd := exec.Command(python, "-m", "py_compile", output)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated Python client should compile: %v\n%s", err, out)
+	}
+}
+
 func TestGetAmbiguousRefJSONReturnsCandidates(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"get", "정보", "--dry-run", "--json"}, nil, nil)
 	if code != exitAmbiguous {
@@ -2946,4 +3003,17 @@ func TestExportInputCSV(t *testing.T) {
 func jsonEscaped(value string) string {
 	data, _ := json.Marshal(value)
 	return string(data[1 : len(data)-1])
+}
+
+func findPythonForTest() (string, bool) {
+	for _, name := range []string{"python", "python3", "py"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		if err := exec.Command(path, "--version").Run(); err == nil {
+			return path, true
+		}
+	}
+	return "", false
 }
