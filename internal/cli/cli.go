@@ -5247,11 +5247,15 @@ func truncatePreviewCell(value string, width int) string {
 }
 
 type requestPlan struct {
-	Spec         datago.Spec
-	Operation    datago.Operation
-	URL          string
-	RedactedURL  string
-	PublicParams map[string]string
+	Spec          datago.Spec
+	Operation     datago.Operation
+	URL           string
+	RedactedURL   string
+	PublicParams  map[string]string
+	Params        map[string]string
+	MissingParams []string
+	Adapter       providers.Adapter
+	Credential    providers.Credential
 }
 
 type curlExportPlan struct {
@@ -6074,12 +6078,30 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 	if !ok {
 		return requestPlan{}, "", errAuth{}
 	}
+	effectiveParams, missingParams := datago.VerificationParams(spec, op)
+	for k, v := range params {
+		if strings.TrimSpace(k) != "" {
+			effectiveParams[k] = v
+		}
+	}
+	missingParams = remainingMissingParams(missingParams, effectiveParams)
 	u, err := url.Parse(op.Endpoint)
 	if err != nil {
 		return requestPlan{}, "", err
 	}
+	var adapter providers.Adapter
+	providerRegistry, err := providers.DefaultRegistry()
+	if err != nil {
+		return requestPlan{}, "", err
+	}
+	if candidate, ok := providerRegistry.MatchHost(u.Host); ok && adapterHasCapability(candidate, "call") {
+		adapter = candidate
+	}
+	if preparer, ok := adapter.(providers.CallParamPreparer); ok {
+		effectiveParams, missingParams = preparer.PrepareCallParams(effectiveParams, missingParams)
+	}
 	q := u.Query()
-	for k, v := range params {
+	for k, v := range effectiveParams {
 		q.Set(k, v)
 	}
 	for k, v := range op.DefaultParams {
@@ -6098,12 +6120,32 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 			publicParams[k] = values[0]
 		}
 	}
-	return requestPlan{Spec: spec, Operation: op, URL: u.String(), RedactedURL: redacted.String(), PublicParams: publicParams}, keyName, nil
+	return requestPlan{
+		Spec:          spec,
+		Operation:     op,
+		URL:           u.String(),
+		RedactedURL:   redacted.String(),
+		PublicParams:  publicParams,
+		Params:        effectiveParams,
+		MissingParams: missingParams,
+		Adapter:       adapter,
+		Credential:    providers.Credential{Name: keyName, Value: key},
+	}, keyName, nil
 }
 
 func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if plan.Adapter != nil {
+		return plan.Adapter.Call(ctx, providers.CallRequest{
+			Spec:          plan.Spec,
+			Operation:     plan.Operation,
+			Params:        plan.Params,
+			MissingParams: plan.MissingParams,
+			Credential:    plan.Credential,
+			HTTP:          a.http,
+		})
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.URL, nil)
 	if err != nil {
 		return datago.ResponseEnvelope{}, err
@@ -6132,6 +6174,32 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		URL:            plan.RedactedURL,
 		Body:           string(body),
 	}, nil
+}
+
+func adapterHasCapability(adapter providers.Adapter, capability string) bool {
+	reporter, ok := adapter.(providers.CapabilityReporter)
+	if !ok {
+		return false
+	}
+	for _, candidate := range reporter.Capabilities() {
+		if strings.EqualFold(strings.TrimSpace(candidate), capability) {
+			return true
+		}
+	}
+	return false
+}
+
+func remainingMissingParams(missing []string, params map[string]string) []string {
+	if len(missing) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(missing))
+	for _, name := range missing {
+		if strings.TrimSpace(params[name]) == "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func (a app) resolveKey() (string, bool) {

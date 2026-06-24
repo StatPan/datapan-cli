@@ -14,10 +14,12 @@ type Credential struct {
 }
 
 type CallRequest struct {
-	Spec       datago.Spec
-	Operation  datago.Operation
-	Params     map[string]string
-	Credential Credential
+	Spec          datago.Spec
+	Operation     datago.Operation
+	Params        map[string]string
+	MissingParams []string
+	Credential    Credential
+	HTTP          HTTPDoer
 }
 
 type VerificationRequest struct {
@@ -45,6 +47,10 @@ type Adapter interface {
 
 type CapabilityReporter interface {
 	Capabilities() []string
+}
+
+type CallParamPreparer interface {
+	PrepareCallParams(params map[string]string, missing []string) (map[string]string, []string)
 }
 
 type CatalogImporter interface {

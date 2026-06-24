@@ -193,7 +193,8 @@ Adapter status:
 - `ekape`: registered observation-stage adapter for livestock quality
   evaluation APIs, including provider key-registration error evidence;
 - `forest`: registered observation-stage adapter for Korea Forest Service
-  culture information APIs with verified XML response evidence;
+  culture information APIs with verified XML response evidence and the first
+  external provider call path;
 - `folk`: registered observation-stage adapter for National Folk Museum
   multimedia APIs with provider-specific JSON result evidence;
 - `airport`: registered observation-stage adapter for Korea Airports
@@ -210,8 +211,9 @@ Creation trigger:
   has stabilized inside `datapan-cli`.
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
-code boundary lives in `internal/provider`; keep it there until multiple real
-adapters prove the split.
+code boundary lives in `internal/provider`; forest now proves one call path,
+and the split should wait for another provider call path or sustained
+maintenance pressure.
 
 ### datapan-spec
 

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -344,6 +345,9 @@ func TestForestAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	if adapter.MatchHost("apis.data.go.kr") {
 		t.Fatal("forest adapter should not match data.go.kr gateway")
 	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected forest capabilities: %#v", adapter.Capabilities())
+	}
 	spec := datago.Spec{ID: "500", Title: "Forest 샘플", Provider: "data.go.kr"}
 	op := datago.Operation{Name: "숲 이야기", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"}
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -375,6 +379,65 @@ func TestForestAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	}
 	if result.Params["serviceKey"] != "" || result.Params["searchWrd"] != "소나무" || result.Params["pageNo"] != "1" || result.BodyShape != "xml_items" {
 		t.Fatalf("unexpected forest public params: %#v", result.Params)
+	}
+}
+
+func TestForestAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewForestAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.forest.go.kr" {
+			t.Fatalf("expected forest host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in forest call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("searchWrd") != "소나무" || req.URL.Query().Get("pageNo") != "1" {
+			t.Fatalf("unexpected forest call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><fsname>소나무</fsname></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "500", Title: "Forest 샘플", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "숲 이야기", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
+		MissingParams: []string{"searchWrd", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "forest" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected forest call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected forest provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.Body, "<fsname>소나무</fsname>") {
+		t.Fatalf("unexpected forest call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestForestAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewForestAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "500", Title: "Forest 샘플", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "숲 이야기", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
+		MissingParams: []string{"searchWrd", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted transport error, got %v", err)
 	}
 }
 

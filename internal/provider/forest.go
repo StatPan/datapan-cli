@@ -29,6 +29,12 @@ func (a ForestAdapter) Name() string { return "forest" }
 
 func (a ForestAdapter) Hosts() []string { return ForestHosts() }
 
+func (a ForestAdapter) Capabilities() []string { return []string{"call"} }
+
+func (a ForestAdapter) PrepareCallParams(params map[string]string, missing []string) (map[string]string, []string) {
+	return forestVerificationParams(params, missing)
+}
+
 func (a ForestAdapter) DependencyClass(spec datago.Spec, op datago.Operation) string {
 	return datago.OperationDependencyClass(spec, op)
 }
@@ -221,5 +227,58 @@ func forestMessageReason(message string) string {
 }
 
 func (a ForestAdapter) Call(ctx context.Context, req CallRequest) (datago.ResponseEnvelope, error) {
-	return datago.ResponseEnvelope{}, fmt.Errorf("forest adapter call support is not enabled yet")
+	params, missing := a.PrepareCallParams(req.Params, req.MissingParams)
+	if qnetApprovalRequired(req.Spec, req.Operation) {
+		return datago.ResponseEnvelope{}, fmt.Errorf("approval required before calling forest operation %s", req.Operation.Name)
+	}
+	if len(missing) > 0 {
+		return datago.ResponseEnvelope{}, fmt.Errorf("missing required forest params: %s", strings.Join(missing, ", "))
+	}
+	if strings.TrimSpace(req.Credential.Value) == "" {
+		return datago.ResponseEnvelope{}, fmt.Errorf("missing auth")
+	}
+	plan, err := forestRequestURL(req.Operation.Endpoint, params, req.Credential.Value)
+	if err != nil {
+		return datago.ResponseEnvelope{}, err
+	}
+	client := req.HTTP
+	if client == nil {
+		client = http.DefaultClient
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.url, nil)
+	if err != nil {
+		return datago.ResponseEnvelope{}, err
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return datago.ResponseEnvelope{}, forestTransportError(err, plan)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return datago.ResponseEnvelope{}, err
+	}
+	contentType := resp.Header.Get("Content-Type")
+	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, contentType, body)
+	return datago.ResponseEnvelope{
+		OK:             ok,
+		Provider:       "forest",
+		Dataset:        req.Spec.ID,
+		Operation:      req.Operation.Name,
+		StatusCode:     resp.StatusCode,
+		ContentType:    contentType,
+		SemanticStatus: semanticStatus,
+		Message:        message,
+		ProviderStatus: providerStatus,
+		URL:            plan.redacted,
+		Body:           string(body),
+	}, nil
+}
+
+func forestTransportError(err error, plan providerRequestPlan) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ReplaceAll(err.Error(), plan.url, plan.redacted)
+	return fmt.Errorf("forest request failed: %s", message)
 }

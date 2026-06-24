@@ -595,6 +595,71 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	}
 }
 
+func TestGetUsesCallCapableForestAdapter(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{
+			"id": "forest-1",
+			"title": "산림청_숲 이야기",
+			"provider": "data.go.kr",
+			"priority": "P2",
+			"operations": [
+				{
+					"name": "숲 이야기",
+					"endpoint": "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI",
+					"request_params": [
+						{"name": "serviceKey"},
+						{"name": "searchWrd"},
+						{"name": "pageNo"}
+					]
+				}
+			]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.forest.go.kr" {
+			t.Fatalf("expected forest host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret-value" {
+			t.Fatalf("expected service key in forest request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("searchWrd") != "소나무" || req.URL.Query().Get("pageNo") != "1" {
+			t.Fatalf("unexpected forest request params: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><fsname>소나무</fsname></item></items></body></response>`)),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "forest-1", "--operation", "숲 이야기", "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"provider": "forest"`,
+		`"dataset": "forest-1"`,
+		`"semantic_status": "provider_ok"`,
+		`"url": "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI?`,
+		`serviceKey=REDACTED`,
+		`<fsname>소나무</fsname>`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in forest get output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("forest get output should not leak key: %s", stdout)
+	}
+}
+
 func TestUsePlansDatasetCommands(t *testing.T) {
 	paramsPath := t.TempDir() + "/params.json"
 	if err := osWriteFile(paramsPath, []byte(`{"base_date":"20240101","base_time":"0100","nx":"55"}`)); err != nil {

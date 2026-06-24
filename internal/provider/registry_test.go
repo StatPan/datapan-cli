@@ -94,13 +94,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	if report.AdapterCount != 6 || report.HostCount != 9 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
-	if report.SplitReadiness.Ready {
-		t.Fatalf("provider split should not be ready before call capability is declared: %#v", report.SplitReadiness)
+	if !report.SplitReadiness.Ready {
+		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "not_ready" || report.SplitReadiness.AdapterCount != 6 || report.SplitReadiness.VerificationCapableAdapters != 6 || report.SplitReadiness.CallCapableAdapters != 0 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 6 || report.SplitReadiness.VerificationCapableAdapters != 6 || report.SplitReadiness.CallCapableAdapters != 1 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
-	if strings.Join(report.SplitReadiness.Reasons, ",") != "need_at_least_one_call_capable_adapter" {
+	if len(report.SplitReadiness.Reasons) != 0 {
 		t.Fatalf("unexpected split readiness reasons: %#v", report.SplitReadiness.Reasons)
 	}
 	if len(report.Adapters) != 6 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "ekape" || report.Adapters[2].Name != "epost" || report.Adapters[3].Name != "folk" || report.Adapters[4].Name != "forest" || report.Adapters[5].Name != "q-net" {
@@ -123,6 +123,9 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	}
 	if strings.Join(report.Adapters[4].Hosts, ",") != "api.forest.go.kr" {
 		t.Fatalf("unexpected forest provider index hosts: %#v", report.Adapters[4].Hosts)
+	}
+	if strings.Join(report.Adapters[4].Capabilities, ",") != "call,verification" {
+		t.Fatalf("unexpected forest provider index capabilities: %#v", report.Adapters[4].Capabilities)
 	}
 	if strings.Join(report.Adapters[5].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
 		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[5].Hosts)

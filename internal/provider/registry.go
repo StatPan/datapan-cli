@@ -163,7 +163,7 @@ func splitReadiness(entries []IndexEntry) SplitReadiness {
 			callCapable++
 		}
 	}
-	var reasons []string
+	reasons := []string{}
 	if len(entries) < requiredAdapters {
 		reasons = append(reasons, "need_at_least_two_external_adapters")
 	}

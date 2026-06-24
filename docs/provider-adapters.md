@@ -261,6 +261,10 @@ four external operations across two datasets. The value is evidence quality.
 Those operations need search terms, so the adapter supplies conservative
 read-only defaults such as `searchWrd=소나무`, `searchMtNm=북한산`,
 `searchArNm=서울`, `pageNo=1`, and `numOfRows=1`.
+Forest is also the first call-capable external adapter: `datapan get` can route
+`api.forest.go.kr` operations through the provider boundary, preserve redacted
+URLs, classify upstream provider status, and return the raw body without falling
+back to generic gateway assumptions.
 
 Observed evidence commands:
 
@@ -268,6 +272,7 @@ Observed evidence commands:
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider forest --kind external_endpoint --limit 4 --output .datapan/forest-verification.json --json
 datapan catalog verify summary --input .datapan/forest-verification.json --json
+datapan get <forest-dataset-id> --operation <forest-operation> --json
 ```
 
 Expected evidence shape: `provider=forest`, `endpoint_host=api.forest.go.kr`,
@@ -343,8 +348,10 @@ real verification and at least one provider has call behavior. Move to
 providers and the release boundary is worth maintaining separately.
 
 The provider index now makes that decision explicit under `split_readiness`.
-Consumers and maintainers should treat `split_readiness.status=not_ready` as a
-deliberate boundary decision, not a failure. The current adapter set has enough
-registered verification-capable providers, but no adapter has declared stable
-`call` capability yet, so the recommendation remains to keep provider adapters
-inside `datapan-cli` while the call surface is proven.
+Consumers and maintainers should treat `split_readiness` as a release signal,
+not a mandate to split immediately. The current adapter set has enough
+registered verification-capable providers and forest has declared stable `call`
+capability, so the boundary is ready to consider. Keep adapters inside
+`datapan-cli` until at least one more external provider exercises call behavior
+or the maintenance cost makes a separate `datapan-providers` repository clearly
+worth it.
