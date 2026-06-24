@@ -134,6 +134,7 @@ func TestDoctorJSONWithDefaultRegistryAndAuth(t *testing.T) {
 	nextSteps := fmt.Sprint(payload["next_steps"])
 	for _, want := range []string{
 		"datapan ready --limit 10 --json",
+		"datapan try \"단기예보\" base_date=20260622 --org 기상청 --json",
 		"datapan coverage --json",
 		"datapan studio --output-dir .datapan/studio --limit 200 --json",
 	} {
@@ -160,6 +161,7 @@ func TestStatusJSONAliasesDoctor(t *testing.T) {
 		`"source": "default"`,
 		`"ready_for_calls": true`,
 		`"credential_present": true`,
+		`datapan try \"단기예보\" base_date=20260622 --org 기상청 --json`,
 		`datapan coverage --json`,
 		`datapan studio --output-dir .datapan/studio --limit 200 --json`,
 	} {
@@ -183,6 +185,7 @@ func TestInitNextStepsUseTopLevelShortcuts(t *testing.T) {
 	steps := fmt.Sprint(initNextSteps(defaultRegistryPath, true))
 	for _, want := range []string{
 		"datapan ready --limit 10 --json",
+		"datapan try \"단기예보\" base_date=20260622 --org 기상청 --json",
 		"datapan coverage --json",
 		"datapan studio --output-dir .datapan/studio --limit 200 --json",
 		"datapan status --json",
@@ -931,6 +934,64 @@ func TestReadyCommandFiltersCallReadySpecs(t *testing.T) {
 	}
 	if strings.Contains(stdout, `"id": "150"`) {
 		t.Fatalf("ready should rank read-style APIs before action-style APIs: %s", stdout)
+	}
+}
+
+func TestTrySelectsCallReadySpecAndBuildsCommands(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"Weather Generic External API","provider":"data.go.kr","priority":"P2","organization":"기상청","operations":[{"name":"목록","endpoint":"https://partner.example.test/api","request_params":[{"name":"q"}]}]},
+		{"id":"200","title":"Weather Gateway API","provider":"data.go.kr","priority":"P1","organization":"기상청","operations":[{"name":"단기예보","endpoint":"https://apis.data.go.kr/test/weather","request_params":[{"name":"serviceKey"},{"name":"pageNo","label":"페이지"},{"name":"numOfRows","label":"행수"},{"name":"base_date","label":"발표일자"}]}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"try", "weather", "base_date=20260622", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"call_ready_only": true`,
+		`"dataset": "200"`,
+		`"operation": "단기예보"`,
+		`"base_date": "20260622"`,
+		`"pageNo": "1"`,
+		`"numOfRows": "10"`,
+		`datapan get 200 --operation`,
+		`--params-file 200_params.json --json`,
+		`datapan export --format postman 200`,
+		`datapan codegen python 200`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in try output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `serviceKey=VALUE`) || strings.Contains(stdout, `"dataset": "100"`) {
+		t.Fatalf("try should not leak auth params or select not-ready route: %s", stdout)
+	}
+}
+
+func TestTryLoadsDefaultInstalledRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"local-try","title":"Local Try API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/local/list","request_params":[{"name":"pageNo"}]}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"try", "Local", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"dataset": "local-try"`,
+		`"registry_source": "default"`,
+		`"pageNo": "1"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in try output: %s", want, stdout)
+		}
 	}
 }
 

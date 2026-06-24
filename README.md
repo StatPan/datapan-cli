@@ -71,6 +71,7 @@ if the variable is not already present in the process environment.
 ```bash
 datapan init --json
 datapan ready --limit 10 --json
+datapan try "단기예보" base_date=20260622 --org 기상청 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
@@ -176,6 +177,7 @@ returns next commands.
 datapan init --json
 datapan status --json
 datapan ready --limit 10 --json
+datapan try "단기예보" base_date=20260622 --org 기상청 --json
 datapan coverage --json
 datapan studio --output-dir .datapan/studio --limit 200 --json
 datapan providers --adapters --json
@@ -223,6 +225,13 @@ client code. Check `call_ready` and `call_route` when you need the stronger
 top-level shortcut for `datapan list --call-ready`. Its default output is
 ranked toward APIs with fewer required parameters and less action-like
 operations, so the first screen is closer to "try this now."
+Use `datapan try "query" KEY=VALUE --json` when you want Datapan to choose the
+best call-ready match and return params, `get`, `save`, `curl`, Postman,
+OpenAPI, and Go/Node/Python codegen commands in one response. It treats
+`KEY=VALUE` tokens as parameter overrides, uses safe starter values for common
+paging/format fields, and keeps auth parameters in environment variables. Add
+`--any` only when you intentionally want callable but not-yet-ready routes
+included in the selection.
 Use `datapan coverage --json` when you want the high-level claim/gap dashboard:
 registry size, callable coverage, external adapter coverage, provider split
 readiness, and optional runtime evidence from `--verification REPORT`.

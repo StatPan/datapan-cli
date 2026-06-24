@@ -49,6 +49,7 @@ is present in the imported catalog.
 ```bash
 datapan list --limit 10 --json
 datapan ready --limit 10 --json
+datapan try "단기예보" base_date=20260622 --org 기상청 --json
 datapan list --callable --limit 10 --json
 datapan list --call-ready --limit 10 --json
 datapan search "실거래" --org 국토교통부 --json
@@ -125,6 +126,18 @@ variables. Generated examples should fill safe starter values for common
 paging and response-format parameters such as `pageNo=1`, `numOfRows=10`,
 `_type=json`, `dataType=json`, and `resultType=json`. Unknown required
 parameters should remain `VALUE`.
+
+`datapan try [query] KEY=VALUE --json` is the lowest-friction path from a human
+query to reusable client commands. It applies the same source metadata filters
+as `search`, treats positional `KEY=VALUE` tokens and repeated `--param k=v`
+flags as parameter overrides, chooses the first ranked call-ready result by
+default, and returns one selected dataset with params, fields, call-route
+metadata, generated commands, and bounded alternatives. It should use safe
+starter values for common paging/format parameters, preserve unknown required
+parameters as `VALUE`, and never include credential parameters in generated
+params or commands. `--any` may widen selection to callable but not-yet-ready
+routes; without `--any`, a no-match result must return `ok:false`,
+`error:"not_found"`, and exit code 2.
 
 `datapan kit <ref>` should generate a portable starter kit for one selected
 operation under `<dataset-id>-kit` by default. `--output-dir DIR` may override

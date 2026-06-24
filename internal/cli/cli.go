@@ -143,7 +143,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -230,6 +230,8 @@ func (a app) run() int {
 		return a.init(args[1:], jsonOut)
 	case "search":
 		return a.search(args[1:], jsonOut)
+	case "try":
+		return a.try(args[1:], jsonOut)
 	case "ready":
 		return a.ready(args[1:], jsonOut)
 	case "coverage":
@@ -297,6 +299,262 @@ func (a app) ready(args []string, jsonOut bool) int {
 	readyArgs := append([]string{"--ready", "--ready-rank"}, args...)
 	args = readyArgs
 	return a.searchOrList(args, jsonOut, true)
+}
+
+func (a app) try(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	anyCallable, args := consumeBool(args, "--any")
+	operationName, args, err := consumeString(args, "--operation", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	paramsOutput, args, err := consumeString(args, "--params-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	outputDir, args, err := consumeString(args, "--output-dir", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	provider, args, err := consumeString(args, "--provider", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	organization, args, err := consumeString(args, "--org", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if organization == "" {
+		organization, args, err = consumeString(args, "--organization", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
+	category, args, err := consumeString(args, "--category", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if category == "" {
+		category, args, err = consumeString(args, "--source-category", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
+	if hasAnyArg(args, "--sector") {
+		return a.fail(exitUsage, "--sector is not a source metadata field; use --category only for upstream source categories")
+	}
+	priority, args, err := consumeString(args, "--priority", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	queryFlag, args, err := consumeString(args, "--query", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	flagParams, args, err := consumeParams(args)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	alternativeLimit, args, err := consumeInt(args, "--limit", 5)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	queryParts, paramParts := splitQueryAndParams(args)
+	query := strings.TrimSpace(queryFlag)
+	if len(queryParts) > 0 {
+		if query != "" {
+			return a.fail(exitUsage, "use either --query TEXT or positional query words, not both")
+		}
+		query = strings.TrimSpace(strings.Join(queryParts, " "))
+	}
+	positionalParams, err := parseKeyValueArgs(paramParts)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	overrides := mergeParamMaps(positionalParams, flagParams)
+	filters := datago.SearchFilters{
+		Provider:       provider,
+		Organization:   organization,
+		SourceCategory: category,
+		Priority:       priority,
+	}
+	if query == "" && filters == (datago.SearchFilters{}) {
+		return a.fail(exitUsage, "usage: datapan try [query] [KEY=VALUE ...] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--operation NAME] [--any] [--params-output PATH] [--output-dir DIR] [--json]")
+	}
+	candidates := a.reg.Search(query, 0, filters)
+	if anyCallable {
+		candidates = filterCallableSpecs(candidates)
+	} else {
+		candidates = filterCallReadySpecs(candidates)
+	}
+	sortReadySpecs(candidates)
+	if len(candidates) == 0 {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":              false,
+				"error":           "not_found",
+				"query":           query,
+				"filters":         filters,
+				"call_ready_only": !anyCallable,
+				"message":         "no matching call-ready data.go.kr operation; use datapan search or datapan try --any to inspect callable but not-ready routes",
+			}); code != exitOK {
+				return code
+			}
+			return exitNotFound
+		}
+		return a.fail(exitNotFound, "no matching call-ready data.go.kr operation; try `datapan search %q --json` or add `--any`", query)
+	}
+	spec := candidates[0]
+	op, ok := bestTryOperation(spec, operationName, !anyCallable)
+	if !ok {
+		return a.mapError(fmt.Errorf("no matching operation for %s; use --any to inspect callable but not-ready routes", spec.ID), jsonOut)
+	}
+	if paramsOutput == "" {
+		paramsOutput = spec.ID + "_params.json"
+	}
+	if strings.TrimSpace(outputDir) != "" {
+		paramsOutput = filepath.Join(outputDir, filepath.Base(paramsOutput))
+	}
+	params, fields := paramsTemplateForOperation(spec, op, overrides)
+	commands := useCommandsForOperation(spec, op, params, paramsOutput, outputDir)
+	route := operationCallRoute(spec, op)
+	selected := specSummaries([]datago.Spec{spec})[0]
+	addCallRouteFields(selected, route)
+	payload := map[string]any{
+		"ok":                 true,
+		"query":              query,
+		"filters":            filters,
+		"call_ready_only":    !anyCallable,
+		"selection_reason":   "first ranked call-ready result with reusable command templates",
+		"selected":           selected,
+		"dataset":            spec.ID,
+		"title":              spec.Title,
+		"provider":           spec.Provider,
+		"organization":       spec.Organization,
+		"operation":          op.Name,
+		"application_url":    spec.ApplicationURL(),
+		"params":             params,
+		"fields":             fields,
+		"commands":           commands,
+		"alternatives":       specSummaries(limitSpecs(candidates[1:], alternativeLimit)),
+		"registry_source":    a.registrySource,
+		"registry_path":      a.registryPath,
+		"provided_overrides": len(overrides),
+	}
+	addCallRouteFields(payload, route)
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	fmt.Fprintln(a.stdout, "Datapan try")
+	fmt.Fprintf(a.stdout, "  selected: %s  %s\n", spec.ID, spec.Title)
+	if spec.Organization != "" {
+		fmt.Fprintf(a.stdout, "  organization: %s\n", spec.Organization)
+	}
+	fmt.Fprintf(a.stdout, "  operation: %s\n", op.Name)
+	fmt.Fprintf(a.stdout, "  route: %s\n", formatCallRoute(route))
+	if len(fields) > 0 {
+		fmt.Fprintln(a.stdout, "  params:")
+		for _, field := range fields {
+			line := fmt.Sprintf("    %s=%s", field["name"], field["value"])
+			if label := strings.TrimSpace(field["label"]); label != "" {
+				line += "  # " + label
+			}
+			fmt.Fprintln(a.stdout, line)
+		}
+	}
+	fmt.Fprintln(a.stdout, "  commands:")
+	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
+		if value := strings.TrimSpace(commands[key]); value != "" {
+			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
+		}
+	}
+	if len(candidates) > 1 {
+		fmt.Fprintln(a.stdout, "  alternatives:")
+		for _, alt := range limitSpecs(candidates[1:], alternativeLimit) {
+			fmt.Fprintf(a.stdout, "    %s  %s\n", alt.ID, alt.Title)
+		}
+	}
+	return exitOK
+}
+
+func splitQueryAndParams(args []string) ([]string, []string) {
+	query := make([]string, 0, len(args))
+	params := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.Contains(arg, "=") {
+			params = append(params, arg)
+			continue
+		}
+		query = append(query, arg)
+	}
+	return query, params
+}
+
+func bestTryOperation(spec datago.Spec, operationName string, requireReady bool) (datago.Operation, bool) {
+	operationName = strings.TrimSpace(operationName)
+	if operationName != "" {
+		op, ok := spec.Operation(operationName)
+		if !ok {
+			return datago.Operation{}, false
+		}
+		if requireReady && !operationCallRoute(spec, op).Ready {
+			return datago.Operation{}, false
+		}
+		return op, true
+	}
+	best := datago.Operation{}
+	bestRank := tryOperationRank{NotReady: 1 << 20, MissingParams: 1 << 20, ActionPenalty: 1 << 20, RequestParams: 1 << 20, RouteRank: 1 << 20}
+	for _, op := range spec.Operations {
+		if strings.TrimSpace(op.Endpoint) == "" {
+			continue
+		}
+		route := operationCallRoute(spec, op)
+		if requireReady && !route.Ready {
+			continue
+		}
+		_, missing := datago.VerificationParams(spec, op)
+		notReady := 0
+		if !route.Ready {
+			notReady = 1
+		}
+		rank := tryOperationRank{
+			NotReady:      notReady,
+			MissingParams: len(missing),
+			ActionPenalty: readyActionPenalty(spec, op),
+			RequestParams: len(nonAuthParams(op.RequestParams)),
+			RouteRank:     readyRouteRank(route),
+		}
+		if tryOperationRankLess(rank, bestRank) {
+			best = op
+			bestRank = rank
+		}
+	}
+	return best, strings.TrimSpace(best.Endpoint) != ""
+}
+
+type tryOperationRank struct {
+	NotReady      int
+	MissingParams int
+	ActionPenalty int
+	RequestParams int
+	RouteRank     int
+}
+
+func tryOperationRankLess(left, right tryOperationRank) bool {
+	if left.NotReady != right.NotReady {
+		return left.NotReady < right.NotReady
+	}
+	if left.MissingParams != right.MissingParams {
+		return left.MissingParams < right.MissingParams
+	}
+	if left.ActionPenalty != right.ActionPenalty {
+		return left.ActionPenalty < right.ActionPenalty
+	}
+	if left.RequestParams != right.RequestParams {
+		return left.RequestParams < right.RequestParams
+	}
+	return left.RouteRank < right.RouteRank
 }
 
 func (a app) coverage(args []string, jsonOut bool) int {
@@ -1007,6 +1265,7 @@ func initNextSteps(registryPath string, credentialPresent bool) []string {
 	}
 	steps = append(steps,
 		"datapan ready --limit 10 --json",
+		"datapan try \"단기예보\" base_date=20260622 --org 기상청 --json",
 		"datapan coverage --json",
 		"datapan studio --output-dir .datapan/studio --limit 200 --json",
 		"datapan list --org 국토교통부 --json",
@@ -4332,7 +4591,7 @@ func paramsTemplateForOperation(spec datago.Spec, op datago.Operation, overrides
 			continue
 		}
 		if _, ok := values[name]; !ok {
-			values[name] = "VALUE"
+			values[name] = exampleParamValue(name)
 		}
 		field := map[string]string{
 			"name":  name,
@@ -5456,6 +5715,7 @@ func doctorNextSteps(registrySource string, credentialPresent bool) []string {
 	}
 	steps = append(steps,
 		"datapan ready --limit 10 --json",
+		"datapan try \"단기예보\" base_date=20260622 --org 기상청 --json",
 		"datapan coverage --json",
 		"datapan studio --output-dir .datapan/studio --limit 200 --json",
 		"datapan search \"실거래\" --org 국토교통부 --json",
@@ -7383,6 +7643,7 @@ Usage:
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ready [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--json] [--limit N]
+  datapan try [query] [KEY=VALUE ...] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--operation NAME] [--any] [--params-output PATH] [--output-dir DIR] [--json]
   datapan coverage [--registry PATH] [--verification REPORT] [--limit N] [--json]
   datapan studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--json]
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
