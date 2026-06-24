@@ -1965,6 +1965,74 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 }
 
+func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
+	schemaSources, err := datapanSchemaSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	releaseRoot := filepath.Join(dir, "release-root")
+	sourceDir := filepath.Join(dir, "source")
+	if err := os.MkdirAll(filepath.Join(releaseRoot, "schemas"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range schemaSources {
+		data, err := osReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := osWriteFile(filepath.Join(releaseRoot, "schemas", schemaFileName(source)), data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousRegistryPath := filepath.Join(sourceDir, "previous-registry.json")
+	registryPath := filepath.Join(sourceDir, "registry.json")
+	verificationPath := filepath.Join(sourceDir, "verification.json")
+	if err := osWriteFile(previousRegistryPath, []byte(`[{"id":"090","title":"이전기관","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(registryPath, []byte(`[{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(verificationPath, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"limit": 1,
+		"truncated": false,
+		"filtered_count": 1,
+		"summary": {"total": 1, "verified": 0, "failed": 0, "skipped": 1, "unknown": 0},
+		"results": [
+			{"dataset_id": "100", "title": "기관_A", "provider": "data.go.kr", "status": "skipped", "reason": "metadata_only"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(releaseRoot)
+	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--previous-registry", previousRegistryPath, "--verification", verificationPath, "--output-dir", ".", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"artifacts": 26`,
+		`"catalog_diff":`,
+		`"verification_summary_written": true`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if _, err := osReadFile(filepath.Join(releaseRoot, "manifest.json")); err != nil {
+		t.Fatalf("expected manifest from schema-only release root: %v", err)
+	}
+	if _, err := osReadFile(filepath.Join(releaseRoot, "reports", "catalog-diff.json")); err != nil {
+		t.Fatalf("expected catalog diff from schema-only release root: %v", err)
+	}
+}
+
 func TestCatalogReleaseVerifyRejectsInvalidManifest(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := dir + "/manifest.json"

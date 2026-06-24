@@ -4662,10 +4662,8 @@ func findProjectRoot() (string, error) {
 		return "", err
 	}
 	for dir := wd; ; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "schemas")); err == nil {
-				return dir, nil
-			}
+		if hasDatapanSchemaSet(dir) {
+			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -4673,6 +4671,15 @@ func findProjectRoot() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not find datapan project root from %s", wd)
+}
+
+func hasDatapanSchemaSet(root string) bool {
+	for _, file := range datapanSchemaFiles() {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(file))); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func joinPath(base, elem string) string {
