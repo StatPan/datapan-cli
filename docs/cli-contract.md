@@ -140,12 +140,18 @@ query to reusable client commands. It applies the same source metadata filters
 as `search`, treats positional `KEY=VALUE` tokens and repeated `--param k=v`
 flags as parameter overrides, chooses the first ranked call-ready result by
 default, and returns one selected dataset with params, fields, call-route
-metadata, generated commands, and bounded alternatives. It should use safe
+metadata, generated commands, ordered `next_steps`, and bounded alternatives. It should use safe
 starter values for common paging/format parameters, preserve unknown required
 parameters as `VALUE`, and never include credential parameters in generated
 params or commands. `--any` may widen selection to callable but not-yet-ready
 routes; without `--any`, a no-match result must return `ok:false`,
 `error:"not_found"`, and exit code 2.
+
+`next_steps` should use the shared `{label, command}` shape and order the
+normal workflow: write params, dry-run, call, save CSV, curl/Postman/OpenAPI
+exports, Go/Node/Python codegen, access request, starter kit, status, and
+coverage. These steps should reuse the generated params file and should not
+require users or agents to infer command order from the raw `commands` map.
 
 `datapan kit <ref>` should generate a portable starter kit for one selected
 operation under `<dataset-id>-kit` by default. `--output-dir DIR` may override

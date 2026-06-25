@@ -212,6 +212,9 @@ README with next commands. Use `--output-dir DIR` when you want a custom
 location. The generated files use environment-variable placeholders and never
 write the service key into the kit. `datapan use <ref> --output-dir DIR` remains
 available for callers that already build on the broader planning command.
+`datapan try` and `datapan use` also return ordered `next_steps`, so agents and
+humans can move from params to dry-run, real call, CSV save, exports, codegen,
+starter kit, status, and coverage without reconstructing the workflow.
 
 Search can be narrowed with source metadata such as `--org`, `--category`,
 `--priority`, and `--provider`. `provider` is the upstream platform such as
@@ -335,7 +338,7 @@ ranked toward APIs with fewer required parameters and less action-like
 operations, so the first screen is closer to "try this now."
 Use `datapan try "query" KEY=VALUE --json` when you want Datapan to choose the
 best call-ready match and return params, `get`, `save`, `curl`, Postman,
-OpenAPI, and Go/Node/Python codegen commands in one response. It treats
+OpenAPI, Go/Node/Python codegen commands, and ordered `next_steps` in one response. It treats
 `KEY=VALUE` tokens as parameter overrides, uses safe starter values for common
 paging/format fields, and keeps auth parameters in environment variables. Add
 `--any` only when you intentionally want callable but not-yet-ready routes

@@ -1321,6 +1321,18 @@ func TestTrySelectsCallReadySpecAndBuildsCommands(t *testing.T) {
 		`--params-file 200_params.json --json`,
 		`datapan export --format postman 200`,
 		`datapan codegen python 200`,
+		`"next_steps":`,
+		`"label": "write params"`,
+		`"command": "datapan params 200 --operation`,
+		`"label": "dry run"`,
+		`"label": "call api"`,
+		`"label": "starter kit"`,
+		`datapan kit 200 --operation`,
+		`--params-file 200_params.json --output-dir 200-kit --json`,
+		`"label": "status"`,
+		`"command": "datapan status --json"`,
+		`"label": "coverage"`,
+		`"command": "datapan coverage --registry`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in try output: %s", want, stdout)
@@ -1328,6 +1340,34 @@ func TestTrySelectsCallReadySpecAndBuildsCommands(t *testing.T) {
 	}
 	if strings.Contains(stdout, `serviceKey=VALUE`) || strings.Contains(stdout, `"dataset": "100"`) {
 		t.Fatalf("try should not leak auth params or select not-ready route: %s", stdout)
+	}
+}
+
+func TestTryHumanOutputShowsOrderedNextSteps(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"200","title":"Weather Gateway API","provider":"data.go.kr","priority":"P1","organization":"기상청","operations":[{"name":"단기예보","endpoint":"https://apis.data.go.kr/test/weather","request_params":[{"name":"serviceKey"},{"name":"base_date"}]}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"try", "weather", "base_date=20260622"}, fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`Datapan try`,
+		`commands:`,
+		`next:`,
+		`write params: datapan params 200`,
+		`dry run: datapan get 200`,
+		`call api: datapan get 200`,
+		`starter kit: datapan kit 200`,
+		`status: datapan status --json`,
+		`coverage: datapan coverage --registry`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in try human output: %s", want, stdout)
+		}
 	}
 }
 
@@ -1688,6 +1728,13 @@ func TestUsePlansDatasetCommands(t *testing.T) {
 		`"codegen_go": "datapan codegen go 15084084`,
 		`"codegen_node": "datapan codegen node 15084084`,
 		`"codegen_python": "datapan codegen python 15084084`,
+		`"next_steps":`,
+		`"label": "write params"`,
+		`"label": "starter kit"`,
+		`datapan kit 15084084`,
+		`--params-file 15084084_params.json --output-dir 15084084-kit --json`,
+		`"label": "status"`,
+		`"label": "coverage"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in use plan: %s", want, stdout)

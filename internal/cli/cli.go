@@ -540,6 +540,7 @@ func (a app) try(args []string, jsonOut bool) int {
 	}
 	params, fields := paramsTemplateForOperation(spec, op, overrides)
 	commands := useCommandsForOperation(spec, op, params, paramsOutput, outputDir)
+	nextSteps := operationWorkflowNextSteps(spec, op, commands, paramsOutput, outputDir, a.registryPath)
 	route := operationCallRoute(spec, op)
 	selected := specSummaries([]datago.Spec{spec})[0]
 	addCallRouteFields(selected, route)
@@ -559,6 +560,7 @@ func (a app) try(args []string, jsonOut bool) int {
 		"params":             params,
 		"fields":             fields,
 		"commands":           commands,
+		"next_steps":         nextSteps,
 		"alternatives":       specSummaries(limitSpecs(candidates[1:], alternativeLimit)),
 		"registry_source":    a.registrySource,
 		"registry_path":      a.registryPath,
@@ -589,6 +591,12 @@ func (a app) try(args []string, jsonOut bool) int {
 	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
 		if value := strings.TrimSpace(commands[key]); value != "" {
 			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
+		}
+	}
+	if len(nextSteps) > 0 {
+		fmt.Fprintln(a.stdout, "  next:")
+		for _, step := range nextSteps {
+			fmt.Fprintf(a.stdout, "    %s: %s\n", step.Label, step.Command)
 		}
 	}
 	if len(candidates) > 1 {
@@ -5083,6 +5091,7 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 		paramsOutput = filepath.Join(outputDir, paramsOutput)
 	}
 	commands := useCommandsForOperation(spec, op, params, paramsOutput, outputDir)
+	nextSteps := operationWorkflowNextSteps(spec, op, commands, paramsOutput, outputDir, a.registryPath)
 	var kit *useKit
 	if strings.TrimSpace(outputDir) != "" {
 		written, err := a.writeUseKit(outputDir, spec, op, params, commands)
@@ -5103,6 +5112,7 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 		"params":             params,
 		"fields":             fields,
 		"commands":           commands,
+		"next_steps":         nextSteps,
 		"registry_source":    a.registrySource,
 		"registry_path":      a.registryPath,
 		"uses_params_file":   paramsOutput,
@@ -5136,6 +5146,12 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
 		if value := strings.TrimSpace(commands[key]); value != "" {
 			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
+		}
+	}
+	if len(nextSteps) > 0 {
+		fmt.Fprintln(a.stdout, "  next:")
+		for _, step := range nextSteps {
+			fmt.Fprintf(a.stdout, "    %s: %s\n", step.Label, step.Command)
 		}
 	}
 	if kit != nil {
@@ -5484,6 +5500,58 @@ func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[s
 		}
 	}
 	return commands
+}
+
+func operationWorkflowNextSteps(spec datago.Spec, op datago.Operation, commands map[string]string, paramsOutput, outputDir, registryPath string) []catalogOverviewNextStep {
+	steps := make([]catalogOverviewNextStep, 0, 14)
+	for _, item := range []struct {
+		label string
+		key   string
+	}{
+		{"write params", "params"},
+		{"dry run", "dry_run"},
+		{"call api", "get"},
+		{"save csv", "save_csv"},
+		{"curl", "curl"},
+		{"postman", "postman"},
+		{"openapi", "openapi"},
+		{"go client", "codegen_go"},
+		{"node client", "codegen_node"},
+		{"python client", "codegen_python"},
+		{"request access", "access"},
+	} {
+		command := strings.TrimSpace(commands[item.key])
+		if command != "" {
+			steps = append(steps, catalogOverviewNextStep{Label: item.label, Command: command})
+		}
+	}
+	if kitCommand := operationKitCommand(spec, op, paramsOutput, outputDir); kitCommand != "" {
+		steps = append(steps, catalogOverviewNextStep{Label: "starter kit", Command: kitCommand})
+	}
+	steps = append(steps,
+		catalogOverviewNextStep{Label: "status", Command: "datapan status --json"},
+		catalogOverviewNextStep{Label: "coverage", Command: "datapan coverage" + registryArgForCommand(registryPath) + " --json"},
+	)
+	return dedupeNextSteps(steps)
+}
+
+func operationKitCommand(spec datago.Spec, op datago.Operation, paramsOutput, outputDir string) string {
+	if strings.TrimSpace(spec.ID) == "" || strings.TrimSpace(op.Endpoint) == "" {
+		return ""
+	}
+	dir := strings.TrimSpace(outputDir)
+	if dir == "" {
+		dir = spec.ID + "-kit"
+	}
+	args := []string{"datapan", "kit", spec.ID}
+	if op.Name != "" {
+		args = append(args, "--operation", op.Name)
+	}
+	if strings.TrimSpace(paramsOutput) != "" {
+		args = append(args, "--params-file", paramsOutput)
+	}
+	args = append(args, "--output-dir", dir, "--json")
+	return datago.CommandString(args)
 }
 
 func useOutputPath(outputDir, name string) string {
@@ -8784,7 +8852,7 @@ plan or call from the local machine.`, true
   datapan try [query] [KEY=VALUE ...] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--operation NAME] [--any] [--params-output PATH] [--output-dir DIR] [--json]
 
 Pick the best matching call-ready API and return the next commands for params,
-dry-run, get, curl, Postman, OpenAPI, codegen, and access.`, true
+dry-run, get, curl, Postman, OpenAPI, codegen, access, and starter-kit workflow steps.`, true
 	case "coverage":
 		return `Usage:
   datapan coverage [--registry PATH] [--verification REPORT] [--route-disposition REPORT] [--limit N] [--json]
@@ -8828,7 +8896,7 @@ Resolve and display one dataset by id or search text.`, true
 		return `Usage:
   datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
 
-Plan a usable API workflow and optionally write a starter kit.`, true
+Plan a usable API workflow with ordered next steps and optionally write a starter kit.`, true
 	case "kit":
 		return `Usage:
   datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
