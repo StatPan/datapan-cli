@@ -1,7 +1,9 @@
 # Datapan CLI
 
 Datapan CLI is an open-source, agent-friendly command-line tool for Korean
-public data.
+public data. The long-term goal is not to resell public data; it is to own the
+developer and agent experience around discovering, applying for, calling,
+verifying, exporting, caching, and generating clients for public-data APIs.
 
 The first target is `data.go.kr`: discover useful API specs, check local API key
 configuration, open or explain usage-application pages, call approved APIs from
@@ -601,9 +603,10 @@ load that default file from the current project directory. Set
 `DATAPAN_REGISTRY_PATH` only when you want to use a different registry file.
 
 Datapan CLI is the first repository, not the whole planned ecosystem. The
-longer-term shape is a public-data layer made of the CLI runtime, normalized
+longer-term shape is a public-data DX layer made of the CLI runtime, normalized
 registry releases, provider adapters, verification evidence, developer exports,
-and eventually a Studio UI. See `docs/ecosystem.md`.
+SDK/codegen surfaces, MCP, cache/sync behavior, and eventually a Studio UI. See
+`docs/ecosystem.md` and `docs/product-positioning.md`.
 
 The first schema drafts live in `schemas/`:
 

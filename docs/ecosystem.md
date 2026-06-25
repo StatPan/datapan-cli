@@ -19,14 +19,24 @@ developer platform:
 - know how approval and authentication work;
 - know whether an operation is actually callable;
 - call it with stable local credentials;
+- cache and sync trusted public-data outputs when repeat calls are expensive or
+  fragile;
 - preserve upstream errors and metadata without hiding them;
 - export the result to JSON, CSV, Postman, SDKs, or a future Studio UI;
+- expose the same contracts through a future MCP server so AI agents can use
+  public data without scraping human-oriented portals;
 - keep machine-readable evidence for what is verified, broken, external, or
   unknown.
 
 The project should avoid pretending that every public-data API is easy or
 homogeneous. Instead, it should make every gap explicit and progressively turn
 those gaps into provider adapters, verification reports, and reusable specs.
+
+Datapan should compete on DX ownership, not raw-data ownership. Developers and
+agents should choose Datapan because it is the shortest reliable path from
+"there is public data somewhere" to "my code, notebook, service, or agent can
+use it with known credentials, known schema, known freshness, and known failure
+modes."
 
 ## Repository Map
 
@@ -43,6 +53,7 @@ more reliable.
 | `datapan-spec` | Optional after schemas have consumers outside the CLI | canonical JSON Schemas and codegen inputs | implementation-specific Go internals |
 | `datapan-sdk-*` | Deferred until specs and verification are stable | generated or registry-driven clients for application developers | hand-written wrappers for thousands of APIs |
 | `datapan-studio` | Future product | DBeaver/Postman-like UI over the same registry, verification, and call engine | a second interpretation of public-data behavior |
+| `datapan-mcp` | Future after CLI contracts stabilize | MCP server exposing search, status, schema, verification, and call/export tools to AI agents | direct portal scraping or behavior that disagrees with the CLI |
 | `datapan-cloud` | Future business layer | hosted registry, scheduled verification, monitoring, team workflows | required runtime dependency for open-source CLI users |
 
 ### datapan-cli
@@ -363,6 +374,27 @@ Creation trigger:
 
 - start after the open registry and CLI have enough usage to justify hosted
   verification, team workflows, or reliability monitoring.
+
+### datapan-mcp
+
+Status: future agent interface.
+
+Purpose:
+
+- expose Datapan search, status, schema, access, verification, call, export, and
+  starter-kit workflows to AI agents;
+- reuse the same registry, provider, verification, and command contracts as the
+  CLI;
+- let agents reason about public-data trust states without scraping data.go.kr
+  pages or guessing provider behavior;
+- provide safe, explicit tools for credential checks, dry-runs, bounded calls,
+  cached reads, schema inspection, and generated client artifacts.
+
+Creation trigger:
+
+- start after the CLI has stable JSON contracts for init, status, search, try,
+  use/kit, coverage, verification, and provider gaps. The MCP server should be
+  a thin agent-facing layer over those contracts, not a second implementation.
 
 ## Core Contracts
 
