@@ -105,6 +105,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider korad --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider korad --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider lh-ebid --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
@@ -133,6 +135,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider humetro --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
@@ -191,6 +194,11 @@ with `korad_wadl_metadata_only`, synthesizes `serviceKey`, fills conservative
 year/month/quarter/date defaults, respects approval-required operations, and
 can classify upstream key-registration rejection as provider evidence once the
 call is legitimately allowed.
+The lh-ebid adapter owns `openapi.ebid.lh.or.kr`, Korea Land and Housing
+Corporation's electronic-bidding API host. It supplies conservative date/month
+and paging defaults for list-style bid, order plan, pre-price, and opening
+result endpoints, while leaving opaque identifiers such as `bidNum` as explicit
+missing-parameter skips.
 The NAQS adapter owns `data.naqs.go.kr`, verifies the no-auth environmental
 certification XML endpoint, and deliberately skips `pubc` integration
 endpoints with `naqs_mutation_endpoint` because their parameters model
@@ -659,6 +667,34 @@ Expected evidence shape: `provider=tour`,
 stable provider reasons such as `tour_missing_auth` for XMLFault authentication
 responses.
 
+## Fifteenth Adapter: lh-ebid
+
+The lh-ebid adapter covers Korea Land and Housing Corporation electronic bidding
+APIs hosted at `openapi.ebid.lh.or.kr`. The current registry exposes six REST
+XML operations across bid notices, contracts, order plans, prior-specification
+notices, planned prices, and bid-opening results.
+
+The adapter adds the data.go.kr API key as `serviceKey`, fills only conservative
+read windows such as `20240101..20240131`, `202401..202412`, `pageNo=1`, and
+`numOfRows=1`, and skips opaque identifiers such as `bidNum` instead of
+inventing values. Live probes reach the provider and currently classify the
+shared key's unregistered state as `lh_ebid_service_key_not_registered`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider lh-ebid --kind external_endpoint --limit 6 --output .datapan/lh-ebid-verification.json --json
+datapan catalog verify summary --input .datapan/lh-ebid-verification.json --json
+datapan get <lh-ebid-dataset-id> tndrbidRegDtStart=20240101 tndrbidRegDtEnd=20240131 --operation "입찰정보 조회" --json
+```
+
+Expected evidence shape: `provider=lh-ebid`,
+`endpoint_host=openapi.ebid.lh.or.kr`, redacted URLs with
+`serviceKey=REDACTED`, `lh_ebid_missing_required_params` skips for opaque
+identifier operations, XML status bodies, and stable provider reasons such as
+`lh_ebid_service_key_not_registered`.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -683,7 +719,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-itfind, korad, naqs, oneclick-law, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+itfind, korad, lh-ebid, naqs, oneclick-law, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

@@ -144,6 +144,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "ICT", Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport"},
 				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 				{Name: "원자력", Endpoint: "http://www.korad.or.kr/openapi/service/radiTakeWasteStatsSvc/getRadiTakeWasteStatsDataList"},
+				{Name: "LH전자조달", Endpoint: "http://openapi.ebid.lh.or.kr/ebid.com.openapi.service.OpenBidInfoList.dev"},
 				{Name: "친환경", Endpoint: "http://data.naqs.go.kr/openapi/service/rest/naqsenv/envparam"},
 				{Name: "생활법령", Endpoint: "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawSearchService/getSearchGroupList"},
 				{Name: "시설", Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry"},
@@ -154,7 +155,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "openapi.tour.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.ebid.lh.or.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "openapi.tour.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -190,6 +191,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	korad := findProviderSummary(backlog.Providers, "www.korad.or.kr")
 	if korad == nil || korad.AdapterStatus != "adapter" || korad.Provider != "korad" {
 		t.Fatalf("unexpected korad summary: %#v", korad)
+	}
+	lhEBid := findProviderSummary(backlog.Providers, "openapi.ebid.lh.or.kr")
+	if lhEBid == nil || lhEBid.AdapterStatus != "adapter" || lhEBid.Provider != "lh-ebid" {
+		t.Fatalf("unexpected lh-ebid summary: %#v", lhEBid)
 	}
 	naqs := findProviderSummary(backlog.Providers, "data.naqs.go.kr")
 	if naqs == nil || naqs.AdapterStatus != "adapter" || naqs.Provider != "naqs" {

@@ -1539,6 +1539,128 @@ func TestTourAdapterSkipsServiceRootWithoutOperationPath(t *testing.T) {
 	}
 }
 
+func TestLHEBidAdapterAddsServiceKeyAndDateDefaults(t *testing.T) {
+	adapter := NewLHEBidAdapter()
+	if !adapter.MatchHost("openapi.ebid.lh.or.kr") {
+		t.Fatal("expected lh-ebid adapter to match openapi.ebid.lh.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("lh-ebid adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected lh-ebid capabilities: %#v", adapter.Capabilities())
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.ebid.lh.or.kr" {
+			t.Fatalf("expected lh-ebid host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in lh-ebid request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("tndrbidRegDtStart") != "20240101" || req.URL.Query().Get("tndrbidRegDtEnd") != "20240131" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected lh-ebid query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><bidNum>1</bidNum></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15021183", Title: "LH 입찰", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "입찰정보 조회", Endpoint: "http://openapi.ebid.lh.or.kr/ebid.com.openapi.service.OpenBidInfoList.dev"},
+		MissingParams: []string{"tndrbidRegDtStart", "tndrbidRegDtEnd", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "lh-ebid" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected lh-ebid verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted lh-ebid URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["tndrbidRegDtStart"] != "20240101" || result.Params["tndrbidRegDtEnd"] != "20240131" || result.Params["numOfRows"] != "1" {
+		t.Fatalf("unexpected lh-ebid public params: %#v", result.Params)
+	}
+}
+
+func TestLHEBidAdapterSkipsUnknownRequiredIdentifiers(t *testing.T) {
+	adapter := NewLHEBidAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15021184", Title: "LH 계약", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "계약현황 조회", Endpoint: "http://openapi.ebid.lh.or.kr/ebid.com.openapi.service.OpenContractInfoList.dev"},
+		MissingParams: []string{"contractDtStart", "contractDtEnd", "bidNum"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "lh_ebid_missing_required_params" || len(result.MissingParams) != 1 || result.MissingParams[0] != "bidNum" {
+		t.Fatalf("unexpected lh-ebid identifier skip result: %#v", result)
+	}
+	if result.Params["contractDtStart"] != "20240101" || result.Params["contractDtEnd"] != "20240131" {
+		t.Fatalf("expected contract date defaults: %#v", result.Params)
+	}
+}
+
+func TestLHEBidAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewLHEBidAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("orderExpectYmStart") != "202401" || req.URL.Query().Get("orderExpectYmEnd") != "202412" {
+			t.Fatalf("unexpected lh-ebid order query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>30</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15042795", Title: "LH 발주계획", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "발주계획정보 조회", Endpoint: "http://openapi.ebid.lh.or.kr/ebid.com.openapi.service.OpenOrdergPlanList.dev"},
+		MissingParams: []string{"orderExpectYmStart", "orderExpectYmEnd"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "lh_ebid_service_key_not_registered" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected lh-ebid service key result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "30" {
+		t.Fatalf("unexpected lh-ebid provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestLHEBidAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewLHEBidAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("openDtmStart") != "20240101" || req.URL.Query().Get("openDtmEnd") != "20240131" {
+			t.Fatalf("unexpected lh-ebid call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><openDtm>20240101</openDtm></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "15058826", Title: "LH 개찰결과", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "개찰결과정보", Endpoint: "http://openapi.ebid.lh.or.kr/ebid.com.openapi.service.OpenTenderopenList.dev"},
+		MissingParams: []string{"openDtmStart", "openDtmEnd"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "lh-ebid" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected lh-ebid call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected lh-ebid provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted lh-ebid call URL: %s", envelope.URL)
+	}
+}
+
 func TestTourAdapterAddsServiceKeyAndDefaults(t *testing.T) {
 	adapter := NewTourAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

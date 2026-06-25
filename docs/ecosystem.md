@@ -214,6 +214,9 @@ Adapter status:
   metadata skips, synthesized `serviceKey`, conservative period defaults,
   approval-aware verification, and call behavior for users whose key is
   registered upstream;
+- `lh-ebid`: registered adapter for Korea Land and Housing Corporation
+  electronic bidding APIs with conservative date/month defaults, opaque
+  identifier skips, and provider key-registration error evidence;
 - `naqs`: registered adapter for National Agricultural Products Quality
   Management Service APIs with no-auth XML lookup verification and explicit
   skips for mutation-like `pubc` integration endpoints;
@@ -250,7 +253,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-humetro, itfind, korad, naqs, oneclick-law, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
+humetro, itfind, korad, lh-ebid, naqs, oneclick-law, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 
