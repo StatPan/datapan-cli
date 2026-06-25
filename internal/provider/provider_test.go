@@ -1661,6 +1661,122 @@ func TestLHEBidAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestSeoulBusAdapterAddsServiceKeyAndRouteDefaults(t *testing.T) {
+	adapter := NewSeoulBusAdapter()
+	if !adapter.MatchHost("ws.bus.go.kr") {
+		t.Fatal("expected seoul-bus adapter to match ws.bus.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("seoul-bus adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected seoul-bus capabilities: %#v", adapter.Capabilities())
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "ws.bus.go.kr" {
+			t.Fatalf("expected seoul-bus host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in seoul-bus request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("busRouteId") != "100100118" || req.URL.Query().Get("startOrd") != "1" || req.URL.Query().Get("endOrd") != "5" {
+			t.Fatalf("unexpected seoul-bus query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<ServiceResult><comMsgHeader/><msgHeader><headerCd>0</headerCd><headerMsg>정상적으로 처리되었습니다.</headerMsg><itemCount>1</itemCount></msgHeader><msgBody><itemList><vehId>1</vehId></itemList></msgBody></ServiceResult>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15000332", Title: "서울 버스", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "getBusPosByRouteStList", Endpoint: "http://ws.bus.go.kr/api/rest/buspos/getBusPosByRouteSt"},
+		MissingParams: []string{"busRouteId", "startOrd", "endOrd"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-24T00:00:00Z",
+	})
+	if result.Provider != "seoul-bus" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_service_items" {
+		t.Fatalf("unexpected seoul-bus verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted seoul-bus URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["busRouteId"] != "100100118" || result.Params["startOrd"] != "1" || result.Params["endOrd"] != "5" {
+		t.Fatalf("unexpected seoul-bus public params: %#v", result.Params)
+	}
+}
+
+func TestSeoulBusAdapterSkipsVehicleIdentifier(t *testing.T) {
+	adapter := NewSeoulBusAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15000332", Title: "서울 버스", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "getBusPosByVehIdItem", Endpoint: "http://ws.bus.go.kr/api/rest/buspos/getBusPosByVehId"},
+		MissingParams: []string{"vehId"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "seoul_bus_missing_required_params" || len(result.MissingParams) != 1 || result.MissingParams[0] != "vehId" {
+		t.Fatalf("unexpected seoul-bus vehicle skip result: %#v", result)
+	}
+}
+
+func TestSeoulBusAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewSeoulBusAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<ServiceResult><comMsgHeader/><msgHeader><headerCd>7</headerCd><headerMsg>Key인증실패: SERVICE KEY IS NOT REGISTERED ERROR.[인증모듈 에러코드(30)]</headerMsg><itemCount>0</itemCount></msgHeader><msgBody/></ServiceResult>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15000332", Title: "서울 버스", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "getBusPosByRtidList", Endpoint: "http://ws.bus.go.kr/api/rest/buspos/getBusPosByRtid"},
+		MissingParams: []string{"busRouteId"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "seoul_bus_service_key_not_registered" || result.BodyShape != "xml_service_status" {
+		t.Fatalf("unexpected seoul-bus key-registration result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "7" || result.ProviderStatus.Source != "ServiceResult/msgHeader" {
+		t.Fatalf("unexpected seoul-bus provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestSeoulBusAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewSeoulBusAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("busRouteId") != "100100118" {
+			t.Fatalf("unexpected seoul-bus call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<ServiceResult><msgHeader><headerCd>0</headerCd><headerMsg>OK</headerMsg></msgHeader><msgBody><itemList><vehId>1</vehId></itemList></msgBody></ServiceResult>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "15000332", Title: "서울 버스", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "getBusPosByRtidList", Endpoint: "http://ws.bus.go.kr/api/rest/buspos/getBusPosByRtid"},
+		MissingParams: []string{"busRouteId"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "seoul-bus" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected seoul-bus call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "0" {
+		t.Fatalf("unexpected seoul-bus provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted seoul-bus call URL: %s", envelope.URL)
+	}
+}
+
 func TestTourAdapterAddsServiceKeyAndDefaults(t *testing.T) {
 	adapter := NewTourAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

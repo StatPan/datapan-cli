@@ -136,13 +136,14 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider k
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider lh-ebid --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider naqs --kind external_endpoint --limit 9 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider oneclick-law --kind external_endpoint --limit 30 --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider seoul-bus --kind external_endpoint --limit 5 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider sisul --kind external_endpoint --limit 20 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider tour --limit 26 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider uiryeong --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ulsan --kind external_endpoint --limit 6 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
-datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/andong-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/humetro-verification.json --input .datapan/itfind-verification.json --input .datapan/korad-verification.json --input .datapan/lh-ebid-verification.json --input .datapan/naqs-verification.json --input .datapan/oneclick-law-verification.json --input .datapan/sisul-verification.json --input .datapan/tour-verification.json --input .datapan/uiryeong-verification.json --input .datapan/ulsan-verification.json --output .datapan/latest-verification.json --json
+datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/andong-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/humetro-verification.json --input .datapan/itfind-verification.json --input .datapan/korad-verification.json --input .datapan/lh-ebid-verification.json --input .datapan/naqs-verification.json --input .datapan/oneclick-law-verification.json --input .datapan/seoul-bus-verification.json --input .datapan/sisul-verification.json --input .datapan/tour-verification.json --input .datapan/uiryeong-verification.json --input .datapan/ulsan-verification.json --output .datapan/latest-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 datapan catalog release readiness --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-readiness.json --json
@@ -234,6 +235,7 @@ datapan ops --host www.korad.or.kr --limit 10 --json
 datapan ops --host openapi.ebid.lh.or.kr --limit 10 --json
 datapan ops --host data.naqs.go.kr --limit 10 --json
 datapan ops --host oneclick.law.go.kr --limit 10 --json
+datapan ops --host ws.bus.go.kr --limit 10 --json
 datapan ops --host data.sisul.or.kr --limit 10 --json
 datapan ops --host openapi.tour.go.kr --limit 10 --json
 datapan ops --host data.uiryeong.go.kr --limit 10 --json
@@ -246,6 +248,7 @@ datapan verify --host www.korad.or.kr --limit 15 --json
 datapan verify --host openapi.ebid.lh.or.kr --limit 6 --json
 datapan verify --host data.naqs.go.kr --limit 9 --json
 datapan verify --host oneclick.law.go.kr --limit 30 --json
+datapan verify --host ws.bus.go.kr --limit 5 --json
 datapan verify --host data.sisul.or.kr --limit 20 --json
 datapan verify --host openapi.tour.go.kr --limit 26 --json
 datapan verify --host data.uiryeong.go.kr --limit 6 --json
@@ -385,9 +388,9 @@ be published by `datapan-registry`. Use `--status`, `--kind`, and
 `--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
 registered external adapters such as airport, q-net, epost, ekape, forest,
 folk, andong, humetro, itfind, jeonju, geoje, korad, lh-ebid, naqs, oneclick-law,
-sisul, tour, uiryeong, and ulsan.
+seoul-bus, sisul, tour, uiryeong, and ulsan.
 Andong, EPost, forest, geoje, Humetro, itfind, KORAD, lh-ebid, NAQS, oneclick-law,
-sisul, tour, uiryeong, and ulsan are call-capable external adapters, so `datapan get` can route
+seoul-bus, sisul, tour, uiryeong, and ulsan are call-capable external adapters, so `datapan get` can route
 their matching operations through the provider boundary instead of treating them
 as generic data.go.kr gateway calls.
 After `datapan init`, catalog observation commands such as `catalog providers`,

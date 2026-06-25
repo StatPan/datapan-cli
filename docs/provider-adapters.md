@@ -109,6 +109,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider naqs --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider seoul-bus --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider seoul-bus --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider uiryeong --json
@@ -137,6 +139,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider seoul-bus --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ulsan --json
@@ -199,6 +202,11 @@ Corporation's electronic-bidding API host. It supplies conservative date/month
 and paging defaults for list-style bid, order plan, pre-price, and opening
 result endpoints, while leaving opaque identifiers such as `bidNum` as explicit
 missing-parameter skips.
+The seoul-bus adapter owns `ws.bus.go.kr`, Seoul's bus-position API host. It
+adds the data.go.kr API key as `serviceKey`, supplies conservative route and
+stop-order defaults for route-position endpoints, skips vehicle-ID-only calls,
+and parses `ServiceResult/msgHeader` so provider key-registration errors remain
+structured evidence instead of generic XML success.
 The NAQS adapter owns `data.naqs.go.kr`, verifies the no-auth environmental
 certification XML endpoint, and deliberately skips `pubc` integration
 endpoints with `naqs_mutation_endpoint` because their parameters model
@@ -695,6 +703,33 @@ Expected evidence shape: `provider=lh-ebid`,
 identifier operations, XML status bodies, and stable provider reasons such as
 `lh_ebid_service_key_not_registered`.
 
+## Sixteenth Adapter: seoul-bus
+
+The seoul-bus adapter covers Seoul bus-position APIs hosted at `ws.bus.go.kr`.
+The current registry exposes route-position, low-floor route-position, and
+vehicle-position REST XML operations.
+
+The adapter adds the data.go.kr API key as `serviceKey`, fills safe smoke
+defaults such as `busRouteId=100100118`, `startOrd=1`, and `endOrd=5`, and
+does not invent `vehId` values. Live probes reach the provider and currently
+classify the shared key's unregistered state as
+`seoul_bus_service_key_not_registered`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider seoul-bus --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider seoul-bus --kind external_endpoint --limit 5 --output .datapan/seoul-bus-verification.json --json
+datapan catalog verify summary --input .datapan/seoul-bus-verification.json --json
+datapan get 15000332 busRouteId=100100118 --operation getBusPosByRtidList --json
+```
+
+Expected evidence shape: `provider=seoul-bus`, `endpoint_host=ws.bus.go.kr`,
+redacted URLs with `serviceKey=REDACTED`, `ServiceResult/msgHeader`
+`provider_status`, `seoul_bus_missing_required_params` skips for vehicle-ID
+operations, and stable provider reasons such as
+`seoul_bus_service_key_not_registered`.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -719,7 +754,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-itfind, korad, lh-ebid, naqs, oneclick-law, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+itfind, korad, lh-ebid, naqs, oneclick-law, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.
