@@ -136,6 +136,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 			Provider: "data.go.kr",
 			Operations: []Operation{
 				{Name: "공항", Endpoint: "http://openapi.airport.co.kr/service/rest/airportLowVisibility/getAirportLowVisibilityLast"},
+				{Name: "안동", Endpoint: "https://www.andong.go.kr/openapi/service/arDevJigaService/getCode"},
 				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
 				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
@@ -147,10 +148,14 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
+	}
+	andong := findProviderSummary(backlog.Providers, "www.andong.go.kr")
+	if andong == nil || andong.AdapterStatus != "adapter" || andong.Provider != "andong" {
+		t.Fatalf("unexpected andong summary: %#v", andong)
 	}
 	forest := findProviderSummary(backlog.Providers, "api.forest.go.kr")
 	if forest == nil || forest.AdapterStatus != "adapter" || forest.Provider != "forest" {

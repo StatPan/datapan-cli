@@ -95,6 +95,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider airport --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider airport --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider andong --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider geoje --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
@@ -116,6 +118,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider folk --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
@@ -150,6 +153,11 @@ The airport adapter owns `openapi.airport.co.kr` and captures Korea Airports
 Corporation low-visibility API credential-registration responses as
 provider-specific evidence instead of leaving those operations as generic
 missing-adapter gaps.
+The andong adapter owns `www.andong.go.kr`, a REST XML local-government host.
+It synthesizes the live `serviceKey` auth parameter, fills only conservative
+paging defaults including the upstream `numOfRowns` spelling, skips opaque
+district/detail/file identifiers, and records upstream service-registration
+errors as provider evidence instead of a generic missing-adapter gap.
 The geoje adapter owns `data.geoje.go.kr`, a high-priority local-government
 external host. It uses the normal `serviceKey` credential, proves
 `resultCode=00` XML list responses, skips ID-only detail operations rather than
@@ -483,7 +491,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, sisul,
-uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

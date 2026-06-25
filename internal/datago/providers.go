@@ -293,6 +293,8 @@ func providerNameForHost(host string) string {
 	switch {
 	case host == "apis.data.go.kr" || host == "api.odcloud.kr" || strings.HasSuffix(host, ".data.go.kr"):
 		return "data.go.kr"
+	case strings.Contains(host, "andong.go.kr"):
+		return "andong"
 	case strings.Contains(host, "airport.co.kr"):
 		return "airport"
 	case strings.Contains(host, "q-net.or.kr"):

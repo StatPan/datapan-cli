@@ -204,6 +204,9 @@ Adapter status:
   multimedia APIs with provider-specific JSON result evidence;
 - `airport`: registered observation-stage adapter for Korea Airports
   Corporation APIs with provider key-registration error evidence;
+- `andong`: registered adapter for Andong city APIs with synthesized
+  `serviceKey`, conservative `numOfRowns` paging, opaque ID skips, and call
+  behavior;
 - `jeonju`: registered adapter for Jeonju city APIs with exact `ServiceKey` /
   `authApiKey` handling and upstream `HTTP 405` evidence;
 - `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
@@ -227,8 +230,8 @@ Creation trigger:
   interface has stabilized inside `datapan-cli`.
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
-code boundary lives in `internal/provider`; epost, forest, geoje, sisul,
-uiryeong, and ulsan now prove multiple external call paths, while jeonju
+code boundary lives in `internal/provider`; andong, epost, forest, geoje,
+sisul, uiryeong, and ulsan now prove multiple external call paths, while jeonju
 expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

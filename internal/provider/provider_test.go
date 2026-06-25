@@ -913,6 +913,159 @@ func TestUiryeongAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestAndongAdapterAddsServiceKeyAndClassifiesServiceErrors(t *testing.T) {
+	adapter := NewAndongAdapter()
+	if !adapter.MatchHost("www.andong.go.kr") {
+		t.Fatal("expected andong adapter to match www.andong.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("andong adapter should not match data.go.kr gateway")
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.andong.go.kr" {
+			t.Fatalf("expected andong host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected synthesized serviceKey in andong request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("numOfRowns") != "1" {
+			t.Fatalf("expected numOfRowns default in andong request: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>99</resultCode><resultMsg>NO OPENAPI SERVICE ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "920", Title: "경상북도 안동시_의료기관 현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "의무관리현황 목록 조회",
+			Endpoint: "https://www.andong.go.kr/openapi/service/mediHsptService/getList",
+			RequestParams: []datago.Param{
+				{Name: "numOfRowns"},
+			},
+		},
+		MissingParams: []string{"numOfRowns"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "andong" || result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "andong_service_not_registered" {
+		t.Fatalf("unexpected andong verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted andong URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["numOfRowns"] != "1" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected andong public params/body shape: params=%#v shape=%s", result.Params, result.BodyShape)
+	}
+}
+
+func TestAndongAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewAndongAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "921", Title: "경상북도 안동시_개별공시지가자료", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "개별공시지가 목록 조회",
+			Endpoint: "https://www.andong.go.kr/openapi/service/arDevJigaService/getList",
+		},
+		MissingParams: []string{"dongCode", "langKind", "bonbun", "bubun", "numOfRowns"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "andong_missing_required_params" || strings.Join(result.MissingParams, ",") != "dongCode,langKind,bonbun,bubun" {
+		t.Fatalf("unexpected andong skip result: %#v", result)
+	}
+}
+
+func TestAndongAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewAndongAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in andong call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("numOfRowns") != "1" {
+			t.Fatalf("unexpected andong call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><name>안동병원</name></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "922", Title: "경상북도 안동시_의료기관 현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "의무관리현황 목록 조회",
+			Endpoint: "https://www.andong.go.kr/openapi/service/mediHsptService/getList",
+			RequestParams: []datago.Param{
+				{Name: "numOfRowns"},
+			},
+		},
+		MissingParams: []string{"numOfRowns"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "andong" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected andong call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected andong provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "안동병원") {
+		t.Fatalf("unexpected andong call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestAndongAdapterVerifyNormalizesTransportTimeouts(t *testing.T) {
+	adapter := NewAndongAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "923", Title: "경상북도 안동시 timeout", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "의무관리현황 목록 조회",
+			Endpoint: "https://www.andong.go.kr/openapi/service/mediHsptService/getList",
+		},
+		MissingParams: []string{"numOfRowns"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "andong_request_timeout" {
+		t.Fatalf("unexpected andong transport result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted andong URL after timeout: %s", result.URL)
+	}
+}
+
+func TestAndongAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewAndongAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "924", Title: "경상북도 안동시 transport", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "의무관리현황 목록 조회",
+			Endpoint: "https://www.andong.go.kr/openapi/service/mediHsptService/getList",
+		},
+		MissingParams: []string{"numOfRowns"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted andong transport error, got %v", err)
+	}
+}
+
 func TestSisulAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
 	adapter := NewSisulAdapter()
 	if !adapter.MatchHost("data.sisul.or.kr") {
