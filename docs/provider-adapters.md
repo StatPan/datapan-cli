@@ -103,6 +103,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider korad --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider korad --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider uiryeong --json
@@ -126,6 +128,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ulsan --json
@@ -178,6 +181,10 @@ with `korad_wadl_metadata_only`, synthesizes `serviceKey`, fills conservative
 year/month/quarter/date defaults, respects approval-required operations, and
 can classify upstream key-registration rejection as provider evidence once the
 call is legitimately allowed.
+The NAQS adapter owns `data.naqs.go.kr`, verifies the no-auth environmental
+certification XML endpoint, and deliberately skips `pubc` integration
+endpoints with `naqs_mutation_endpoint` because their parameters model
+insert/update/delete style data exchange rather than safe catalog reads.
 The sisul adapter owns `data.sisul.or.kr`, Seoul Facilities Corporation's
 OpenDB host. Its catalog contains both callable `get...Qry` endpoints and
 WADL metadata URLs, so the adapter explicitly skips `_wadl` metadata,
@@ -513,6 +520,35 @@ operations. If an approved call reaches KORAD but the upstream service rejects
 the credential registration state, Datapan classifies that as
 `korad_service_key_not_registered` rather than a generic provider failure.
 
+## Eleventh Adapter: naqs
+
+The naqs adapter covers National Agricultural Products Quality Management
+Service APIs hosted at `data.naqs.go.kr`. The imported catalog currently mixes
+one safe XML lookup endpoint, `naqsenv/envparam`, with several `pubc`
+integration endpoints whose parameter contracts include `proc=I/U/D` and
+domain identifiers for produce traceability records.
+
+Datapan treats those `pubc` endpoints as mutation-like integration boundaries.
+Verification records `naqs_mutation_endpoint` before HTTP instead of guessing
+business identifiers or risking write-like calls. The environmental
+certification endpoint is no-auth XML and can be verified with an empty
+`certno` smoke value; user-provided `certno` values are passed through for
+explicit `datapan get` calls.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider naqs --kind external_endpoint --limit 9 --output .datapan/naqs-verification.json --json
+datapan catalog verify summary --input .datapan/naqs-verification.json --json
+datapan get 15000935 certno=1 --operation "친환경인증정보" --json
+```
+
+Expected evidence shape: `provider=naqs`,
+`endpoint_host=data.naqs.go.kr`, `xml_env_response` for the safe lookup
+endpoint, `provider_status.code=00` with `NORMAL SERVICE.`, and
+`naqs_mutation_endpoint` skips for `pubc` integration operations.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -537,7 +573,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, itfind,
-korad, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+korad, naqs, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

@@ -2017,3 +2017,80 @@ func TestQNetAdapterClassifiesConnectionValidationFailures(t *testing.T) {
 		t.Fatalf("unexpected provider status: %#v", result.ProviderStatus)
 	}
 }
+
+func TestNAQSAdapterSkipsMutationEndpoint(t *testing.T) {
+	adapter := NewNAQSAdapter()
+	called := false
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "700", Title: "NAQS pubc", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "상품속성정보연계", Endpoint: "http://data.naqs.go.kr/pubc"},
+		HTTP: providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			called = true
+			return nil, nil
+		}),
+	})
+	if called {
+		t.Fatal("naqs pubc endpoint should skip before HTTP")
+	}
+	if result.Status != "skipped" || result.Reason != "naqs_mutation_endpoint" || result.BodyShape != "html_portal" {
+		t.Fatalf("unexpected naqs mutation skip: %#v", result)
+	}
+}
+
+func TestNAQSAdapterVerifiesEnvResponseWithoutAuth(t *testing.T) {
+	adapter := NewNAQSAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.naqs.go.kr" {
+			t.Fatalf("expected naqs host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("naqs should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version='1.0' encoding='UTF-8'?><GetEnvResponse><body/><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header></GetEnvResponse>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "701", Title: "NAQS env", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "친환경인증정보", Endpoint: "http://data.naqs.go.kr/openapi/service/rest/naqsenv/envparam"},
+		MissingParams: []string{"certno"},
+		HTTP:          client,
+	})
+	if result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_env_response" {
+		t.Fatalf("unexpected naqs verification result: %#v", result)
+	}
+	if result.ProviderStatus == nil || !result.ProviderStatus.OK || result.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected naqs provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestNAQSAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewNAQSAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("certno") != "1" {
+			t.Fatalf("expected certno in naqs call: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<GetEnvResponse><body/><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header></GetEnvResponse>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:      datago.Spec{ID: "702", Title: "NAQS env", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "친환경인증정보", Endpoint: "http://data.naqs.go.kr/openapi/service/rest/naqsenv/envparam"},
+		Params:    map[string]string{"certno": "1"},
+		HTTP:      client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "naqs" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected naqs call envelope: %#v", envelope)
+	}
+	if !strings.Contains(envelope.URL, "certno=1") || strings.Contains(envelope.URL, "serviceKey") {
+		t.Fatalf("unexpected naqs call URL: %s", envelope.URL)
+	}
+}

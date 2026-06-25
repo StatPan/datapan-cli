@@ -214,6 +214,9 @@ Adapter status:
   metadata skips, synthesized `serviceKey`, conservative period defaults,
   approval-aware verification, and call behavior for users whose key is
   registered upstream;
+- `naqs`: registered adapter for National Agricultural Products Quality
+  Management Service APIs with no-auth XML lookup verification and explicit
+  skips for mutation-like `pubc` integration endpoints;
 - `jeonju`: registered adapter for Jeonju city APIs with exact `ServiceKey` /
   `authApiKey` handling and upstream `HTTP 405` evidence;
 - `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
@@ -238,7 +241,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-itfind, korad, sisul, uiryeong, and ulsan now prove multiple external call paths,
+itfind, korad, naqs, sisul, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 
