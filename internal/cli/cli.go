@@ -160,7 +160,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "call", "apply", "export", "codegen", "doctor":
+	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "sync", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -399,6 +399,11 @@ func (a app) run() int {
 			return a.commandHelp(args)
 		}
 		return a.save(args[1:], jsonOut)
+	case "sync":
+		if hasHelpArg(args[1:], "-h", "--help") {
+			return a.commandHelp(args)
+		}
+		return a.sync(args[1:], jsonOut)
 	case "preview", "head":
 		if hasHelpArg(args[1:], "-h", "--help") {
 			return a.commandHelp([]string{"preview"})
@@ -588,7 +593,7 @@ func (a app) try(args []string, jsonOut bool) int {
 		}
 	}
 	fmt.Fprintln(a.stdout, "  commands:")
-	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
+	for _, key := range []string{"params", "dry_run", "get", "sync", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
 		if value := strings.TrimSpace(commands[key]); value != "" {
 			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
 		}
@@ -5143,7 +5148,7 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 		}
 	}
 	fmt.Fprintln(a.stdout, "  commands:")
-	for _, key := range []string{"params", "dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
+	for _, key := range []string{"params", "dry_run", "get", "sync", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
 		if value := strings.TrimSpace(commands[key]); value != "" {
 			fmt.Fprintf(a.stdout, "    %s: %s\n", key, value)
 		}
@@ -5486,6 +5491,7 @@ func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[s
 		"params":         paramsCommandForOperation(spec, op, params, paramsOutput),
 		"dry_run":        commandWithParamsFile([]string{"datapan", "get", spec.ID}, op.Name, paramsOutput, "--dry-run", "--json"),
 		"get":            commandWithParamsFile([]string{"datapan", "get", spec.ID}, op.Name, paramsOutput, "--json"),
+		"sync":           commandWithParamsFile([]string{"datapan", "sync", spec.ID}, op.Name, paramsOutput, "--json"),
 		"save_csv":       commandWithParamsFile([]string{"datapan", "save", spec.ID}, op.Name, paramsOutput, "--format", "csv", "--output", saveCSVOutput),
 		"curl":           commandWithParamsFile([]string{"datapan", "curl", spec.ID}, op.Name, paramsOutput),
 		"postman":        commandWithParamsFile([]string{"datapan", "export", "--format", "postman", spec.ID}, op.Name, paramsOutput, "--output", postmanOutput),
@@ -5511,6 +5517,7 @@ func operationWorkflowNextSteps(spec datago.Spec, op datago.Operation, commands 
 		{"write params", "params"},
 		{"dry run", "dry_run"},
 		{"call api", "get"},
+		{"sync cache", "sync"},
 		{"save csv", "save_csv"},
 		{"curl", "curl"},
 		{"postman", "postman"},
@@ -5694,7 +5701,7 @@ func useKitReadme(spec datago.Spec, op datago.Operation, commands map[string]str
 		fmt.Fprintf(&b, "- `%s`: `%s`\n", file.Kind, filepath.Base(file.Path))
 	}
 	b.WriteString("\n## Commands\n\n")
-	for _, key := range []string{"dry_run", "get", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
+	for _, key := range []string{"dry_run", "get", "sync", "save_csv", "curl", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python", "access"} {
 		if command := strings.TrimSpace(commands[key]); command != "" {
 			fmt.Fprintf(&b, "```bash\n%s\n```\n\n", command)
 		}
@@ -7435,6 +7442,221 @@ func (a app) save(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+type syncCacheFile struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+}
+
+func (a app) sync(args []string, jsonOut bool) int {
+	localJSON, args := consumeBool(args, "--json")
+	jsonOut = jsonOut || localJSON
+	operation, args, err := consumeString(args, "--operation", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	paramsFile, args, err := consumeString(args, "--params-file", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	outputDir, args, err := consumeString(args, "--output-dir", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	timeout, args, err := consumeDuration(args, "--timeout", defaultCallTimeout)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	flagParams, args, err := consumeParams(args)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) < 1 {
+		return a.fail(exitUsage, "usage: datapan sync <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--timeout DURATION] [--json]")
+	}
+	positionalParams, err := parseKeyValueArgs(args[1:])
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	fileParams, err := readParamsFile(paramsFile, os.Stdin)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	params := mergeParamMaps(fileParams, positionalParams, flagParams)
+	reqPlan, keyName, err := a.requestPlan(args[0], operation, params)
+	if err != nil {
+		return a.mapError(err, jsonOut)
+	}
+	reqPlan.Timeout = timeout
+	envelope, err := a.execute(reqPlan)
+	if err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":        false,
+				"error":     "request_failed",
+				"dataset":   reqPlan.Spec.ID,
+				"operation": reqPlan.Operation.Name,
+				"timeout":   reqPlan.Timeout.String(),
+				"message":   err.Error(),
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
+		return a.fail(exitRequest, "%v", err)
+	}
+	generatedAt := time.Now().UTC().Format(time.RFC3339)
+	if strings.TrimSpace(outputDir) == "" {
+		outputDir = filepath.Join(".datapan", "cache", safePathSegment(reqPlan.Spec.ID), safePathSegment(reqPlan.Operation.Name), time.Now().UTC().Format("20060102T150405Z"))
+	}
+	files, rows, err := writeSyncCache(outputDir, generatedAt, version, keyName, reqPlan, envelope)
+	if err != nil {
+		return a.fail(exitRequest, "%v", err)
+	}
+	payload := map[string]any{
+		"ok":              envelope.OK,
+		"cache_dir":       outputDir,
+		"dataset":         reqPlan.Spec.ID,
+		"title":           reqPlan.Spec.Title,
+		"operation":       reqPlan.Operation.Name,
+		"provider":        envelope.Provider,
+		"status_code":     envelope.StatusCode,
+		"semantic_status": envelope.SemanticStatus,
+		"message":         envelope.Message,
+		"rows":            len(rows),
+		"files":           files,
+		"preview_command": "datapan preview --input " + quoteShellArg(filepath.Join(outputDir, "response.json")) + " --json",
+		"next_steps": []catalogOverviewNextStep{
+			{Label: "preview", Command: "datapan preview --input " + quoteShellArg(filepath.Join(outputDir, "response.json")) + " --limit 10 --json"},
+			{Label: "export csv", Command: "datapan export --input " + quoteShellArg(filepath.Join(outputDir, "response.json")) + " --format csv"},
+			{Label: "status", Command: "datapan status --json"},
+		},
+	}
+	if jsonOut {
+		if code := a.writeJSON(payload); code != exitOK {
+			return code
+		}
+		if !envelope.OK {
+			return exitRequest
+		}
+		return exitOK
+	}
+	fmt.Fprintf(a.stdout, "Datapan sync\n")
+	fmt.Fprintf(a.stdout, "  cache: %s\n", outputDir)
+	fmt.Fprintf(a.stdout, "  dataset: %s\n", reqPlan.Spec.ID)
+	fmt.Fprintf(a.stdout, "  operation: %s\n", reqPlan.Operation.Name)
+	fmt.Fprintf(a.stdout, "  status: %s (%d)\n", envelope.SemanticStatus, envelope.StatusCode)
+	fmt.Fprintf(a.stdout, "  rows: %d\n", len(rows))
+	for _, file := range files {
+		fmt.Fprintf(a.stdout, "  %s: %s\n", file.Kind, file.Path)
+	}
+	if !envelope.OK {
+		return exitRequest
+	}
+	return exitOK
+}
+
+func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan requestPlan, envelope datago.ResponseEnvelope) ([]syncCacheFile, []map[string]any, error) {
+	if strings.TrimSpace(outputDir) == "" {
+		return nil, nil, fmt.Errorf("--output-dir is empty")
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return nil, nil, err
+	}
+	files := make([]syncCacheFile, 0, 5)
+	writeJSON := func(kind, name string, payload any) error {
+		data, err := jsonIndentedBytes(payload)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(outputDir, name)
+		if err := writeOutput(path, data, io.Discard); err != nil {
+			return err
+		}
+		files = append(files, syncCacheFile{Kind: kind, Path: path})
+		return nil
+	}
+	if err := writeJSON("params", "params.json", publicParamSnapshot(plan.Params)); err != nil {
+		return nil, nil, err
+	}
+	if err := writeJSON("response", "response.json", envelope); err != nil {
+		return nil, nil, err
+	}
+	responseData, err := jsonIndentedBytes(envelope)
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, rowsErr := datago.RowsFromJSON(responseData)
+	if rowsErr == nil {
+		if err := writeJSON("rows_json", "rows.json", map[string]any{"rows": rows}); err != nil {
+			return nil, nil, err
+		}
+		var csvData bytes.Buffer
+		if code := writeCSV(&csvData, rows); code != exitOK {
+			return nil, nil, fmt.Errorf("write rows csv")
+		}
+		csvPath := filepath.Join(outputDir, "rows.csv")
+		if err := writeOutput(csvPath, csvData.Bytes(), io.Discard); err != nil {
+			return nil, nil, err
+		}
+		files = append(files, syncCacheFile{Kind: "rows_csv", Path: csvPath})
+	} else {
+		rows = []map[string]any{}
+	}
+	manifest := map[string]any{
+		"generated_at":    generatedAt,
+		"datapan_version": datapanVersion,
+		"dataset":         plan.Spec.ID,
+		"title":           plan.Spec.Title,
+		"operation":       plan.Operation.Name,
+		"provider":        envelope.Provider,
+		"credential_env":  keyName,
+		"url":             plan.RedactedURL,
+		"status_code":     envelope.StatusCode,
+		"semantic_status": envelope.SemanticStatus,
+		"ok":              envelope.OK,
+		"rows":            len(rows),
+		"files":           files,
+	}
+	if err := writeJSON("manifest", "manifest.json", manifest); err != nil {
+		return nil, nil, err
+	}
+	return files, rows, nil
+}
+
+func publicParamSnapshot(params map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, key := range sortedParamKeys(params) {
+		if isAuthParam(key) {
+			continue
+		}
+		out[key] = params[key]
+	}
+	return out
+}
+
+func safePathSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-.")
+	if out == "" {
+		return "default"
+	}
+	return out
+}
+
 func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 	capture := bytes.Buffer{}
 	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(args, true, true)
@@ -8751,6 +8973,7 @@ Usage:
   datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
   datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
   datapan save <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--format csv|json] [--output PATH|-] [--timeout DURATION] [--json]
+  datapan sync <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--timeout DURATION] [--json]
   datapan call <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
   datapan export --input PATH|- [--format csv|json]
   datapan preview --input PATH|- [--format auto|json|csv] [--limit N] [--json]
@@ -9035,6 +9258,11 @@ Print a copyable curl command without exposing credential values.`, true
   datapan save <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--format csv|json] [--output PATH|-] [--timeout DURATION] [--json]
 
 Call an operation and save rows as CSV or JSON.`, true
+	case "sync":
+		return `Usage:
+  datapan sync <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--timeout DURATION] [--json]
+
+Call an operation once and cache response.json, rows, params, and manifest files under .datapan/cache.`, true
 	case "export":
 		return `Usage:
   datapan export --input PATH|- [--format csv|json]

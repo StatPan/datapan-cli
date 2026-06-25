@@ -5376,6 +5376,100 @@ func TestSaveJSONForwardsHTTPFailure(t *testing.T) {
 	}
 }
 
+func TestSyncCachesResponseRowsParamsAndManifest(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	cacheDir := filepath.Join(dir, "cache")
+	if err := osWriteFile(registryPath, []byte(`[
+		{
+			"id": "999",
+			"title": "테스트기관_테스트 API",
+			"provider": "data.go.kr",
+			"operations": [
+				{
+					"name": "목록 조회",
+					"endpoint": "https://apis.data.go.kr/test/list",
+					"request_params": [
+						{"name": "serviceKey"},
+						{"name": "keyword"},
+						{"name": "pageNo"}
+					]
+				}
+			]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("serviceKey"); got != "secret-value" {
+			t.Fatalf("serviceKey=%q", got)
+		}
+		if req.URL.Query().Get("keyword") != "소나무" || req.URL.Query().Get("pageNo") != "1" {
+			t.Fatalf("unexpected query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"body":{"items":{"item":[{"name":"alpha","count":1},{"name":"beta","count":2}]}}}}`)),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"sync", "999", "keyword=소나무", "--operation", "목록 조회", "--param", "pageNo=1", "--output-dir", cacheDir, "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"cache_dir": "` + jsonEscaped(cacheDir) + `"`,
+		`"dataset": "999"`,
+		`"operation": "목록 조회"`,
+		`"semantic_status": "json_response"`,
+		`"rows": 2`,
+		`"kind": "response"`,
+		`"kind": "rows_json"`,
+		`"kind": "rows_csv"`,
+		`"kind": "manifest"`,
+		`"preview_command": "datapan preview --input`,
+		`"label": "preview"`,
+		`"label": "export csv"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in sync output: %s", want, stdout)
+		}
+	}
+	for _, file := range []string{"params.json", "response.json", "rows.json", "rows.csv", "manifest.json"} {
+		if _, err := osReadFile(filepath.Join(cacheDir, file)); err != nil {
+			t.Fatalf("expected %s: %v", file, err)
+		}
+	}
+	for _, file := range []string{"params.json", "response.json", "manifest.json"} {
+		data, err := osReadFile(filepath.Join(cacheDir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "secret-value") {
+			t.Fatalf("%s should not contain credential material: %s", file, data)
+		}
+	}
+	params, err := osReadFile(filepath.Join(cacheDir, "params.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(params), `"keyword": "소나무"`) || strings.Contains(string(params), "serviceKey") {
+		t.Fatalf("unexpected params cache: %s", params)
+	}
+	csvData, err := osReadFile(filepath.Join(cacheDir, "rows.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(csvData), "count,name") || !strings.Contains(string(csvData), "2,beta") {
+		t.Fatalf("unexpected rows csv: %s", csvData)
+	}
+}
+
 func TestExportInputCSV(t *testing.T) {
 	tmp := t.TempDir() + "/rows.json"
 	if err := osWriteFile(tmp, []byte(`{"rows":[{"name":"alpha","count":2}]}`)); err != nil {

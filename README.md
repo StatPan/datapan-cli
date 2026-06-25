@@ -191,6 +191,7 @@ datapan get 15084084 --params-file forecast.params.json --timeout 5s --dry-run -
 datapan get 15084084 --dry-run --json
 datapan curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan save 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --format csv --output forecast.csv
+datapan sync 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json
 datapan export --format curl 15084084 base_date=20260622 base_time=0500 nx=60 ny=127
 datapan export --format postman 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.postman_collection.json
 datapan export --format openapi 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --output forecast.openapi.json
@@ -555,6 +556,12 @@ Use `datapan codegen python <ref> --output client.py` for a dependency-free
 Python client using `urllib`. It keeps upstream parameter names exact, reads
 the service key through `DatapanClient.from_env()`, and does not embed
 credential values.
+Use `datapan sync <ref> --json` when you want one approved API call cached as
+local files under `.datapan/cache`: request params without credentials,
+`response.json`, extracted `rows.json`/`rows.csv` when possible, and a
+`manifest.json` with status and provenance. This is the first local cache/sync
+surface; it keeps repeatable public-data work in the project directory instead
+of forcing every script or agent to call the upstream provider again.
 Use `datapan preview --input response.json` or `datapan head --input rows.csv`
 to inspect saved data without leaving the CLI. It accepts data.go.kr response
 JSON, Datapan row JSON, or CSV, prints a compact table by default, and returns

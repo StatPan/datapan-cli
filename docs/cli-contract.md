@@ -162,6 +162,18 @@ service-key material to disk. `datapan use <ref> --output-dir DIR` remains a
 compatible lower-level path for callers that already build around the planning
 command.
 
+`datapan sync <ref> [KEY=VALUE ...] --json` is the first local cache/sync
+surface. It should execute one approved API call with the same planning,
+credential, timeout, `--operation`, `--param`, and `--params-file` semantics as
+`get`, then write a cache directory under `.datapan/cache` unless
+`--output-dir DIR` is supplied. The cache directory should contain
+`params.json`, `response.json`, `manifest.json`, and, when rows can be
+extracted, `rows.json` and `rows.csv`. JSON output should include `cache_dir`,
+dataset ID, operation, semantic status, row count, file list, preview/export
+next steps, and should return exit code 4 when the upstream response is not OK.
+No cache file may contain actual API key material; request URLs must be
+redacted and params snapshots must omit auth parameters.
+
 ## Registry Import
 
 `datapan catalog import data-go-kr` imports the upstream data.go.kr open-data
