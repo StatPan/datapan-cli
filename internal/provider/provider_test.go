@@ -1066,6 +1066,162 @@ func TestAndongAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestItfindAdapterAddsServiceKeyAndVerifiesNormalService(t *testing.T) {
+	adapter := NewItfindAdapter()
+	if !adapter.MatchHost("open.itfind.or.kr") {
+		t.Fatal("expected itfind adapter to match open.itfind.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("itfind adapter should not match data.go.kr gateway")
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "open.itfind.or.kr" {
+			t.Fatalf("expected itfind host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected synthesized serviceKey in itfind request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected itfind paging query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><identifier>02-001-260618-000005</identifier></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "930", Title: "한국연구재단_연구결과보고서 정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "연구결과보고서 정보 조회",
+			Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport",
+			RequestParams: []datago.Param{
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "itfind" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected itfind verification result: %#v", result)
+	}
+	if result.ProviderStatus == nil || !result.ProviderStatus.OK || result.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected itfind provider status: %#v", result.ProviderStatus)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted itfind URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
+		t.Fatalf("unexpected itfind public params: %#v", result.Params)
+	}
+}
+
+func TestItfindAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewItfindAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "931", Title: "한국연구재단_ICT 정기간행물 상세", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "ICT정기간행물 목록별 상세 정보 조회",
+			Endpoint: "http://open.itfind.or.kr/openapi/service/ITPeriodicalsService/getITPdicalListCntntDetailInfo",
+		},
+		MissingParams: []string{"identifier", "pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "itfind_missing_required_params" || strings.Join(result.MissingParams, ",") != "identifier" {
+		t.Fatalf("unexpected itfind skip result: %#v", result)
+	}
+}
+
+func TestItfindAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewItfindAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in itfind call: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><publisher>정보통신기획평가원</publisher></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "932", Title: "한국연구재단_연구결과보고서 정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "연구결과보고서 정보 조회",
+			Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport",
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "itfind" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected itfind call envelope: %#v", envelope)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "정보통신기획평가원") {
+		t.Fatalf("unexpected itfind call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestItfindAdapterClassifiesServiceKeyRegistrationErrors(t *testing.T) {
+	adapter := NewItfindAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>30</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "933", Title: "한국연구재단 service key", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "연구결과보고서 정보 조회",
+			Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport",
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "itfind_service_key_not_registered" || result.SemanticStatus != "provider_error" {
+		t.Fatalf("unexpected itfind service key result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted itfind URL: %s", result.URL)
+	}
+}
+
+func TestItfindAdapterClassifiesMissingEndpoints(t *testing.T) {
+	adapter := NewItfindAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<html>Not Found</html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "934", Title: "한국연구재단 missing endpoint", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "SW Insight 리포트 정보 조회",
+			Endpoint: "http://open.itfind.or.kr/openapi/service/ITPeriodicalsService/getSWInsightReportInfo",
+		},
+		MissingParams: []string{"pageNo", "numOfRows", "searchWord"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "itfind_endpoint_not_found" || result.HTTPStatus != 404 {
+		t.Fatalf("unexpected itfind missing endpoint result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted itfind URL: %s", result.URL)
+	}
+}
+
 func TestSisulAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
 	adapter := NewSisulAdapter()
 	if !adapter.MatchHost("data.sisul.or.kr") {

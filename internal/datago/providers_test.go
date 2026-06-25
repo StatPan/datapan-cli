@@ -140,6 +140,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
 				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
+				{Name: "ICT", Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport"},
 				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 				{Name: "시설", Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry"},
 				{Name: "의령", Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList"},
@@ -148,7 +149,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -168,6 +169,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	folk := findProviderSummary(backlog.Providers, "folkency.nfm.go.kr")
 	if folk == nil || folk.AdapterStatus != "adapter" || folk.Provider != "folk" {
 		t.Fatalf("unexpected folk summary: %#v", folk)
+	}
+	itfind := findProviderSummary(backlog.Providers, "open.itfind.or.kr")
+	if itfind == nil || itfind.AdapterStatus != "adapter" || itfind.Provider != "itfind" {
+		t.Fatalf("unexpected itfind summary: %#v", itfind)
 	}
 	jeonju := findProviderSummary(backlog.Providers, "openapi.jeonju.go.kr")
 	if jeonju == nil || jeonju.AdapterStatus != "adapter" || jeonju.Provider != "jeonju" {

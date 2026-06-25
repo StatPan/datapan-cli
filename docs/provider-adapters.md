@@ -99,6 +99,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider geoje --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider itfind --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider uiryeong --json
@@ -120,6 +122,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ulsan --json
@@ -163,6 +166,10 @@ external host. It uses the normal `serviceKey` credential, proves
 `resultCode=00` XML list responses, skips ID-only detail operations rather than
 inventing identifiers, and declares call capability for operations whose
 parameters are supplied or safely defaultable.
+The itfind adapter owns `open.itfind.or.kr`, an ICT research and publication
+host with REST XML endpoints. It synthesizes the live `serviceKey` parameter,
+fills only conservative paging defaults, skips opaque identifier-only detail
+operations, and records `NORMAL SERVICE` XML responses as direct call evidence.
 The sisul adapter owns `data.sisul.or.kr`, Seoul Facilities Corporation's
 OpenDB host. Its catalog contains both callable `get...Qry` endpoints and
 WADL metadata URLs, so the adapter explicitly skips `_wadl` metadata,
@@ -490,8 +497,8 @@ providers and the release boundary is worth maintaining separately.
 The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
-registered verification-capable providers, and epost, forest, geoje, sisul,
-andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+registered verification-capable providers, and epost, forest, geoje, itfind,
+sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.
