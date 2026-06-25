@@ -147,13 +147,14 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "친환경", Endpoint: "http://data.naqs.go.kr/openapi/service/rest/naqsenv/envparam"},
 				{Name: "생활법령", Endpoint: "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawSearchService/getSearchGroupList"},
 				{Name: "시설", Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry"},
+				{Name: "관광", Endpoint: "http://openapi.tour.go.kr/openapi/service/EdrcntTourismBalnaceService/getTourismBalcList"},
 				{Name: "의령", Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList"},
 				{Name: "울산", Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/RouteInfo.xo"},
 			},
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "openapi.tour.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -201,6 +202,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	sisul := findProviderSummary(backlog.Providers, "data.sisul.or.kr")
 	if sisul == nil || sisul.AdapterStatus != "adapter" || sisul.Provider != "sisul" {
 		t.Fatalf("unexpected sisul summary: %#v", sisul)
+	}
+	tour := findProviderSummary(backlog.Providers, "openapi.tour.go.kr")
+	if tour == nil || tour.AdapterStatus != "adapter" || tour.Provider != "tour" {
+		t.Fatalf("unexpected tour summary: %#v", tour)
 	}
 	uiryeong := findProviderSummary(backlog.Providers, "data.uiryeong.go.kr")
 	if uiryeong == nil || uiryeong.AdapterStatus != "adapter" || uiryeong.Provider != "uiryeong" {

@@ -1508,6 +1508,172 @@ func TestSisulAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestTourAdapterSkipsServiceRootWithoutOperationPath(t *testing.T) {
+	adapter := NewTourAdapter()
+	called := false
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "950", Title: "관광 서비스 루트", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "관광 통계",
+			Endpoint: "http://openapi.tour.go.kr/openapi/service",
+			Source: &datago.Source{Raw: map[string]any{
+				"end_point_url": "http://openapi.tour.go.kr/openapi/service",
+				"operation_url": "",
+			}},
+		},
+		MissingParams: []string{"YY"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP: providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			called = true
+			return nil, nil
+		}),
+	})
+	if called {
+		t.Fatal("tour service-root operation should skip before HTTP")
+	}
+	if result.Provider != "tour" || result.Status != "skipped" || result.Reason != "tour_service_root_missing_operation_path" || result.BodyShape != "service_root" {
+		t.Fatalf("unexpected tour service-root skip: %#v", result)
+	}
+	if result.Params["YY"] != "2024" {
+		t.Fatalf("expected safe YY default in public params: %#v", result.Params)
+	}
+}
+
+func TestTourAdapterAddsServiceKeyAndDefaults(t *testing.T) {
+	adapter := NewTourAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.tour.go.kr" {
+			t.Fatalf("expected tour host, got %s", req.URL.Host)
+		}
+		if req.URL.Path != "/openapi/service/EdrcntTourismBalnaceService/getTourismBalcList" {
+			t.Fatalf("unexpected tour path: %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected synthesized serviceKey in tour request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("YM") != "202401" {
+			t.Fatalf("unexpected tour YM query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><ym>202401</ym></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "951", Title: "출입국 관광수지 서비스", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name: "getTourismBalcList",
+			Source: &datago.Source{Raw: map[string]any{
+				"operation_url": "http://openapi.tour.go.kr/openapi/service/EdrcntTourismBalnaceService/getTourismBalcList",
+			}},
+		},
+		MissingParams: []string{"serviceKey", "YM"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "tour" || result.EndpointHost != "openapi.tour.go.kr" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected tour verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted tour URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["YM"] != "202401" {
+		t.Fatalf("unexpected tour public params: %#v", result.Params)
+	}
+}
+
+func TestTourAdapterClassifiesXMLFault(t *testing.T) {
+	adapter := NewTourAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 500,
+			Header:     http.Header{"Content-Type": []string{"text/xml; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<ns1:XMLFault><faultstring>java.lang.IllegalArgumentException: 지원하지 않는 인증 방식이거나 인증키가 누락되었습니다. PUBC 인증(?serviceKey=) 또는 Gateway 인증(?SG_APIM=)을 사용하세요.</faultstring></ns1:XMLFault>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "952", Title: "출입국 관광수지 서비스", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name: "getTourismBalcList",
+			Source: &datago.Source{Raw: map[string]any{
+				"operation_url": "http://openapi.tour.go.kr/openapi/service/EdrcntTourismBalnaceService/getTourismBalcList",
+			}},
+		},
+		MissingParams: []string{"YM"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "tour_missing_auth" || result.BodyShape != "xml_fault" || result.HTTPStatus != 500 {
+		t.Fatalf("unexpected tour XMLFault result: %#v", result)
+	}
+}
+
+func TestTourAdapterClassifiesUnregisteredServiceKey(t *testing.T) {
+	adapter := NewTourAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>30</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "952-1", Title: "출입국 관광수지 서비스", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name: "getTourismBalcList",
+			Source: &datago.Source{Raw: map[string]any{
+				"operation_url": "http://openapi.tour.go.kr/openapi/service/EdrcntTourismBalnaceService/getTourismBalcList",
+			}},
+		},
+		MissingParams: []string{"YM"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "tour_service_key_not_registered" || result.SemanticStatus != "provider_error" {
+		t.Fatalf("unexpected tour key-registration result: %#v", result)
+	}
+}
+
+func TestTourAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewTourAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("YM") != "202401" {
+			t.Fatalf("unexpected tour call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><balance>1</balance></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "953", Title: "출입국 관광수지 서비스", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name: "getTourismBalcList",
+			Source: &datago.Source{Raw: map[string]any{
+				"operation_url": "http://openapi.tour.go.kr/openapi/service/EdrcntTourismBalnaceService/getTourismBalcList",
+			}},
+		},
+		MissingParams: []string{"YM"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "tour" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected tour call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected tour provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "balance") {
+		t.Fatalf("unexpected tour call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
 func TestUlsanAdapterAddsServiceKeyAndClassifiesRegistrationErrors(t *testing.T) {
 	adapter := NewUlsanAdapter()
 	if !adapter.MatchHost("openapi.its.ulsan.kr") {

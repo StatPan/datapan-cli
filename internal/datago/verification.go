@@ -130,6 +130,9 @@ func VerificationCandidatesWithFilters(reg Registry, ref string, operation strin
 				DependencyClass: OperationDependencyClass(spec, op),
 			}
 			candidate.EndpointHost, _ = urlHost(op.Endpoint)
+			if candidate.EndpointHost == "" && candidate.DependencyClass == "service_root" {
+				candidate.EndpointHost, _ = urlHost(rawString(mergedRaw(spec, op), "end_point_url"))
+			}
 			candidate.Params, candidate.MissingParams = VerificationParams(spec, op)
 			candidate.SkipReason = VerificationSkipReason(candidate)
 			if !candidateMatchesFilters(candidate, hostSet, kind) {

@@ -234,6 +234,9 @@ Adapter status:
   and call behavior;
 - `ulsan`: registered adapter for Ulsan traffic APIs with synthesized
   `serviceKey` handling, route/date identifier skips, and call behavior;
+- `tour`: registered adapter for Korea Culture & Tourism Institute tourism
+  statistics APIs with source `operation_url` routing, service-root skips, and
+  call behavior;
 - `open-assembly`: National Assembly APIs and external dependency behavior;
 - `mfds`: food and drug data APIs;
 - `visitkorea`: tourism APIs;
@@ -247,7 +250,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-humetro, itfind, korad, naqs, oneclick-law, sisul, uiryeong, and ulsan now prove multiple external call paths,
+humetro, itfind, korad, naqs, oneclick-law, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

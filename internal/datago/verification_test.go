@@ -28,6 +28,14 @@ func TestVerificationCandidatesClassifyAndSkip(t *testing.T) {
 				{Name: "목록", Endpoint: "https://openapi.q-net.or.kr/api/list"},
 			},
 		},
+		{
+			ID:       "300",
+			Title:    "기관_서비스루트",
+			Provider: "data.go.kr",
+			Operations: []Operation{
+				{Name: "통계", Source: &Source{Raw: map[string]any{"end_point_url": "http://openapi.tour.go.kr/openapi/service"}}},
+			},
+		},
 	})
 	candidates, truncated, err := VerificationCandidates(reg, "", "", 0)
 	if err != nil {
@@ -36,7 +44,7 @@ func TestVerificationCandidatesClassifyAndSkip(t *testing.T) {
 	if truncated {
 		t.Fatal("unexpected truncation")
 	}
-	if len(candidates) != 2 {
+	if len(candidates) != 3 {
 		t.Fatalf("candidates=%d", len(candidates))
 	}
 	first := candidates[0]
@@ -56,12 +64,16 @@ func TestVerificationCandidatesClassifyAndSkip(t *testing.T) {
 	if second.DependencyClass != "external_endpoint" || second.SkipReason != "external_provider_adapter_missing" {
 		t.Fatalf("unexpected external candidate: %#v", second)
 	}
+	third := candidates[2]
+	if third.DependencyClass != "service_root" || third.EndpointHost != "openapi.tour.go.kr" || third.SkipReason != "service_root_only" {
+		t.Fatalf("unexpected service-root candidate: %#v", third)
+	}
 
-	limited, truncated, err := VerificationCandidates(reg, "", "", 2)
+	limited, truncated, err := VerificationCandidates(reg, "", "", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if truncated || len(limited) != 2 {
+	if truncated || len(limited) != 3 {
 		t.Fatalf("exact limit should not be truncated: truncated=%v len=%d", truncated, len(limited))
 	}
 	limited, truncated, err = VerificationCandidates(reg, "", "", 1)

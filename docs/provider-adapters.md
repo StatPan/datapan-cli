@@ -115,6 +115,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider ulsan --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider jeonju --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider jeonju --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --provider tour --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider tour --json
 ```
 
 To inspect hosts that already have an observation-stage adapter registered:
@@ -136,6 +138,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ulsan --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeonju --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider tour --json
 ```
 
 The current imported registry shows q-net as a strong early adapter family:
@@ -209,6 +212,14 @@ service requires `serviceKey`. The adapter supplies that credential parameter,
 fills only conservative paging defaults, skips unknown route/road/date
 identifiers, and records upstream `resultCode=30` key-registration responses as
 provider evidence.
+The tour adapter owns `openapi.tour.go.kr`, a Korea Culture & Tourism
+Institute statistics host whose imported records mix callable `operation_url`
+values with older service-root-only records. The adapter routes calls through
+the source `operation_url` when present, synthesizes `serviceKey`, fills
+conservative year/month/code defaults, and skips service-root-only records with
+`tour_service_root_missing_operation_path` instead of inventing operation
+paths. It also classifies data.go.kr XMLFault authentication responses as
+stable tour provider evidence.
 The jeonju adapter owns `openapi.jeonju.go.kr`, currently the largest missing
 external host family in the imported registry. It preserves the upstream
 credential parameter name (`ServiceKey` or `authApiKey`) and only fills
@@ -617,6 +628,37 @@ requests, `approval_required` skips for 심의승인 operations, and stable
 transport reasons such as `oneclick_connection_refused` when the upstream host
 refuses the connection.
 
+## Fourteenth Adapter: tour
+
+The tour adapter covers Korea Culture & Tourism Institute tourism statistics
+APIs hosted at `openapi.tour.go.kr`. The imported catalog has two different
+shapes for this host: newer operations include full `operation_url` values,
+while older records only expose the shared
+`http://openapi.tour.go.kr/openapi/service` service root.
+
+The adapter uses the source `operation_url` as the call endpoint when present,
+adds the data.go.kr API key as `serviceKey`, and fills only conservative
+verification defaults such as `YY=2024`, `YM=202401`, `numOfRows=1`, and
+`pageNo=1`. Service-root-only records are skipped with
+`tour_service_root_missing_operation_path` because Datapan should preserve the
+upstream gap instead of inventing paths for a public catalog with thousands of
+operations.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider tour --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider tour --limit 26 --output .datapan/tour-verification.json --json
+datapan catalog verify summary --input .datapan/tour-verification.json --json
+datapan get <tour-dataset-id> YM=202401 --operation getTourismBalcList --json
+```
+
+Expected evidence shape: `provider=tour`,
+`endpoint_host=openapi.tour.go.kr`, redacted URLs with `serviceKey=REDACTED`,
+`tour_service_root_missing_operation_path` skips for root-only records, and
+stable provider reasons such as `tour_missing_auth` for XMLFault authentication
+responses.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -641,7 +683,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-itfind, korad, naqs, oneclick-law, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+itfind, korad, naqs, oneclick-law, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.
