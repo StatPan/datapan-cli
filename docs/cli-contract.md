@@ -170,9 +170,13 @@ credential, timeout, `--operation`, `--param`, and `--params-file` semantics as
 `params.json`, `response.json`, `manifest.json`, and, when rows can be
 extracted, `rows.json` and `rows.csv`. JSON output should include `cache_dir`,
 dataset ID, operation, semantic status, row count, file list, preview/export
-next steps, and should return exit code 4 when the upstream response is not OK.
-No cache file may contain actual API key material; request URLs must be
-redacted and params snapshots must omit auth parameters.
+next steps, an `integrity` object, and should return exit code 4 when the
+upstream response is not OK. `integrity` records the extracted `row_count`,
+upstream count fields such as `currentCount`, `totalCount`, `perPage`, and
+`numOfRows` when present, plus stable warning identifiers such as
+`row_count_mismatch_current_count` and `row_count_exceeds_total_count`. No cache
+file may contain actual API key material; request URLs must be redacted and
+params snapshots must omit auth parameters.
 
 ## Registry Import
 

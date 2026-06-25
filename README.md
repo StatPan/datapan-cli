@@ -561,7 +561,10 @@ local files under `.datapan/cache`: request params without credentials,
 `response.json`, extracted `rows.json`/`rows.csv` when possible, and a
 `manifest.json` with status and provenance. This is the first local cache/sync
 surface; it keeps repeatable public-data work in the project directory instead
-of forcing every script or agent to call the upstream provider again.
+of forcing every script or agent to call the upstream provider again. The
+manifest also records `integrity`: extracted row count, upstream
+`currentCount`/`totalCount`-style counters when present, and warnings such as
+`row_count_exceeds_total_count` when provider metadata and actual rows disagree.
 Use `datapan preview --input response.json` or `datapan head --input rows.csv`
 to inspect saved data without leaving the CLI. It accepts data.go.kr response
 JSON, Datapan row JSON, or CSV, prints a compact table by default, and returns

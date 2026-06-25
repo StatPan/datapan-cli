@@ -5410,7 +5410,7 @@ func TestSyncCachesResponseRowsParamsAndManifest(t *testing.T) {
 		return &http.Response{
 			StatusCode: 200,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"response":{"body":{"items":{"item":[{"name":"alpha","count":1},{"name":"beta","count":2}]}}}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"currentCount":2,"data":[{"name":"alpha","count":1},{"name":"beta","count":2}],"page":1,"perPage":10,"totalCount":2}`)),
 		}, nil
 	})
 	code, stdout, stderr := runTest(
@@ -5428,6 +5428,10 @@ func TestSyncCachesResponseRowsParamsAndManifest(t *testing.T) {
 		`"operation": "목록 조회"`,
 		`"semantic_status": "json_response"`,
 		`"rows": 2`,
+		`"integrity": {`,
+		`"ok": true`,
+		`"current_count": 2`,
+		`"total_count": 2`,
 		`"kind": "response"`,
 		`"kind": "rows_json"`,
 		`"kind": "rows_csv"`,
@@ -5467,6 +5471,60 @@ func TestSyncCachesResponseRowsParamsAndManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(csvData), "count,name") || !strings.Contains(string(csvData), "2,beta") {
 		t.Fatalf("unexpected rows csv: %s", csvData)
+	}
+}
+
+func TestSyncReportsIntegrityWarnings(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	cacheDir := filepath.Join(dir, "cache")
+	if err := osWriteFile(registryPath, []byte(`[{
+		"id": "999",
+		"title": "테스트기관_정합성 API",
+		"provider": "data.go.kr",
+		"operations": [{
+			"name": "목록 조회",
+			"endpoint": "https://apis.data.go.kr/test/list",
+			"request_params": [{"name": "serviceKey"}]
+		}]
+	}]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"currentCount":2,"data":[{"id":1},{"id":2}],"page":1,"perPage":1,"totalCount":1}`)),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"sync", "999", "--operation", "목록 조회", "--output-dir", cacheDir, "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"integrity": {`,
+		`"ok": false`,
+		`"row_count": 2`,
+		`"current_count": 2`,
+		`"total_count": 1`,
+		`"warnings": [`,
+		`"row_count_exceeds_total_count"`,
+		`"row_count_exceeds_per_page"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in sync output: %s", want, stdout)
+		}
+	}
+	manifest, err := osReadFile(filepath.Join(cacheDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifest), `"row_count_exceeds_total_count"`) {
+		t.Fatalf("expected integrity warning in manifest: %s", manifest)
 	}
 }
 

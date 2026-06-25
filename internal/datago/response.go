@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -32,6 +33,17 @@ type ProviderStatus struct {
 	ErrorMessage string `json:"error_message,omitempty"`
 }
 
+type ResponseIntegrity struct {
+	OK           bool     `json:"ok"`
+	RowCount     int      `json:"row_count"`
+	CurrentCount *int     `json:"current_count,omitempty"`
+	TotalCount   *int     `json:"total_count,omitempty"`
+	Page         *int     `json:"page,omitempty"`
+	PerPage      *int     `json:"per_page,omitempty"`
+	NumOfRows    *int     `json:"num_of_rows,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
+}
+
 func RowsFromJSON(data []byte) ([]map[string]any, error) {
 	var payload any
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -42,6 +54,48 @@ func RowsFromJSON(data []byte) ([]map[string]any, error) {
 		return nil, fmt.Errorf("could not find JSON rows; expected an array, {rows:[...]}, or data.go.kr response.body.items.item")
 	}
 	return rows, nil
+}
+
+func InspectResponseIntegrity(body []byte, rows []map[string]any) ResponseIntegrity {
+	report := ResponseIntegrity{
+		OK:       true,
+		RowCount: len(rows),
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return report
+	}
+	var payload any
+	if err := json.Unmarshal(trimmed, &payload); err == nil {
+		report.CurrentCount = intPointerFromPayload(payload, "currentCount", "current_count")
+		report.TotalCount = intPointerFromPayload(payload, "totalCount", "total_count")
+		report.Page = intPointerFromPayload(payload, "page", "pageNo", "startPage")
+		report.PerPage = intPointerFromPayload(payload, "perPage", "pageSize")
+		report.NumOfRows = intPointerFromPayload(payload, "numOfRows")
+	} else {
+		report.CurrentCount = intPointerFromXML(trimmed, "currentCount")
+		report.TotalCount = intPointerFromXML(trimmed, "totalCount")
+		report.Page = intPointerFromXML(trimmed, "page", "pageNo", "startPage")
+		report.PerPage = intPointerFromXML(trimmed, "perPage", "pageSize")
+		report.NumOfRows = intPointerFromXML(trimmed, "numOfRows")
+	}
+	if report.CurrentCount != nil && *report.CurrentCount != report.RowCount {
+		report.Warnings = append(report.Warnings, "row_count_mismatch_current_count")
+	}
+	if report.TotalCount != nil && report.RowCount > *report.TotalCount {
+		report.Warnings = append(report.Warnings, "row_count_exceeds_total_count")
+	}
+	if report.TotalCount != nil && report.CurrentCount != nil && *report.CurrentCount > *report.TotalCount {
+		report.Warnings = append(report.Warnings, "current_count_exceeds_total_count")
+	}
+	if report.NumOfRows != nil && report.RowCount > *report.NumOfRows {
+		report.Warnings = append(report.Warnings, "row_count_exceeds_num_of_rows")
+	}
+	if report.PerPage != nil && report.RowCount > *report.PerPage {
+		report.Warnings = append(report.Warnings, "row_count_exceeds_per_page")
+	}
+	report.OK = len(report.Warnings) == 0
+	return report
 }
 
 func ClassifyResponse(statusCode int, contentType string, body []byte) (bool, string, string, *ProviderStatus) {
@@ -201,6 +255,7 @@ func findRows(value any) []map[string]any {
 		for _, path := range [][]string{
 			{"rows"},
 			{"results"},
+			{"data"},
 			{"body"},
 			{"response", "body", "items", "item"},
 			{"response", "body", "items"},
@@ -248,4 +303,70 @@ func objectRows(values []any) []map[string]any {
 		rows = append(rows, obj)
 	}
 	return rows
+}
+
+func intPointerFromPayload(value any, names ...string) *int {
+	if number, ok := findIntByNames(value, names); ok {
+		return &number
+	}
+	return nil
+}
+
+func findIntByNames(value any, names []string) (int, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, name := range names {
+			if number, ok := intFromAny(typed[name]); ok {
+				return number, true
+			}
+		}
+		for _, child := range typed {
+			if number, ok := findIntByNames(child, names); ok {
+				return number, true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if number, ok := findIntByNames(child, names); ok {
+				return number, true
+			}
+		}
+	case string:
+		var nested any
+		trimmed := strings.TrimSpace(typed)
+		if (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) && json.Unmarshal([]byte(trimmed), &nested) == nil {
+			return findIntByNames(nested, names)
+		}
+	}
+	return 0, false
+}
+
+func intPointerFromXML(body []byte, tags ...string) *int {
+	for _, tag := range tags {
+		if number, ok := intFromAny(xmlTagValue(body, tag)); ok {
+			return &number
+		}
+	}
+	return nil
+}
+
+func intFromAny(value any) (int, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return 0, false
+	case float64:
+		return int(typed), true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		number, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return 0, false
+		}
+		return number, true
+	default:
+		return 0, false
+	}
 }

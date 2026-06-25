@@ -7508,7 +7508,7 @@ func (a app) sync(args []string, jsonOut bool) int {
 	if strings.TrimSpace(outputDir) == "" {
 		outputDir = filepath.Join(".datapan", "cache", safePathSegment(reqPlan.Spec.ID), safePathSegment(reqPlan.Operation.Name), time.Now().UTC().Format("20060102T150405Z"))
 	}
-	files, rows, err := writeSyncCache(outputDir, generatedAt, version, keyName, reqPlan, envelope)
+	files, rows, integrity, err := writeSyncCache(outputDir, generatedAt, version, keyName, reqPlan, envelope)
 	if err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
@@ -7523,6 +7523,7 @@ func (a app) sync(args []string, jsonOut bool) int {
 		"semantic_status": envelope.SemanticStatus,
 		"message":         envelope.Message,
 		"rows":            len(rows),
+		"integrity":       integrity,
 		"files":           files,
 		"preview_command": "datapan preview --input " + quoteShellArg(filepath.Join(outputDir, "response.json")) + " --json",
 		"next_steps": []catalogOverviewNextStep{
@@ -7546,6 +7547,11 @@ func (a app) sync(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  operation: %s\n", reqPlan.Operation.Name)
 	fmt.Fprintf(a.stdout, "  status: %s (%d)\n", envelope.SemanticStatus, envelope.StatusCode)
 	fmt.Fprintf(a.stdout, "  rows: %d\n", len(rows))
+	if integrity.OK {
+		fmt.Fprintf(a.stdout, "  integrity: ok\n")
+	} else {
+		fmt.Fprintf(a.stdout, "  integrity: warnings %s\n", strings.Join(integrity.Warnings, ", "))
+	}
 	for _, file := range files {
 		fmt.Fprintf(a.stdout, "  %s: %s\n", file.Kind, file.Path)
 	}
@@ -7555,12 +7561,12 @@ func (a app) sync(args []string, jsonOut bool) int {
 	return exitOK
 }
 
-func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan requestPlan, envelope datago.ResponseEnvelope) ([]syncCacheFile, []map[string]any, error) {
+func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan requestPlan, envelope datago.ResponseEnvelope) ([]syncCacheFile, []map[string]any, datago.ResponseIntegrity, error) {
 	if strings.TrimSpace(outputDir) == "" {
-		return nil, nil, fmt.Errorf("--output-dir is empty")
+		return nil, nil, datago.ResponseIntegrity{}, fmt.Errorf("--output-dir is empty")
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return nil, nil, err
+		return nil, nil, datago.ResponseIntegrity{}, err
 	}
 	files := make([]syncCacheFile, 0, 5)
 	writeJSON := func(kind, name string, payload any) error {
@@ -7576,32 +7582,33 @@ func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan
 		return nil
 	}
 	if err := writeJSON("params", "params.json", publicParamSnapshot(plan.Params)); err != nil {
-		return nil, nil, err
+		return nil, nil, datago.ResponseIntegrity{}, err
 	}
 	if err := writeJSON("response", "response.json", envelope); err != nil {
-		return nil, nil, err
+		return nil, nil, datago.ResponseIntegrity{}, err
 	}
 	responseData, err := jsonIndentedBytes(envelope)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, datago.ResponseIntegrity{}, err
 	}
 	rows, rowsErr := datago.RowsFromJSON(responseData)
 	if rowsErr == nil {
 		if err := writeJSON("rows_json", "rows.json", map[string]any{"rows": rows}); err != nil {
-			return nil, nil, err
+			return nil, nil, datago.ResponseIntegrity{}, err
 		}
 		var csvData bytes.Buffer
 		if code := writeCSV(&csvData, rows); code != exitOK {
-			return nil, nil, fmt.Errorf("write rows csv")
+			return nil, nil, datago.ResponseIntegrity{}, fmt.Errorf("write rows csv")
 		}
 		csvPath := filepath.Join(outputDir, "rows.csv")
 		if err := writeOutput(csvPath, csvData.Bytes(), io.Discard); err != nil {
-			return nil, nil, err
+			return nil, nil, datago.ResponseIntegrity{}, err
 		}
 		files = append(files, syncCacheFile{Kind: "rows_csv", Path: csvPath})
 	} else {
 		rows = []map[string]any{}
 	}
+	integrity := datago.InspectResponseIntegrity([]byte(envelope.Body), rows)
 	manifest := map[string]any{
 		"generated_at":    generatedAt,
 		"datapan_version": datapanVersion,
@@ -7615,12 +7622,13 @@ func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan
 		"semantic_status": envelope.SemanticStatus,
 		"ok":              envelope.OK,
 		"rows":            len(rows),
+		"integrity":       integrity,
 		"files":           files,
 	}
 	if err := writeJSON("manifest", "manifest.json", manifest); err != nil {
-		return nil, nil, err
+		return nil, nil, datago.ResponseIntegrity{}, err
 	}
-	return files, rows, nil
+	return files, rows, integrity, nil
 }
 
 func publicParamSnapshot(params map[string]string) map[string]string {
