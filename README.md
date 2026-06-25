@@ -22,6 +22,25 @@ a stable surface before any UI exists:
 - local API keys owned by the user;
 - browser automation only for explicit `datapan access login` and `--apply` workflows.
 
+## Coverage Goals
+
+Datapan's open-source coverage target is not just "many catalog rows." The
+project tracks whether public APIs can be discovered, routed, called, exported,
+and verified from a local machine.
+
+Current public registry release `v2026.06.25.20` contains `12060` data.go.kr
+specs and `12205` operations. It reports `12063` callable operations (`98.8%`),
+`586` registered external-adapter operations out of `595` external endpoint
+operations (`95.4%`), `21` call-capable provider adapters, and `256` bounded
+runtime verification checks. The remaining `28` unadapted external endpoint
+operations are probed separately so dead routes do not masquerade as adapter
+work.
+
+The next public targets are visible in `datapan coverage --json` under
+`goals`: `99%` callable operation coverage, `98%` external adapter coverage,
+`10%` operation-level runtime evidence, at least `25` call-capable adapters,
+and no more than `10` missing-adapter operations.
+
 ## Install
 
 Windows PowerShell:

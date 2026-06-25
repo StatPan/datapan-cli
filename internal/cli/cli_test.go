@@ -324,6 +324,13 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 		`"registered_adapter_operations": 1`,
 		`"missing_adapter_operations": 1`,
 		`"external_adapter_coverage_percent": 50`,
+		`"goals":`,
+		`"callable_operation_percent_target": 99`,
+		`"callable_operation_percent_met": true`,
+		`"external_adapter_coverage_percent_target": 98`,
+		`"external_adapter_coverage_percent_met": false`,
+		`"evidence_operation_percent_target": 10`,
+		`"evidence_operation_percent_met": true`,
 		`"present": true`,
 		`"timeout": "10s"`,
 		`"verified": 1`,
@@ -342,7 +349,7 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"verification":`) || !strings.Contains(string(data), `"provider_split_ready": true`) {
+	if !strings.Contains(string(data), `"verification":`) || !strings.Contains(string(data), `"provider_split_ready": true`) || !strings.Contains(string(data), `"missing_adapter_operations_target": 10`) {
 		t.Fatalf("unexpected coverage report file: %s", data)
 	}
 }

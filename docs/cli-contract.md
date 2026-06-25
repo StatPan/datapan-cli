@@ -231,12 +231,17 @@ coverage and gap report. It combines registry counts, callable operation
 counts, data.go.kr gateway coverage, external endpoint coverage,
 registered-vs-missing adapter coverage, approval-required and unsupported
 operation counts, provider split readiness, and top missing adapter hosts.
+It also includes a `goals` object with the open-source operating targets used
+by maintainers and future Studio surfaces: callable operation percentage,
+external adapter coverage percentage, verification evidence percentage,
+missing-adapter operation ceiling, call-capable adapter target, and provider
+split readiness target, each with a boolean `*_met` status.
 Callers may pass `--verification REPORT` to include runtime verification
 evidence: total checked operations, verified/failed/skipped/unknown counts,
 verification timeout, verified percentage, and the percentage of catalog
 operations represented by that verification report. With `--output PATH|-`,
 the command writes a pure coverage report containing `generated_at`,
-`provider`, `registry`, `source`, `verification`, `summary`, `evidence`,
+`provider`, `registry`, `source`, `verification`, `summary`, `goals`, `evidence`,
 `gaps`, `adapters`, and `next`. `--json` may wrap that report in a command
 envelope for agent use and must not be combined with `--output -`. When no
 `--registry` is supplied, it follows the same default installed registry

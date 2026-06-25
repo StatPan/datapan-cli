@@ -47,6 +47,11 @@ const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
 const datapanRegistryZipAssetSuffix = ".zip"
 const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
+const coverageGoalCallablePercent = 99.0
+const coverageGoalExternalAdapterPercent = 98.0
+const coverageGoalEvidenceOperationPercent = 10.0
+const coverageGoalMissingAdapterOperations = 10
+const coverageGoalCallCapableAdapters = 25
 
 type Env interface {
 	LookupEnv(string) (string, bool)
@@ -1677,6 +1682,7 @@ type catalogCoverageReport struct {
 	Source       string                    `json:"source,omitempty"`
 	Verification string                    `json:"verification,omitempty"`
 	Summary      catalogCoverageSummary    `json:"summary"`
+	Goals        catalogCoverageGoals      `json:"goals"`
 	Evidence     catalogCoverageEvidence   `json:"evidence"`
 	Gaps         catalogCoverageGaps       `json:"gaps"`
 	Adapters     providers.IndexReport     `json:"adapters"`
@@ -1691,6 +1697,7 @@ type providerSplitReport struct {
 	Verification   string                    `json:"verification,omitempty"`
 	SplitReadiness providers.SplitReadiness  `json:"split_readiness"`
 	Summary        catalogCoverageSummary    `json:"summary"`
+	Goals          catalogCoverageGoals      `json:"goals"`
 	Evidence       catalogCoverageEvidence   `json:"evidence"`
 	Gaps           catalogCoverageGaps       `json:"gaps"`
 	Adapters       providers.IndexReport     `json:"adapters"`
@@ -1716,6 +1723,21 @@ type catalogCoverageSummary struct {
 	AdapterCount                   int     `json:"adapter_count"`
 	CallCapableAdapters            int     `json:"call_capable_adapters"`
 	ProviderSplitReady             bool    `json:"provider_split_ready"`
+}
+
+type catalogCoverageGoals struct {
+	CallableOperationPercentTarget       float64 `json:"callable_operation_percent_target"`
+	CallableOperationPercentMet          bool    `json:"callable_operation_percent_met"`
+	ExternalAdapterCoveragePercentTarget float64 `json:"external_adapter_coverage_percent_target"`
+	ExternalAdapterCoveragePercentMet    bool    `json:"external_adapter_coverage_percent_met"`
+	EvidenceOperationPercentTarget       float64 `json:"evidence_operation_percent_target"`
+	EvidenceOperationPercentMet          bool    `json:"evidence_operation_percent_met"`
+	MissingAdapterOperationsTarget       int     `json:"missing_adapter_operations_target"`
+	MissingAdapterOperationsMet          bool    `json:"missing_adapter_operations_met"`
+	CallCapableAdaptersTarget            int     `json:"call_capable_adapters_target"`
+	CallCapableAdaptersMet               bool    `json:"call_capable_adapters_met"`
+	ProviderSplitReadyTarget             bool    `json:"provider_split_ready_target"`
+	ProviderSplitReadyMet                bool    `json:"provider_split_ready_met"`
 }
 
 type catalogCoverageEvidence struct {
@@ -1962,6 +1984,7 @@ func (a app) catalogCoverage(args []string, jsonOut bool) int {
 			"source":   source,
 			"report":   report,
 			"summary":  report.Summary,
+			"goals":    report.Goals,
 			"evidence": report.Evidence,
 			"gaps":     report.Gaps,
 			"next":     report.Next,
@@ -1992,6 +2015,12 @@ func (a app) catalogCoverage(args []string, jsonOut bool) int {
 		report.Evidence.EvidenceOperationPercent,
 	)
 	fmt.Fprintf(a.stdout, "  provider split ready: %t\n", report.Summary.ProviderSplitReady)
+	fmt.Fprintf(a.stdout, "  goals: callable %.1f%%, external adapters %.1f%%, evidence %.1f%% sampled, missing adapters <= %d ops\n",
+		report.Goals.CallableOperationPercentTarget,
+		report.Goals.ExternalAdapterCoveragePercentTarget,
+		report.Goals.EvidenceOperationPercentTarget,
+		report.Goals.MissingAdapterOperationsTarget,
+	)
 	if len(report.Gaps.MissingAdapterHosts) > 0 {
 		fmt.Fprintln(a.stdout, "Top missing adapter hosts")
 		for _, provider := range report.Gaps.MissingAdapterHosts {
@@ -2060,6 +2089,7 @@ func (a app) providerSplit(args []string, jsonOut bool) int {
 			"verification":    verificationPath,
 			"split_readiness": report.SplitReadiness,
 			"summary":         report.Summary,
+			"goals":           report.Goals,
 			"evidence":        report.Evidence,
 			"gaps":            report.Gaps,
 			"adapters":        report.Adapters,
@@ -2094,6 +2124,11 @@ func (a app) providerSplit(args []string, jsonOut bool) int {
 		report.Evidence.Verified,
 		report.Evidence.Total,
 		report.Evidence.EvidenceOperationPercent,
+	)
+	fmt.Fprintf(a.stdout, "  goals: %d call-capable adapters, external adapter coverage %.1f%%, evidence %.1f%% sampled\n",
+		report.Goals.CallCapableAdaptersTarget,
+		report.Goals.ExternalAdapterCoveragePercentTarget,
+		report.Goals.EvidenceOperationPercentTarget,
 	)
 	if len(report.SplitReadiness.Reasons) > 0 {
 		fmt.Fprintf(a.stdout, "  reasons: %s\n", strings.Join(report.SplitReadiness.Reasons, ", "))
@@ -2133,6 +2168,7 @@ func buildProviderSplitReport(coverage catalogCoverageReport) providerSplitRepor
 		Verification:   coverage.Verification,
 		SplitReadiness: coverage.Adapters.SplitReadiness,
 		Summary:        coverage.Summary,
+		Goals:          coverage.Goals,
 		Evidence:       coverage.Evidence,
 		Gaps:           coverage.Gaps,
 		Adapters:       coverage.Adapters,
@@ -2411,7 +2447,25 @@ func (a app) buildCatalogCoverage(reg datago.Registry, registryPath, source, ver
 		Adapters: adapterIndex,
 		Next:     catalogCoverageNext(registryPath, verificationPath),
 	}
+	report.Goals = catalogCoverageGoalsFor(report.Summary, report.Evidence)
 	return report, nil
+}
+
+func catalogCoverageGoalsFor(summary catalogCoverageSummary, evidence catalogCoverageEvidence) catalogCoverageGoals {
+	return catalogCoverageGoals{
+		CallableOperationPercentTarget:       coverageGoalCallablePercent,
+		CallableOperationPercentMet:          summary.CallableOperationPercent >= coverageGoalCallablePercent,
+		ExternalAdapterCoveragePercentTarget: coverageGoalExternalAdapterPercent,
+		ExternalAdapterCoveragePercentMet:    summary.ExternalAdapterCoveragePercent >= coverageGoalExternalAdapterPercent,
+		EvidenceOperationPercentTarget:       coverageGoalEvidenceOperationPercent,
+		EvidenceOperationPercentMet:          evidence.EvidenceOperationPercent >= coverageGoalEvidenceOperationPercent,
+		MissingAdapterOperationsTarget:       coverageGoalMissingAdapterOperations,
+		MissingAdapterOperationsMet:          summary.MissingAdapterOperations <= coverageGoalMissingAdapterOperations,
+		CallCapableAdaptersTarget:            coverageGoalCallCapableAdapters,
+		CallCapableAdaptersMet:               summary.CallCapableAdapters >= coverageGoalCallCapableAdapters,
+		ProviderSplitReadyTarget:             true,
+		ProviderSplitReadyMet:                summary.ProviderSplitReady,
+	}
 }
 
 func percent(part, total int) float64 {
