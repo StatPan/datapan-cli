@@ -113,6 +113,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider myhome --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider myhome --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider emuseum --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider emuseum --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider pqis --json
@@ -149,6 +151,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider kpx --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider myhome --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider emuseum --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider pqis --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider seoul-bus --json
@@ -875,6 +878,36 @@ Expected evidence shape: `provider=myhome`,
 `ServiceKey=REDACTED`, `code/msg` `provider_status`, and
 `myhome_service_key_not_registered` for unregistered credentials.
 
+## Twenty-First Adapter: emuseum
+
+The emuseum adapter covers National Museum of Korea relic APIs hosted at
+`www.emuseum.go.kr`. The registry exposes list, detail, and code operations
+under `/openapi/relic/list`, `/openapi/relic/detail`, and `/openapi/code`.
+The list operation accepts many optional search filters, so the adapter omits
+empty filter parameters instead of sending a noisy query string.
+
+The upstream blocks Go's default `Go-http-client/1.1` user agent with an HTML
+WAF page, while a named `datapan-cli` user agent returns the expected XML
+provider status. The adapter therefore sends a stable Datapan User-Agent,
+adds `serviceKey`, fills `pageNo=1` and `numOfRows=1`, and classifies
+`resultCode/resultMsg` statuses such as `4030 / SERVICE KEY IS NOT REGISTERED
+ERROR.` as `emuseum_service_key_not_registered`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider emuseum --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider emuseum --kind external_endpoint --limit 3 --output .datapan/emuseum-verification.json --json
+datapan catalog verify summary --input .datapan/emuseum-verification.json --json
+datapan get 3036708 --operation "소장품 목록 조회" --json
+```
+
+Expected evidence shape: `provider=emuseum`,
+`endpoint_host=www.emuseum.go.kr`, redacted URLs with
+`serviceKey=REDACTED`, `resultCode/resultMsg` `provider_status`, omitted empty
+search filters, `application/xml` responses with a named User-Agent, and
+`emuseum_service_key_not_registered` for unregistered credentials.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -898,8 +931,10 @@ providers and the release boundary is worth maintaining separately.
 The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
-registered verification-capable providers, and epost, forest, geoje, humetro,
-gblib, itfind, korad, kpx, lh-ebid, myhome, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+registered verification-capable providers, and epost, emuseum, forest, geoje,
+humetro, gblib, itfind, korad, kpx, lh-ebid, myhome, naqs, oneclick-law, pqis,
+seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call`
+capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

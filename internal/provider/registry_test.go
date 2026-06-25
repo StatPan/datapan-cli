@@ -77,6 +77,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	for host, name := range map[string]string{
 		"openapi.airport.co.kr": "airport",
 		"www.andong.go.kr":      "andong",
+		"www.emuseum.go.kr":     "emuseum",
 		"openapi.q-net.or.kr":   "q-net",
 		"openapi.epost.go.kr":   "epost",
 		"data.ekape.or.kr":      "ekape",
@@ -109,13 +110,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 24 || report.HostCount != 28 {
+	if report.AdapterCount != 25 || report.HostCount != 29 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 24 || report.SplitReadiness.VerificationCapableAdapters != 24 || report.SplitReadiness.CallCapableAdapters != 19 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 25 || report.SplitReadiness.VerificationCapableAdapters != 25 || report.SplitReadiness.CallCapableAdapters != 20 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -129,6 +130,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"airport", "openapi.airport.co.kr", "verification"},
 		{"andong", "www.andong.go.kr", "call,verification"},
 		{"ekape", "data.ekape.or.kr", "verification"},
+		{"emuseum", "www.emuseum.go.kr", "call,verification"},
 		{"epost", "openapi.epost.go.kr,openapi.epost.go.kr:80", "call,verification"},
 		{"folk", "folkency.nfm.go.kr", "verification"},
 		{"forest", "api.forest.go.kr", "call,verification"},

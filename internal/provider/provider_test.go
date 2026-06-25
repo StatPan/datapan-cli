@@ -2097,6 +2097,107 @@ func TestMyHomeAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestEMuseumAdapterClassifiesXMLServiceKeyStatus(t *testing.T) {
+	adapter := NewEMuseumAdapter()
+	if !adapter.MatchHost("www.emuseum.go.kr") {
+		t.Fatal("expected emuseum adapter to match www.emuseum.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("emuseum adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected emuseum capabilities: %#v", adapter.Capabilities())
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.emuseum.go.kr" || req.URL.Path != "/openapi/relic/list" {
+			t.Fatalf("unexpected emuseum endpoint: %s", req.URL.String())
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected emuseum query: %s", req.URL.RawQuery)
+		}
+		if req.Header.Get("User-Agent") != eMuseumUserAgent {
+			t.Fatalf("expected emuseum user agent, got %q", req.Header.Get("User-Agent"))
+		}
+		if _, ok := req.URL.Query()["name"]; ok {
+			t.Fatalf("expected empty optional filter to be omitted: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<result><params><item key="serviceKey" value="secret"/></params><numOfRows>10</numOfRows><pageNo>1</pageNo><totalCount>0</totalCount><resultCode>4030</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></result>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "3036708", Title: "eMuseum 샘플", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "소장품 목록 조회",
+			Endpoint: "http://www.emuseum.go.kr/openapi/relic/list",
+		},
+		Params: map[string]string{"name": ""},
+		MissingParams: []string{
+			"id", "museumCode", "name", "nameKr", "nameEn", "nameCn", "author", "nationalityCode",
+			"materialCode", "purposeCode", "sizeRangeCode", "placeLandCode", "designationCode", "indexWord",
+		},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "emuseum" || result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "emuseum_service_key_not_registered" {
+		t.Fatalf("unexpected emuseum verification result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.Code != "4030" || result.ProviderStatus.Source != "resultCode/resultMsg" {
+		t.Fatalf("unexpected emuseum provider status: %#v", result.ProviderStatus)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || result.BodyShape != "xml_status" {
+		t.Fatalf("expected redacted emuseum XML status URL: %#v", result)
+	}
+	if result.Params["name"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
+		t.Fatalf("unexpected emuseum public params: %#v", result.Params)
+	}
+}
+
+func TestEMuseumAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewEMuseumAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.emuseum.go.kr" {
+			t.Fatalf("expected emuseum host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected emuseum call query: %s", req.URL.RawQuery)
+		}
+		if req.Header.Get("User-Agent") != eMuseumUserAgent {
+			t.Fatalf("expected emuseum user agent, got %q", req.Header.Get("User-Agent"))
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<result><numOfRows>1</numOfRows><pageNo>1</pageNo><totalCount>1</totalCount><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg><item><name>금동반가사유상</name></item></result>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "3036708", Title: "eMuseum 샘플", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "소장품 목록 조회",
+			Endpoint: "http://www.emuseum.go.kr/openapi/relic/list",
+		},
+		MissingParams: []string{"id", "museumCode", "name", "nameKr", "nameEn", "nameCn", "author", "nationalityCode", "materialCode", "purposeCode", "sizeRangeCode", "placeLandCode", "designationCode", "indexWord"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "emuseum" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected emuseum call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected emuseum provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "금동반가사유상") {
+		t.Fatalf("unexpected emuseum call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
 func TestPQISAdapterRewritesWADLEndpointAndDefaults(t *testing.T) {
 	adapter := NewPQISAdapter()
 	if !adapter.MatchHost("openapi.pqis.go.kr") {
