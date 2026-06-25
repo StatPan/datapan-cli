@@ -238,6 +238,8 @@ Adapter status:
 - `emuseum`: registered adapter for National Museum of Korea relic APIs with
   named User-Agent handling, empty-filter omission, XML provider-status
   evidence, and call behavior;
+- `jeju`: registered adapter for Jeju province APIs with official action URL
+  rewriting for night pharmacy data, stale-endpoint evidence, and call behavior;
 - `pqis`: registered adapter for Animal and Plant Quarantine Agency plant
   quarantine statistics APIs with WADL endpoint normalization, conservative
   code/date defaults, provider key-registration evidence, and call behavior;
@@ -271,11 +273,11 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, emuseum, epost, forest,
-geoje, gblib, humetro, itfind, korad, kpx, lh-ebid, myhome, naqs,
+geoje, gblib, humetro, itfind, jeju, korad, kpx, lh-ebid, myhome, naqs,
 oneclick-law, pqis, seoul-bus, sisul, tour, uiryeong, and ulsan now prove
 multiple external call paths,
-while jeonju expands high-impact external host ownership. The split should wait for
-sustained maintenance pressure.
+while jeonju expands high-impact external host ownership. The split should wait
+for sustained maintenance pressure.
 
 ### datapan-spec
 

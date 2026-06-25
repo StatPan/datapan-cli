@@ -2201,6 +2201,96 @@ func TestEMuseumAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestJejuAdapterRewritesNightPharmacyListEndpoint(t *testing.T) {
+	adapter := NewJejuAdapter()
+	if !adapter.MatchHost("data.jeju.go.kr") {
+		t.Fatal("expected jeju adapter to match data.jeju.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("jeju adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected jeju capabilities: %#v", adapter.Capabilities())
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.jeju.go.kr" || req.URL.Path != "/rest/nightpharmacy/getNightPharmacyList" {
+			t.Fatalf("unexpected jeju endpoint: %s", req.URL.String())
+		}
+		if req.URL.Query().Get("pageSize") != "1" || req.URL.Query().Get("startPage") != "1" {
+			t.Fatalf("unexpected jeju query: %s", req.URL.RawQuery)
+		}
+		if _, ok := req.URL.Query()["dataTitle"]; ok {
+			t.Fatalf("expected empty jeju filter to be omitted: %s", req.URL.RawQuery)
+		}
+		if req.Header.Get("User-Agent") != jejuUserAgent {
+			t.Fatalf("expected jeju user agent, got %q", req.Header.Get("User-Agent"))
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><rfcOpenApi><header><resultCode>00</resultCode><resultMsg>success</resultMsg></header><body><pageSize>1</pageSize><startPage>1</startPage><totalCount>1</totalCount><data><list><dataSid>1</dataSid><dataTitle>현재약국</dataTitle></list></data></body></rfcOpenApi>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "15043696", Title: "제주 심야약국", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "심야약국 리스트 조회",
+			Endpoint: "http://data.jeju.go.kr/rest/nightpharmacy",
+		},
+		MissingParams: []string{"dataTitle", "pageSize", "startPage"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "jeju" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_rfcopenapi_list" {
+		t.Fatalf("unexpected jeju verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "/getNightPharmacyList") {
+		t.Fatalf("expected redacted jeju list URL: %#v", result)
+	}
+	if result.Params["pageSize"] != "1" || result.Params["startPage"] != "1" {
+		t.Fatalf("unexpected jeju public params: %#v", result.Params)
+	}
+	if _, ok := result.Params["dataTitle"]; ok {
+		t.Fatalf("expected empty jeju filter to be omitted: %#v", result.Params)
+	}
+}
+
+func TestJejuAdapterCallNormalizesSpacedEndpoint(t *testing.T) {
+	adapter := NewJejuAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/rest/jejurest" {
+			t.Fatalf("expected normalized jeju endpoint, got %s", req.URL.String())
+		}
+		if req.URL.Query().Get("checkIndate") != "20260701" {
+			t.Fatalf("unexpected jeju call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 405,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<html><body>Method Not Allowed</body></html>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "15001189", Title: "제주교래자연휴양림", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "예약된 방 목록 조회",
+			Endpoint: "http://data.jeju.go.kr/rest/ jejurest",
+		},
+		MissingParams: []string{"checkIndate"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.OK || envelope.Provider != "jeju" || envelope.StatusCode != 405 || envelope.SemanticStatus != "http_error" {
+		t.Fatalf("unexpected jeju call envelope: %#v", envelope)
+	}
+	if !strings.Contains(envelope.URL, "/rest/jejurest") || !strings.Contains(envelope.Body, "Method Not Allowed") {
+		t.Fatalf("unexpected jeju call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
 func TestPQISAdapterRewritesWADLEndpointAndDefaults(t *testing.T) {
 	adapter := NewPQISAdapter()
 	if !adapter.MatchHost("openapi.pqis.go.kr") {

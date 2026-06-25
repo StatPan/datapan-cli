@@ -105,6 +105,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider humetro --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider itfind --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider jeju --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider jeju --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider korad --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider kpx --json
@@ -147,6 +149,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider humetro --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeju --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider kpx --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
@@ -908,6 +911,39 @@ Expected evidence shape: `provider=emuseum`,
 search filters, `application/xml` responses with a named User-Agent, and
 `emuseum_service_key_not_registered` for unregistered credentials.
 
+## Twenty-Second Adapter: jeju
+
+The jeju adapter covers Jeju Special Self-Governing Province APIs hosted at
+`data.jeju.go.kr`. The imported registry preserves the upstream metadata, but
+some older Jeju records expose only a service root such as
+`/rest/nightpharmacy` or include a stray space in the endpoint path. The adapter
+normalizes the path for calls and rewrites the night pharmacy list operation to
+the official action URL, `/rest/nightpharmacy/getNightPharmacyList`.
+
+Jeju's night pharmacy list endpoint is currently useful without inventing
+extra parameters: the adapter omits empty `dataTitle`, fills `pageSize=1` and
+`startPage=1`, sends a named Datapan User-Agent, and classifies the XML
+`resultCode/resultMsg` response as provider status. The older Gyorae recreation
+forest endpoint still returns `HTTP 405`; Datapan records that as
+`jeju_method_not_allowed` instead of hiding the upstream mismatch.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeju --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider jeju --kind external_endpoint --limit 4 --output .datapan/jeju-verification.json --json
+datapan catalog verify summary --input .datapan/jeju-verification.json --json
+datapan get 15043696 --operation "심야약국 리스트 조회" --json
+```
+
+Expected evidence shape: `provider=jeju`,
+`endpoint_host=data.jeju.go.kr`, redacted URLs with `serviceKey=REDACTED` when
+a key is configured, `resultCode/resultMsg` `provider_status`,
+`xml_rfcopenapi_list` for the verified night pharmacy list call,
+`jeju_method_not_allowed` for the stale recreation-forest endpoint, and
+`jeju_missing_required_params` for detail/file operations that require
+`dataSid`.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -932,7 +968,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, emuseum, forest, geoje,
-humetro, gblib, itfind, korad, kpx, lh-ebid, myhome, naqs, oneclick-law, pqis,
+humetro, gblib, itfind, jeju, korad, kpx, lh-ebid, myhome, naqs, oneclick-law, pqis,
 seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call`
 capability, so the boundary is ready
 to consider.

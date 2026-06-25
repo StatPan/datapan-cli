@@ -144,6 +144,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
 				{Name: "부산교통", Endpoint: "http://data.humetro.busan.kr/voc/api/open_api_public.tnn"},
 				{Name: "ICT", Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport"},
+				{Name: "제주", Endpoint: "http://data.jeju.go.kr/rest/nightpharmacy"},
 				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 				{Name: "원자력", Endpoint: "http://www.korad.or.kr/openapi/service/radiTakeWasteStatsSvc/getRadiTakeWasteStatsDataList"},
 				{Name: "전력거래소", Endpoint: "https://openapi.kpx.or.kr/openapi/sukub5mToday/getSukub5mToday"},
@@ -161,7 +162,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.myhome.go.kr:443", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.ebid.lh.or.kr", "openapi.gblib.or.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "openapi.kpx.or.kr", "openapi.pqis.go.kr", "openapi.tour.go.kr", "ws.bus.go.kr", "www.andong.go.kr", "www.emuseum.go.kr", "www.korad.or.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.jeju.go.kr", "data.myhome.go.kr:443", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.ebid.lh.or.kr", "openapi.gblib.or.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "openapi.kpx.or.kr", "openapi.pqis.go.kr", "openapi.tour.go.kr", "ws.bus.go.kr", "www.andong.go.kr", "www.emuseum.go.kr", "www.korad.or.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -197,6 +198,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	itfind := findProviderSummary(backlog.Providers, "open.itfind.or.kr")
 	if itfind == nil || itfind.AdapterStatus != "adapter" || itfind.Provider != "itfind" {
 		t.Fatalf("unexpected itfind summary: %#v", itfind)
+	}
+	jeju := findProviderSummary(backlog.Providers, "data.jeju.go.kr")
+	if jeju == nil || jeju.AdapterStatus != "adapter" || jeju.Provider != "jeju" {
+		t.Fatalf("unexpected jeju summary: %#v", jeju)
 	}
 	jeonju := findProviderSummary(backlog.Providers, "openapi.jeonju.go.kr")
 	if jeonju == nil || jeonju.AdapterStatus != "adapter" || jeonju.Provider != "jeonju" {
