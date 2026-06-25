@@ -1222,6 +1222,14 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 	if install.Release.ReadinessReady != nil {
 		fmt.Fprintf(a.stdout, "  release readiness: %t\n", *install.Release.ReadinessReady)
 	}
+	if install.Release.RouteDispositionPresent {
+		fmt.Fprintf(a.stdout, "  route disposition: %d routes (%d dead-route, %d transient, %d adapter candidates)\n",
+			install.Release.RouteDispositionRoutes,
+			install.Release.RouteDispositionDead,
+			install.Release.RouteDispositionTransient,
+			install.Release.RouteDispositionAdapterCandidates,
+		)
+	}
 	if install.Release.ReleaseNotesPresent {
 		fmt.Fprintln(a.stdout, "  release notes: included")
 	}
@@ -1237,19 +1245,25 @@ type datapanRegistryInstall struct {
 }
 
 type datapanRegistryInstallRelease struct {
-	ManifestPresent        bool   `json:"manifest_present"`
-	ReleaseNotesPresent    bool   `json:"release_notes_present"`
-	VerificationPresent    bool   `json:"verification_present"`
-	ReadinessPresent       bool   `json:"readiness_present"`
-	ManifestGeneratedAt    string `json:"manifest_generated_at,omitempty"`
-	ManifestArtifacts      int    `json:"manifest_artifacts,omitempty"`
-	VerificationOK         *bool  `json:"verification_ok,omitempty"`
-	VerificationChecked    int    `json:"verification_checked,omitempty"`
-	VerificationFailed     int    `json:"verification_failed,omitempty"`
-	ReadinessReady         *bool  `json:"readiness_ready,omitempty"`
-	ReadinessPassed        int    `json:"readiness_passed,omitempty"`
-	ReadinessFailed        int    `json:"readiness_failed,omitempty"`
-	ReadinessRegistrySpecs int    `json:"readiness_registry_specs,omitempty"`
+	ManifestPresent                   bool   `json:"manifest_present"`
+	ReleaseNotesPresent               bool   `json:"release_notes_present"`
+	VerificationPresent               bool   `json:"verification_present"`
+	ReadinessPresent                  bool   `json:"readiness_present"`
+	ManifestGeneratedAt               string `json:"manifest_generated_at,omitempty"`
+	ManifestArtifacts                 int    `json:"manifest_artifacts,omitempty"`
+	VerificationOK                    *bool  `json:"verification_ok,omitempty"`
+	VerificationChecked               int    `json:"verification_checked,omitempty"`
+	VerificationFailed                int    `json:"verification_failed,omitempty"`
+	ReadinessReady                    *bool  `json:"readiness_ready,omitempty"`
+	ReadinessPassed                   int    `json:"readiness_passed,omitempty"`
+	ReadinessFailed                   int    `json:"readiness_failed,omitempty"`
+	ReadinessRegistrySpecs            int    `json:"readiness_registry_specs,omitempty"`
+	RouteDispositionPresent           bool   `json:"route_disposition_present"`
+	RouteDispositionRoutes            int    `json:"route_disposition_routes"`
+	RouteDispositionDead              int    `json:"route_disposition_dead_route_candidates"`
+	RouteDispositionTransient         int    `json:"route_disposition_transient_failures"`
+	RouteDispositionParameterBlocked  int    `json:"route_disposition_parameter_blocked"`
+	RouteDispositionAdapterCandidates int    `json:"route_disposition_adapter_candidates"`
 }
 
 func (i datapanRegistryInstall) Payload() map[string]any {
@@ -1361,6 +1375,17 @@ func (a app) init(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
 	fmt.Fprintf(a.stdout, "  specs: %d\n", len(install.Specs))
 	fmt.Fprintf(a.stdout, "  operations: %d\n", registryOperationCount(install.Specs))
+	if install.Release.ReadinessReady != nil {
+		fmt.Fprintf(a.stdout, "  release readiness: %t\n", *install.Release.ReadinessReady)
+	}
+	if install.Release.RouteDispositionPresent {
+		fmt.Fprintf(a.stdout, "  route disposition: %d routes (%d dead-route, %d transient, %d adapter candidates)\n",
+			install.Release.RouteDispositionRoutes,
+			install.Release.RouteDispositionDead,
+			install.Release.RouteDispositionTransient,
+			install.Release.RouteDispositionAdapterCandidates,
+		)
+	}
 	if keyOK {
 		fmt.Fprintf(a.stdout, "  data.go.kr key: found in %s\n", keyName)
 	} else {
@@ -1524,7 +1549,8 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 			name != "manifest.json" &&
 			name != "RELEASE_NOTES.md" &&
 			name != "reports/latest-release-verification.json" &&
-			name != "reports/latest-release-readiness.json" {
+			name != "reports/latest-release-readiness.json" &&
+			name != "reports/route-disposition.json" {
 			continue
 		}
 		data, err := readZipFile(file)
@@ -1592,6 +1618,17 @@ func installReleaseEvidenceFromZip(entries map[string][]byte) datapanRegistryIns
 			evidence.ReadinessPassed = report.Summary.Passed
 			evidence.ReadinessFailed = report.Summary.Failed
 			evidence.ReadinessRegistrySpecs = report.Summary.RegistrySpecs
+		}
+	}
+	if data, ok := entries["reports/route-disposition.json"]; ok {
+		evidence.RouteDispositionPresent = true
+		var report datago.RouteDispositionReport
+		if err := json.Unmarshal(data, &report); err == nil {
+			evidence.RouteDispositionRoutes = report.Summary.RoutesTotal
+			evidence.RouteDispositionDead = report.Summary.DeadRouteCandidates
+			evidence.RouteDispositionTransient = report.Summary.TransientFailures
+			evidence.RouteDispositionParameterBlocked = report.Summary.ParameterBlockedRoutes
+			evidence.RouteDispositionAdapterCandidates = report.Summary.AdapterCandidates
 		}
 	}
 	return evidence

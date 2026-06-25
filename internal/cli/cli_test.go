@@ -2059,6 +2059,25 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 			},
 			"gates": []
 		}`,
+		"reports/route-disposition.json": `{
+			"generated_at": "2026-06-24T00:00:00Z",
+			"provider": "data.go.kr",
+			"limit": 0,
+			"truncated": false,
+			"summary": {
+				"routes_total": 28,
+				"operations": 28,
+				"hosts": 10,
+				"with_probe_evidence": 28,
+				"without_probe_evidence": 0,
+				"dead_route_candidates": 14,
+				"transient_failures": 14,
+				"parameter_blocked_routes": 0,
+				"adapter_candidates": 0,
+				"by_disposition": []
+			},
+			"routes": []
+		}`,
 	})
 	var urls []string
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -2111,6 +2130,11 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 		`"readiness_ready": true`,
 		`"manifest_artifacts": 29`,
 		`"readiness_registry_specs": 12060`,
+		`"route_disposition_present": true`,
+		`"route_disposition_routes": 28`,
+		`"route_disposition_dead_route_candidates": 14`,
+		`"route_disposition_transient_failures": 14`,
+		`"route_disposition_adapter_candidates": 0`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in install release evidence: %s", want, stdout)

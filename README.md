@@ -238,7 +238,7 @@ To move beyond the embedded seed catalog, run `datapan init`. This is the
 normal consumer path: it downloads the latest released `datapan-registry` zip,
 extracts `data/data-go-kr.registry.json`, validates that the registry decodes,
 writes it to `.datapan/data-go-kr.registry.json`, reports release manifest /
-readiness / release-notes evidence when the zip includes those artifacts,
+readiness / route-disposition / release-notes evidence when the zip includes those artifacts,
 checks local credential presence, reports registered provider adapters, and
 returns next commands.
 
