@@ -8,6 +8,19 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = "StatPan/datapan-cli"
 
+function Get-GitHubHeaders {
+    $headers = @{ "User-Agent" = "datapan-installer" }
+    $token = $env:GITHUB_TOKEN
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $token = $env:GH_TOKEN
+    }
+    if (-not [string]::IsNullOrWhiteSpace($token)) {
+        $headers["Authorization"] = "Bearer $token"
+        $headers["X-GitHub-Api-Version"] = "2022-11-28"
+    }
+    return $headers
+}
+
 if ($Help) {
     Write-Output "Usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Version latest|vX.Y.Z] [-InstallDir DIR] [-NoDp]"
     exit 0
@@ -18,7 +31,7 @@ function Get-ReleaseTag {
     if ($RequestedVersion -ne "latest") {
         return $RequestedVersion
     }
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "datapan-installer" }
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers (Get-GitHubHeaders)
     return $release.tag_name
 }
 

@@ -25,4 +25,6 @@ jobs:
 
       - name: Smoke latest release
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: .\scripts\smoke-first-run.ps1
