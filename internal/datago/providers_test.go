@@ -145,6 +145,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 				{Name: "원자력", Endpoint: "http://www.korad.or.kr/openapi/service/radiTakeWasteStatsSvc/getRadiTakeWasteStatsDataList"},
 				{Name: "친환경", Endpoint: "http://data.naqs.go.kr/openapi/service/rest/naqsenv/envparam"},
+				{Name: "생활법령", Endpoint: "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawSearchService/getSearchGroupList"},
 				{Name: "시설", Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry"},
 				{Name: "의령", Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList"},
 				{Name: "울산", Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/RouteInfo.xo"},
@@ -152,7 +153,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "oneclick.law.go.kr:80", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -192,6 +193,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	naqs := findProviderSummary(backlog.Providers, "data.naqs.go.kr")
 	if naqs == nil || naqs.AdapterStatus != "adapter" || naqs.Provider != "naqs" {
 		t.Fatalf("unexpected naqs summary: %#v", naqs)
+	}
+	oneclick := findProviderSummary(backlog.Providers, "oneclick.law.go.kr:80")
+	if oneclick == nil || oneclick.AdapterStatus != "adapter" || oneclick.Provider != "oneclick-law" {
+		t.Fatalf("unexpected oneclick summary: %#v", oneclick)
 	}
 	sisul := findProviderSummary(backlog.Providers, "data.sisul.or.kr")
 	if sisul == nil || sisul.AdapterStatus != "adapter" || sisul.Provider != "sisul" {

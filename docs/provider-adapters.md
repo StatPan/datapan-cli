@@ -587,6 +587,36 @@ Expected evidence shape: `provider=humetro`,
 proves Datapan reached the external provider and classified the credential or
 provider state.
 
+## Thirteenth Adapter: oneclick-law
+
+The oneclick-law adapter covers Ministry of Government Legislation Easy Law
+SOAP APIs hosted at `oneclick.law.go.kr` and `oneclick.law.go.kr:80`. These
+catalog records expose SOAP service endpoints, operation names in
+`operation_url`, and request parameter names in `request_param_nm_en`.
+
+The adapter builds SOAP 1.1 POST envelopes from that metadata, inserts
+`ServiceKey` only when the operation declares it, supplies conservative smoke
+defaults for request IDs, page fields, section/query fields, and common Easy
+Law identifiers, and skips approval-required operations before HTTP. Current
+live probes show the upstream endpoint refusing connections, so Datapan records
+`oneclick_connection_refused` instead of treating these operations as unknown
+or silently unsupported.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider oneclick-law --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider oneclick-law --kind external_endpoint --limit 30 --output .datapan/oneclick-law-verification.json --json
+datapan catalog verify summary --input .datapan/oneclick-law-verification.json --json
+datapan get <oneclick-dataset-id> txtQuery=법 nowPageNo=1 pageMg=1 --operation <oneclick-soap-operation> --json
+```
+
+Expected evidence shape: `provider=oneclick-law`,
+`endpoint_host=oneclick.law.go.kr` or `oneclick.law.go.kr:80`, SOAP POST
+requests, `approval_required` skips for 심의승인 operations, and stable
+transport reasons such as `oneclick_connection_refused` when the upstream host
+refuses the connection.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -611,7 +641,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-itfind, korad, naqs, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+itfind, korad, naqs, oneclick-law, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

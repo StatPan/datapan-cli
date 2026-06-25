@@ -217,6 +217,9 @@ Adapter status:
 - `naqs`: registered adapter for National Agricultural Products Quality
   Management Service APIs with no-auth XML lookup verification and explicit
   skips for mutation-like `pubc` integration endpoints;
+- `oneclick-law`: registered adapter for Ministry of Government Legislation
+  Easy Law SOAP APIs with SOAP envelope generation, approval-aware skips, and
+  transport-state evidence for currently refused upstream endpoints;
 - `jeonju`: registered adapter for Jeonju city APIs with exact `ServiceKey` /
   `authApiKey` handling and upstream `HTTP 405` evidence;
 - `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
@@ -244,7 +247,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-humetro, itfind, korad, naqs, sisul, uiryeong, and ulsan now prove multiple external call paths,
+humetro, itfind, korad, naqs, oneclick-law, sisul, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

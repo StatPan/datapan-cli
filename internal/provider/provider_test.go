@@ -2160,3 +2160,111 @@ func TestHumetroAdapterCallExecutesProviderRequest(t *testing.T) {
 		t.Fatalf("expected redacted humetro call URL: %s", envelope.URL)
 	}
 }
+
+func TestOneclickLawAdapterPostsSOAPEnvelope(t *testing.T) {
+	adapter := NewOneclickLawAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected SOAP POST, got %s", req.Method)
+		}
+		if req.URL.Host != "oneclick.law.go.kr:80" {
+			t.Fatalf("expected oneclick host, got %s", req.URL.Host)
+		}
+		if req.Header.Get("SOAPAction") != "getSearchGroupList" {
+			t.Fatalf("unexpected SOAPAction: %s", req.Header.Get("SOAPAction"))
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for _, want := range []string{"<getSearchGroupList>", "<ServiceKey>secret</ServiceKey>", "<RequestMsgID>datapan</RequestMsgID>", "<RequestTime>20000101000000</RequestTime>"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("expected SOAP body to contain %q: %s", want, text)
+			}
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<soapenv:Envelope><soapenv:Body><getSearchGroupListResponse><ReturnCode>0</ReturnCode><ErrMsg></ErrMsg></getSearchGroupListResponse></soapenv:Body></soapenv:Envelope>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "900", Title: "Oneclick search", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "검색분류목록조회",
+			Endpoint: "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawSearchService",
+			Source: &datago.Source{Raw: map[string]any{
+				"api_type":            "SOAP",
+				"operation_url":       "getSearchGroupList",
+				"request_param_nm_en": "RequestMsgID,ServiceKey,RequestTime,CallBackURI",
+			}},
+		},
+		MissingParams: []string{"RequestMsgID", "ServiceKey", "RequestTime", "CallBackURI"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "verified" || result.SemanticStatus != "xml_response" || result.BodyShape != "soap_envelope" {
+		t.Fatalf("unexpected oneclick verification result: %#v", result)
+	}
+	if strings.Contains(result.URL, "secret") || result.URL != "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawSearchService" {
+		t.Fatalf("unexpected oneclick URL: %s", result.URL)
+	}
+}
+
+func TestOneclickLawAdapterSkipsApprovalRequired(t *testing.T) {
+	adapter := NewOneclickLawAdapter()
+	called := false
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "901", Title: "Oneclick approval", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "생활분야목록조회",
+			Endpoint: "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawInfoService",
+			Source: &datago.Source{Raw: map[string]any{
+				"api_type":                 "SOAP",
+				"operation_url":            "getLifeAreaList",
+				"is_confirmed_for_dev_nm":  "심의승인",
+				"is_confirmed_for_prod_nm": "심의승인",
+			}},
+		},
+		HTTP: providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			called = true
+			return nil, nil
+		}),
+	})
+	if called {
+		t.Fatal("oneclick approval-required operation should skip before HTTP")
+	}
+	if result.Status != "skipped" || result.Reason != "approval_required" {
+		t.Fatalf("unexpected oneclick approval skip: %#v", result)
+	}
+}
+
+func TestOneclickLawAdapterClassifiesConnectionRefused(t *testing.T) {
+	adapter := NewOneclickLawAdapter()
+	for _, message := range []string{
+		"dial tcp: connection refused",
+		"dial tcp: No connection could be made because the target machine actively refused it.",
+	} {
+		result := adapter.Verify(context.Background(), VerificationRequest{
+			Spec: datago.Spec{ID: "902", Title: "Oneclick down", Provider: "data.go.kr"},
+			Operation: datago.Operation{
+				Name:     "검색분류목록조회",
+				Endpoint: "http://oneclick.law.go.kr:80/OPENAPI/soap/LifeLawSearchService",
+				Source: &datago.Source{Raw: map[string]any{
+					"api_type":            "SOAP",
+					"operation_url":       "getSearchGroupList",
+					"request_param_nm_en": "RequestMsgID,ServiceKey,RequestTime,CallBackURI",
+				}},
+			},
+			MissingParams: []string{"RequestMsgID", "ServiceKey", "RequestTime", "CallBackURI"},
+			Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+			HTTP: providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, fmt.Errorf("%s", message)
+			}),
+		})
+		if result.Status != "failed" || result.Reason != "oneclick_connection_refused" {
+			t.Fatalf("unexpected oneclick transport result for %q: %#v", message, result)
+		}
+	}
+}
