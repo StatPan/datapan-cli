@@ -552,6 +552,8 @@ Required:
 - verification report schema;
 - verification summary schema and grouped reason/provider/host rollups;
 - conservative eligible set for safe data.go.kr gateway calls;
+- credential-free `--probe-unadapted` transport evidence for missing external
+  hosts, so dead routes are separated from real adapter candidates;
 - explicit skipped reasons for APIs that need adapters, approval, required
   parameters, or unsupported protocols;
 - redacted request evidence.

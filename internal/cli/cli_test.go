@@ -2785,6 +2785,49 @@ func TestCatalogVerifyJSONSkipsUnsafeCandidates(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyProbeUnadaptedExternalEndpoint(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://external.example.test/api/list","request_params":[{"name":"serviceKey"},{"name":"pageNo"},{"name":"numOfRows"}]}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("pageNo"); got != "1" {
+			t.Fatalf("pageNo=%q", got)
+		}
+		if got := req.URL.Query().Get("serviceKey"); got != "" {
+			t.Fatalf("probe leaked serviceKey=%q", got)
+		}
+		header := make(http.Header)
+		header.Set("Content-Type", "text/html")
+		return &http.Response{
+			StatusCode: 404,
+			Body:       io.NopCloser(strings.NewReader(`<html>not found</html>`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "verify", "--registry", tmp, "--probe-unadapted", "--json"}, nil, client)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"failed": 1`,
+		`"status": "failed"`,
+		`"reason": "unadapted_probe_http_404"`,
+		`"http_status": 404`,
+		`"body_shape": "html"`,
+		`"url": "https://external.example.test/api/list?numOfRows=1&pageNo=1"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "serviceKey") {
+		t.Fatalf("probe output leaked auth param: %s", stdout)
+	}
+}
+
 func TestCatalogVerifyUsesQNetAdapter(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[

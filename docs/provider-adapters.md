@@ -80,6 +80,18 @@ turns missing external endpoint and service-root operations into a ranked work
 queue with operation/spec counts and sample operations, which is usually the
 better starting point for deciding the next adapter implementation.
 
+Before writing an adapter for a missing external host, run a credential-free
+transport probe:
+
+```bash
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --kind external_endpoint --host openapi.price.go.kr --probe-unadapted --timeout 12s --json
+```
+
+`--probe-unadapted` is not a substitute for a provider adapter. It exists to
+turn ambiguous skips into evidence: DNS failures, timeouts, HTTP 404s, HTTP
+503s, and other transport errors. A host that only returns dead-route evidence
+belongs in the external endpoint drift backlog before it becomes adapter work.
+
 To inspect one likely provider family:
 
 ```bash

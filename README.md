@@ -122,6 +122,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog verify plan --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --timeout 10s --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --kind data_go_kr_gateway --exclude-input .datapan/latest-verification.json --limit 20 --timeout 10s --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --kind external_endpoint --probe-unadapted --timeout 12s --output .datapan/unadapted-external-probe.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider airport --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider andong --kind external_endpoint --limit 15 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider q-net --kind external_endpoint --limit 5 --json
@@ -415,7 +416,11 @@ paging parameters or a registered provider adapter, then records `verified`,
 redacted URL, skip reasons, and the per-call timeout used for the run. Q-Net has
 a narrow verification path for proven XML endpoints. Use `--timeout` to bound
 each provider call, and use `--provider`, `--host`, and `--kind` to collect
-bounded adapter evidence without blindly calling the whole catalog.
+bounded adapter evidence without blindly calling the whole catalog. Add
+`--probe-unadapted` when auditing external endpoints without a registered
+adapter; Datapan performs a credential-free GET probe and records DNS, timeout,
+HTTP 404, HTTP 503, and other transport failures as explicit verification
+evidence instead of leaving them as unknown skips.
 Use `datapan catalog verify plan --verification REPORT` to generate the next
 bounded verification batches. The plan emits ready-to-run commands and includes
 `--exclude-input REPORT` so repeated runs grow evidence instead of rechecking
