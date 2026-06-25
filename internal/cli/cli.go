@@ -179,7 +179,7 @@ func isHelpInvocation(args []string) bool {
 
 func defaultRegistryCatalogCommand(command string) bool {
 	switch command {
-	case "overview", "coverage", "studio", "audit", "errors", "providers", "dependencies", "adapter-targets", "verify":
+	case "overview", "coverage", "studio", "audit", "errors", "providers", "dependencies", "adapter-targets", "route-disposition", "verify":
 		return true
 	default:
 		return false
@@ -836,7 +836,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog coverage [--registry PATH] [--verification REPORT] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog coverage [--registry PATH] [--verification REPORT] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog route-disposition [--registry PATH] [--probe REPORT] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -863,6 +863,8 @@ func (a app) catalog(args []string, jsonOut bool) int {
 		return a.catalogDependencies(args[1:], jsonOut)
 	case "adapter-targets":
 		return a.catalogAdapterTargets(args[1:], jsonOut)
+	case "route-disposition":
+		return a.catalogRouteDisposition(args[1:], jsonOut)
 	case "verify":
 		return a.catalogVerify(args[1:], jsonOut)
 	case "release":
@@ -3466,6 +3468,99 @@ func (a app) catalogAdapterTargets(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) catalogRouteDisposition(args []string, jsonOut bool) int {
+	registryPath, args, err := consumeString(args, "--registry", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	probePath, args, err := consumeString(args, "--probe", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 50)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog route-disposition [--registry PATH] [--probe REPORT] [--limit N] [--output PATH|-] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the route disposition report JSON to stdout")
+	}
+	reg := a.reg
+	if registryPath != "" {
+		loaded, err := datago.LoadRegistry(registryPath)
+		if err != nil {
+			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
+		}
+		reg = loaded
+	}
+	var probe *datago.VerificationReport
+	if strings.TrimSpace(probePath) != "" {
+		report, err := readVerificationReport(probePath)
+		if err != nil {
+			return a.fail(exitUsage, "probe report must be JSON: %v", err)
+		}
+		probe = &report
+	}
+	_, dependencies := datago.DependencyInventoryForRegistry(reg, defaultProviderHosts())
+	report := datago.RouteDispositionReportForDependencies(time.Now().UTC().Format(time.RFC3339), "data.go.kr", registryPath, probePath, dependencies, probe, limit)
+	if output != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		if output == "-" {
+			return exitOK
+		}
+	}
+	if jsonOut {
+		return a.writeJSON(map[string]any{
+			"ok":       true,
+			"output":   output,
+			"registry": registryPath,
+			"probe":    probePath,
+			"summary":  report.Summary,
+			"routes":   report.Routes,
+			"report":   report,
+		})
+	}
+	fmt.Fprintln(a.stdout, "Route disposition")
+	if registryPath != "" {
+		fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
+	}
+	if probePath != "" {
+		fmt.Fprintf(a.stdout, "  probe: %s\n", probePath)
+	}
+	if output != "" {
+		fmt.Fprintf(a.stdout, "  output: %s\n", output)
+	}
+	fmt.Fprintf(a.stdout, "  routes: %d\n", report.Summary.RoutesTotal)
+	fmt.Fprintf(a.stdout, "  dead route candidates: %d\n", report.Summary.DeadRouteCandidates)
+	fmt.Fprintf(a.stdout, "  transient failures: %d\n", report.Summary.TransientFailures)
+	fmt.Fprintf(a.stdout, "  parameter blocked: %d\n", report.Summary.ParameterBlockedRoutes)
+	fmt.Fprintf(a.stdout, "  adapter candidates: %d\n", report.Summary.AdapterCandidates)
+	for _, route := range report.Routes {
+		fmt.Fprintf(a.stdout, "- %s %s host=%s disposition=%s", route.DatasetID, route.Operation, route.EndpointHost, route.Disposition)
+		if route.ProbeReason != "" {
+			fmt.Fprintf(a.stdout, " reason=%s", route.ProbeReason)
+		}
+		fmt.Fprintln(a.stdout)
+	}
+	if report.Truncated {
+		fmt.Fprintf(a.stdout, "  output truncated to %d routes; use --limit 0 for all\n", limit)
+	}
+	return exitOK
+}
+
 func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if len(args) > 0 && args[0] == "summary" {
 		return a.catalogVerifySummary(args[1:], jsonOut)
@@ -4281,6 +4376,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	var verificationSummary *datago.VerificationSummaryReport
 	var unadaptedProbeSummary *datago.VerificationSummaryReport
 	var verificationReport *datago.VerificationReport
+	var unadaptedProbeReport *datago.VerificationReport
 	if verificationPath != "" {
 		report, err := readVerificationReport(verificationPath)
 		if err != nil {
@@ -4312,6 +4408,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		if err := writeJSONFile(paths.UnadaptedProbePath, report); err != nil {
 			return a.releaseFailure(jsonOut, err)
 		}
+		unadaptedProbeReport = &report
 		summary := datago.SummarizeVerificationReport(report, paths.UnadaptedProbePath, 0)
 		if err := writeJSONFile(paths.UnadaptedProbeSummaryPath, summary); err != nil {
 			return a.releaseFailure(jsonOut, err)
@@ -4334,11 +4431,15 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	if err := writeJSONFile(paths.VerificationPlanPath, verificationPlan); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
+	routeDisposition := datago.RouteDispositionReportForDependencies(generatedAt, "data.go.kr", paths.RegistryPath, emptyIfFalse(paths.UnadaptedProbePath, unadaptedProbeIncluded), dependencyOps, unadaptedProbeReport, 0)
+	if err := writeJSONFile(paths.RouteDispositionPath, routeDisposition); err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
 	provenance := releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath, providerLimit, unadaptedProbeIncluded, paths)
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, coverageReport, verificationPlan, verificationSummary, unadaptedProbeSummary, dependencyReport, adapterTargetReport, providerReport)
+	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, coverageReport, verificationPlan, verificationSummary, unadaptedProbeSummary, dependencyReport, adapterTargetReport, providerReport, routeDisposition)
 	if err := writeOutput(paths.ReleaseNotesPath, []byte(notes), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
@@ -4359,6 +4460,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		"error_catalog":                    paths.ErrorCatalogPath,
 		"dependencies":                     paths.DependencyInventoryPath,
 		"adapter_targets":                  paths.AdapterTargetsPath,
+		"route_disposition":                paths.RouteDispositionPath,
 		"provider_backlog":                 paths.ProviderBacklogPath,
 		"coverage":                         paths.CoveragePath,
 		"verification_plan":                paths.VerificationPlanPath,
@@ -4392,6 +4494,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	fmt.Fprintf(a.stdout, "  error catalog: %s\n", paths.ErrorCatalogPath)
 	fmt.Fprintf(a.stdout, "  dependencies: %s\n", paths.DependencyInventoryPath)
 	fmt.Fprintf(a.stdout, "  adapter targets: %s\n", paths.AdapterTargetsPath)
+	fmt.Fprintf(a.stdout, "  route disposition: %s\n", paths.RouteDispositionPath)
 	fmt.Fprintf(a.stdout, "  provider backlog: %s\n", paths.ProviderBacklogPath)
 	fmt.Fprintf(a.stdout, "  coverage: %s\n", paths.CoveragePath)
 	fmt.Fprintf(a.stdout, "  verification plan: %s\n", paths.VerificationPlanPath)
@@ -8867,6 +8970,7 @@ type releasePaths struct {
 	ProviderIndexPath         string
 	CatalogDiffPath           string
 	ProviderBacklogPath       string
+	RouteDispositionPath      string
 	DependencyInventoryPath   string
 	AdapterTargetsPath        string
 	CatalogAuditPath          string
@@ -8894,6 +8998,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		ProviderIndexPath:         joinPath(outputDir, "data/provider-index.json"),
 		CatalogDiffPath:           joinPath(outputDir, "reports/catalog-diff.json"),
 		ProviderBacklogPath:       joinPath(outputDir, "reports/provider-backlog.json"),
+		RouteDispositionPath:      joinPath(outputDir, "reports/route-disposition.json"),
 		DependencyInventoryPath:   joinPath(outputDir, "reports/dependencies.json"),
 		AdapterTargetsPath:        joinPath(outputDir, "reports/adapter-targets.json"),
 		CatalogAuditPath:          joinPath(outputDir, "reports/catalog-audit.json"),
@@ -8915,6 +9020,7 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.specs.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.adapter-targets.v1.schema.json",
+		"schemas/datapan.route-disposition.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
@@ -9292,6 +9398,7 @@ func releaseReadinessReportForManifest(manifestPath, generatedAt string) (releas
 		"error_catalog",
 		"dependencies",
 		"adapter_targets",
+		"route_disposition",
 		"provider_backlog",
 		"coverage",
 		"verification_plan",
@@ -9712,6 +9819,7 @@ func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVer
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ErrorCatalogPath), Kind: "error_catalog", Schema: "https://schemas.datapan.dev/datapan.error-catalog.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.DependencyInventoryPath), Kind: "dependencies", Schema: "https://schemas.datapan.dev/datapan.dependencies.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.AdapterTargetsPath), Kind: "adapter_targets", Schema: "https://schemas.datapan.dev/datapan.adapter-targets.v1.schema.json"},
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.RouteDispositionPath), Kind: "route_disposition", Schema: "https://schemas.datapan.dev/datapan.route-disposition.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.CoveragePath), Kind: "coverage", Schema: "https://schemas.datapan.dev/datapan.coverage.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.VerificationPlanPath), Kind: "verification_plan", Schema: "https://schemas.datapan.dev/datapan.verification-plan.v1.schema.json"},
@@ -9783,7 +9891,7 @@ func emptyIfFalse(value string, ok bool) string {
 	return value
 }
 
-func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, coverageReport catalogCoverageReport, verificationPlan catalogVerificationPlanReport, verificationSummary, unadaptedProbeSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport) string {
+func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, coverageReport catalogCoverageReport, verificationPlan catalogVerificationPlanReport, verificationSummary, unadaptedProbeSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport, routeDisposition datago.RouteDispositionReport) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Datapan Registry Release")
 	fmt.Fprintln(&b)
@@ -9820,6 +9928,14 @@ func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCo
 		dependencyReport.Summary.MissingAdapterOps,
 	)
 	fmt.Fprintf(&b, "- adapter_backlog: `%d` target hosts, `%d` target operations\n", adapterTargetReport.Summary.TargetHosts, adapterTargetReport.Summary.TargetOperations)
+	fmt.Fprintf(&b, "- route_disposition: `%d` routes, `%d` dead-route candidates, `%d` transient failures, `%d` parameter-blocked, `%d` adapter candidates\n",
+		routeDisposition.Summary.RoutesTotal,
+		routeDisposition.Summary.DeadRouteCandidates,
+		routeDisposition.Summary.TransientFailures,
+		routeDisposition.Summary.ParameterBlockedRoutes,
+		routeDisposition.Summary.AdapterCandidates,
+	)
+	fmt.Fprintf(&b, "- route_disposition_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.RouteDispositionPath))
 	fmt.Fprintf(&b, "- provider_backlog: `%d` hosts, `%d` missing-adapter hosts, `%d` operations needing adapters\n",
 		providerReport.Summary.Hosts,
 		providerReport.Summary.MissingAdapterHosts,
@@ -9962,6 +10078,11 @@ func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verifica
 	fmt.Fprintf(&b, "datapan catalog errors --registry %s --output %s --json\n", paths.RegistryPath, paths.ErrorCatalogPath)
 	fmt.Fprintf(&b, "datapan catalog dependencies --registry %s --limit 0 --output %s --json\n", paths.RegistryPath, paths.DependencyInventoryPath)
 	fmt.Fprintf(&b, "datapan catalog adapter-targets --registry %s --limit 0 --output %s --json\n", paths.RegistryPath, paths.AdapterTargetsPath)
+	routeProbeArg := ""
+	if includeUnadaptedProbe {
+		routeProbeArg = " --probe " + paths.UnadaptedProbePath
+	}
+	fmt.Fprintf(&b, "datapan catalog route-disposition --registry %s%s --limit 0 --output %s --json\n", paths.RegistryPath, routeProbeArg, paths.RouteDispositionPath)
 	fmt.Fprintf(&b, "datapan catalog providers --registry %s --limit %d --output %s --json\n", paths.RegistryPath, providerLimit, paths.ProviderBacklogPath)
 	if verificationPath != "" {
 		fmt.Fprintf(&b, "datapan catalog verify --input %s --json\n", paths.VerificationPath)

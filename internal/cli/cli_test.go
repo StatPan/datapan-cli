@@ -2765,6 +2765,69 @@ func TestCatalogAdapterTargetsJSONReportsPrioritizedHosts(t *testing.T) {
 	}
 }
 
+func TestCatalogRouteDispositionCombinesBacklogAndProbeEvidence(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := dir + "/registry.json"
+	probePath := dir + "/probe.json"
+	outputPath := dir + "/route-disposition.json"
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://dead.example.test/api/list"}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"상세","endpoint":"https://slow.example.test/api/detail"}]},
+		{"id":"300","title":"기관_C","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"검색","endpoint":"https://candidate.example.test/api/search"}]},
+		{"id":"400","title":"기관_D","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://openapi.q-net.or.kr/api/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(probePath, []byte(`{
+		"generated_at": "2026-06-25T00:00:00Z",
+		"provider": "data.go.kr",
+		"limit": 0,
+		"truncated": false,
+		"filtered_count": 2,
+		"summary": {"total": 2, "verified": 0, "failed": 2, "skipped": 0, "unknown": 0},
+		"results": [
+			{"dataset_id": "100", "title": "기관_A", "operation": "목록", "provider": "data.go.kr", "endpoint_host": "dead.example.test", "dependency_class": "external_endpoint", "status": "failed", "reason": "unadapted_probe_http_404", "http_status": 404},
+			{"dataset_id": "200", "title": "기관_B", "operation": "상세", "provider": "data.go.kr", "endpoint_host": "slow.example.test", "dependency_class": "external_endpoint", "status": "failed", "reason": "unadapted_probe_timeout"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "route-disposition", "--registry", registryPath, "--probe", probePath, "--output", outputPath, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"routes_total": 3`,
+		`"with_probe_evidence": 2`,
+		`"without_probe_evidence": 1`,
+		`"dead_route_candidates": 1`,
+		`"transient_failures": 1`,
+		`"adapter_candidates": 1`,
+		`"disposition": "dead_route_candidate"`,
+		`"disposition": "transient_failure"`,
+		`"disposition": "adapter_candidate"`,
+		`"recommended_action":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"openapi.q-net.or.kr"`) {
+		t.Fatalf("registered adapter route leaked into disposition report: %s", stdout)
+	}
+	data, err := osReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, available, err := loadReleaseSchemaValidator(filepath.Clean(filepath.Join("..", "..")))
+	if err != nil || !available {
+		t.Fatalf("expected schema validator: available=%v err=%v", available, err)
+	}
+	if err := validator.validate("https://schemas.datapan.dev/datapan.route-disposition.v1.schema.json", data); err != nil {
+		t.Fatalf("expected route disposition report to match schema: %v\n%s", err, data)
+	}
+}
+
 func TestCatalogVerifyJSONSkipsUnsafeCandidates(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
@@ -3570,7 +3633,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"unadapted_external_probe":`,
 		`"unadapted_external_probe_summary":`,
 		`"manifest":`,
-		`"artifacts": 35`,
+		`"artifacts": 37`,
 		`"provenance":`,
 		`"release_notes":`,
 		`"unadapted_probe_included": true`,
@@ -3584,6 +3647,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.specs.v1.schema.json",
 		outputDir + "/schemas/datapan.dependencies.v1.schema.json",
 		outputDir + "/schemas/datapan.adapter-targets.v1.schema.json",
+		outputDir + "/schemas/datapan.route-disposition.v1.schema.json",
 		outputDir + "/schemas/datapan.providers.v1.schema.json",
 		outputDir + "/schemas/datapan.coverage.v1.schema.json",
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
@@ -3607,6 +3671,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/reports/error-catalog.json",
 		outputDir + "/reports/dependencies.json",
 		outputDir + "/reports/adapter-targets.json",
+		outputDir + "/reports/route-disposition.json",
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/coverage.json",
 		outputDir + "/reports/verification-plan.json",
@@ -3626,7 +3691,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "--previous-registry") || !strings.Contains(string(provenance), "datapan catalog diff") || !strings.Contains(string(provenance), "datapan catalog audit") || !strings.Contains(string(provenance), "datapan catalog dependencies") || !strings.Contains(string(provenance), "datapan catalog adapter-targets") || !strings.Contains(string(provenance), "datapan catalog coverage") || !strings.Contains(string(provenance), "datapan catalog verify plan") {
+	if !strings.Contains(string(provenance), "datapan catalog release draft") || !strings.Contains(string(provenance), "--previous-registry") || !strings.Contains(string(provenance), "datapan catalog diff") || !strings.Contains(string(provenance), "datapan catalog audit") || !strings.Contains(string(provenance), "datapan catalog dependencies") || !strings.Contains(string(provenance), "datapan catalog adapter-targets") || !strings.Contains(string(provenance), "datapan catalog route-disposition") || !strings.Contains(string(provenance), "datapan catalog coverage") || !strings.Contains(string(provenance), "datapan catalog verify plan") {
 		t.Fatalf("unexpected provenance: %s", provenance)
 	}
 	releaseNotes, err := osReadFile(outputDir + "/RELEASE_NOTES.md")
@@ -3639,6 +3704,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		"- catalog_diff: `1` added, `1` removed, `0` changed, `0` stable",
 		"- provider_adapters:",
 		"- coverage:",
+		"- route_disposition:",
+		"- route_disposition_artifact:",
 		"- coverage_artifact:",
 		"- coverage_goals:",
 		"- verification_plan:",
@@ -3720,9 +3787,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 18`,
+		`"count": 19`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
+		`"path": "schemas/datapan.route-disposition.v1.schema.json"`,
 		`"path": "schemas/datapan.coverage.v1.schema.json"`,
 		`"path": "schemas/datapan.verification-plan.v1.schema.json"`,
 		`"path": "schemas/datapan.release-readiness.v1.schema.json"`,
@@ -3735,6 +3803,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"path": "schemas/datapan.studio-bundle.v1.schema.json"`,
 		`"contract": "dependencies"`,
 		`"contract": "adapter-targets"`,
+		`"contract": "route-disposition"`,
 		`"contract": "coverage"`,
 		`"contract": "verification-plan"`,
 		`"contract": "release-readiness"`,
@@ -3757,7 +3826,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 35`,
+		`"artifact_count": 37`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -3772,6 +3841,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"kind": "dependencies"`,
 		`"path": "reports/adapter-targets.json"`,
 		`"kind": "adapter_targets"`,
+		`"path": "reports/route-disposition.json"`,
+		`"kind": "route_disposition"`,
 		`"path": "reports/coverage.json"`,
 		`"kind": "coverage"`,
 		`"path": "reports/verification-plan.json"`,
@@ -3800,7 +3871,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 35`,
+		`"checked": 37`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -3912,7 +3983,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 33`,
+		`"artifacts": 35`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
 	} {

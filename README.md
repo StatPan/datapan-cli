@@ -137,6 +137,7 @@ datapan catalog audit --registry .datapan/data-go-kr.registry.json --json
 datapan catalog errors --registry .datapan/data-go-kr.registry.json --output .datapan/error-catalog.json --json
 datapan catalog dependencies --registry .datapan/data-go-kr.registry.json --kind external_endpoint --status missing --output .datapan/dependencies.json --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --output .datapan/adapter-targets.json --json
+datapan catalog route-disposition --registry .datapan/data-go-kr.registry.json --probe .datapan/unadapted-external-probe.json --output .datapan/route-disposition.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify plan --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --timeout 10s --json
@@ -408,6 +409,11 @@ by operation coverage, includes provider family, kinds, organizations, formats,
 approval and missing-parameter counts, and bounded sample operations. With
 `catalog adapter-targets --output`, it writes a `datapan.adapter-targets.v1`
 report for release, planning, or issue creation.
+Use `datapan catalog route-disposition` after an unadapted probe when you need
+to separate stale routes, transient transport failures, parameter-blocked
+routes, and real adapter candidates. With `--output`, it writes a
+`datapan.route-disposition.v1` report that keeps each missing route tied to
+dataset ID, operation, host, probe evidence, and recommended next action.
 Use `datapan catalog providers` to turn those dependency classes into a
 provider backlog by host. It reports gateway hosts, external endpoint hosts,
 external guide hosts, registered adapter hosts, missing adapter hosts,
@@ -455,9 +461,9 @@ they are evidence, not noise.
 Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, optional previous-registry diff, provider index,
 catalog audit, error catalog, dependency inventory, adapter targets, provider
-backlog, schema, schema index, verification, verification summary, optional
-unadapted external probe evidence, provenance, release notes, and manifest
-artifacts without calling upstream APIs.
+backlog, route disposition, schema, schema index, verification, verification
+summary, optional unadapted external probe evidence, provenance, release notes,
+and manifest artifacts without calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`
@@ -466,9 +472,9 @@ Use `datapan catalog release readiness --manifest PATH --output REPORT` after
 manifest verification to produce a `datapan.release-readiness.v1` gate report.
 It checks whether the release contains the required registry, schema index,
 provider index, catalog audit, error catalog, dependency inventory, adapter
-target, provider backlog, and provenance artifacts, while treating catalog diff
-and runtime verification evidence as recommended gates. When coverage still has
-missing external adapter operations, readiness requires
+target, route disposition, provider backlog, and provenance artifacts, while
+treating catalog diff and runtime verification evidence as recommended gates.
+When coverage still has missing external adapter operations, readiness requires
 `reports/unadapted-external-probe.json` and its summary so those endpoints are
 documented with bounded probe evidence instead of being silent unknowns.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
@@ -588,6 +594,7 @@ The first schema drafts live in `schemas/`:
 - `datapan.specs.v1.schema.json` for normalized registry files;
 - `datapan.dependencies.v1.schema.json` for operation-level dependency inventories;
 - `datapan.adapter-targets.v1.schema.json` for adapter work queue reports;
+- `datapan.route-disposition.v1.schema.json` for missing external route disposition reports;
 - `datapan.provider-index.v1.schema.json` for registered provider adapter indexes;
 - `datapan.catalog-diff.v1.schema.json` for registry update diff reports;
 - `datapan.error-catalog.v1.schema.json` for upstream provider status field inventories;

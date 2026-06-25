@@ -70,7 +70,8 @@ directory when `DATAPAN_REGISTRY_PATH` is not set. `DATAPAN_REGISTRY_PATH`
 remains the explicit override for alternate registry files.
 Catalog observation commands with optional `--registry`, including `overview`,
 `studio`, `audit`, `errors`, `providers`, `dependencies`, `adapter-targets`,
-and `verify`, should also load the default installed registry automatically.
+`route-disposition`, and `verify`, should also load the default installed
+registry automatically.
 Catalog mutation and release commands such as `import`, `update`, `install`,
 `diff`, and `release` keep their explicit path contracts.
 
@@ -355,6 +356,17 @@ report containing `generated_at`, `provider`, `registry`, `limit`,
 applied. `--json` may wrap that report in a command envelope for agent use and
 must not be combined with `--output -`.
 
+`datapan catalog route-disposition [--registry PATH] --json` combines missing
+external endpoint operations with optional unadapted probe evidence. It accepts
+`--probe REPORT`, `--limit N`, and `--output PATH|-`. With `--output`, it
+writes a pure `datapan.route-disposition.v1` report containing missing routes,
+probe evidence matches, disposition counts, and recommended next actions.
+Dispositions stay conservative: `dead_route_candidate` for HTTP 404-like stale
+routes, `transient_failure` for timeout/request/5xx evidence that should be
+retried before adapter work, `parameter_blocked` when missing required
+parameters block a safe call, and `adapter_candidate` when no stronger evidence
+narrows the work yet.
+
 `datapan verify [--registry PATH] --json` is the consumer-facing shortcut for
 bounded runtime evidence collection. It accepts the same `--ref`,
 `--operation`, `--limit`, `--provider`, `--host`, `--kind`, `--exclude-input`,
@@ -427,7 +439,8 @@ registry release layout without fetching upstream data or calling provider
 APIs. It copies Datapan schema files, writes `schemas/index.json`, writes
 `data/data-go-kr.registry.json`, generates `reports/catalog-audit.json`,
 `reports/error-catalog.json`, `reports/dependencies.json`, and
-`reports/adapter-targets.json`, and `reports/provider-backlog.json`,
+`reports/adapter-targets.json`, `reports/route-disposition.json`, and
+`reports/provider-backlog.json`,
 optionally writes `reports/catalog-diff.json` when `--previous-registry PATH`
 is provided,
 optionally copies a verification report with `--verification PATH`, writes
@@ -458,9 +471,10 @@ It must not fetch upstream data or call provider APIs. Required gates include a
 verified manifest, a complete schema set for the current CLI, a non-empty
 registry, and the presence of `schema_index`, `registry`, `provider_index`,
 `catalog_audit`, `error_catalog`, `dependencies`, `adapter_targets`,
-`provider_backlog`, `provenance`, and `release_notes` artifacts. Recommended
-gates warn when `catalog_diff`, `verification`, or `verification_summary`
-artifacts are absent. The command returns exit code 4 when any required gate fails. Warnings do not
+`route_disposition`, `provider_backlog`, `provenance`, and `release_notes`
+artifacts. Recommended gates warn when `catalog_diff`, `verification`, or
+`verification_summary` artifacts are absent. The command returns exit code 4
+when any required gate fails. Warnings do not
 make `ready:false`, but they remain visible in `summary` and `gates`.
 
 `datapan catalog install datapan-registry --registry PATH --json` is the normal

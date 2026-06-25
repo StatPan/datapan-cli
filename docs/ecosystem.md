@@ -143,6 +143,7 @@ Likely artifacts:
 - `schemas/datapan.catalog-audit.v1.schema.json`;
 - `schemas/datapan.dependencies.v1.schema.json`;
 - `schemas/datapan.adapter-targets.v1.schema.json`;
+- `schemas/datapan.route-disposition.v1.schema.json`;
 - `schemas/datapan.providers.v1.schema.json`;
 - `schemas/datapan.coverage.v1.schema.json`;
 - `schemas/datapan.studio-datasets.v1.schema.json`;
@@ -160,6 +161,7 @@ Likely artifacts:
 - `reports/catalog-diff.json`;
 - `reports/dependencies.json`;
 - `reports/adapter-targets.json`;
+- `reports/route-disposition.json`;
 - `reports/coverage.json`;
 - `reports/verification-plan.json`;
 - `reports/latest-verification.json`;
@@ -502,6 +504,7 @@ Done or in progress:
 - provider backlog classification with `catalog providers`;
 - operation-level dependency inventory with `catalog dependencies`;
 - adapter target prioritization with `catalog adapter-targets`;
+- route disposition classification with `catalog route-disposition`;
 - bounded runtime evidence collection with `catalog verify`;
 - schema drafts for registry, provider indexes, catalog audits, provider
   backlog, dependency inventories, adapter targets, verification reports,
@@ -527,6 +530,7 @@ Required:
 - `catalog providers`;
 - `catalog dependencies`;
 - `catalog adapter-targets`;
+- `catalog route-disposition`;
 - dependency backlog by host, protocol, and approval state;
 - stable audit JSON;
 - stable diff report schema;
@@ -534,6 +538,7 @@ Required:
 - stable audit report schema;
 - stable dependency inventory schema;
 - stable adapter target schema;
+- stable route disposition schema;
 - stable registry schema draft;
 - update workflow that can be repeated locally and in CI.
 
@@ -590,12 +595,14 @@ Required:
 - publish provider indexes;
 - publish dependency inventories;
 - publish adapter target reports;
+- publish route disposition reports;
 - publish `schemas/index.json` so consumers can discover release schema
   contracts without hard-coded filenames;
 - publish catalog diff reports when a previous registry exists;
 - publish catalog audit reports;
 - publish dependency inventory reports;
 - publish adapter target reports;
+- publish route disposition reports;
 - publish coverage reports;
 - publish error catalog reports;
 - publish verification reports;

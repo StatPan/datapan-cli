@@ -44,6 +44,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.specs.v1.schema.json",
 		"datapan.dependencies.v1.schema.json",
 		"datapan.adapter-targets.v1.schema.json",
+		"datapan.route-disposition.v1.schema.json",
 		"datapan.providers.v1.schema.json",
 		"datapan.coverage.v1.schema.json",
 		"datapan.verification.v1.schema.json",
@@ -79,6 +80,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.specs.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.adapter-targets.v1.schema.json",
+		"schemas/datapan.route-disposition.v1.schema.json",
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
@@ -100,6 +102,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"reports/catalog-audit.json",
 		"reports/dependencies.json",
 		"reports/adapter-targets.json",
+		"reports/route-disposition.json",
 		"reports/provider-backlog.json",
 		"reports/coverage.json",
 		"reports/verification-plan.json",
@@ -121,6 +124,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"datapan catalog audit",
 		"datapan catalog dependencies",
 		"datapan catalog adapter-targets",
+		"datapan catalog route-disposition",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("registry release doc should reference %q", want)
@@ -170,6 +174,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"schemas/datapan.verification-plan.v1.schema.json",
 		"schemas/datapan.dependencies.v1.schema.json",
 		"schemas/datapan.adapter-targets.v1.schema.json",
+		"schemas/datapan.route-disposition.v1.schema.json",
 		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",
 		"schemas/datapan.release-verification.v1.schema.json",
@@ -186,6 +191,7 @@ func TestEcosystemDocReferencesRepositoryContracts(t *testing.T) {
 		"reports/verification-plan.json",
 		"reports/dependencies.json",
 		"reports/adapter-targets.json",
+		"reports/route-disposition.json",
 		"reports/coverage.json",
 	} {
 		if !strings.Contains(text, want) {
