@@ -141,11 +141,12 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
 				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 				{Name: "의령", Endpoint: "http://data.uiryeong.go.kr/rest/uiryeongpark/getUiryeongparkList"},
+				{Name: "울산", Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/RouteInfo.xo"},
 			},
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr", "openapi.jeonju.go.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -169,6 +170,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	uiryeong := findProviderSummary(backlog.Providers, "data.uiryeong.go.kr")
 	if uiryeong == nil || uiryeong.AdapterStatus != "adapter" || uiryeong.Provider != "uiryeong" {
 		t.Fatalf("unexpected uiryeong summary: %#v", uiryeong)
+	}
+	ulsan := findProviderSummary(backlog.Providers, "openapi.its.ulsan.kr")
+	if ulsan == nil || ulsan.AdapterStatus != "adapter" || ulsan.Provider != "ulsan" {
+		t.Fatalf("unexpected ulsan summary: %#v", ulsan)
 	}
 }
 

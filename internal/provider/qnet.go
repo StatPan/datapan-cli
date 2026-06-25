@@ -338,7 +338,7 @@ func (a QNetAdapter) Call(ctx context.Context, req CallRequest) (datago.Response
 }
 
 func DefaultRegistry() (Registry, error) {
-	return NewRegistry(NewAirportAdapter(), NewEKAPEAdapter(), NewEPostAdapter(), NewFolkAdapter(), NewForestAdapter(), NewGeojeAdapter(), NewJeonjuAdapter(), NewQNetAdapter(), NewUiryeongAdapter())
+	return NewRegistry(NewAirportAdapter(), NewEKAPEAdapter(), NewEPostAdapter(), NewFolkAdapter(), NewForestAdapter(), NewGeojeAdapter(), NewJeonjuAdapter(), NewQNetAdapter(), NewUiryeongAdapter(), NewUlsanAdapter())
 }
 
 func endpointHost(raw string) string {

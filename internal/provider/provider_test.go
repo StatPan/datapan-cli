@@ -913,6 +913,138 @@ func TestUiryeongAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestUlsanAdapterAddsServiceKeyAndClassifiesRegistrationErrors(t *testing.T) {
+	adapter := NewUlsanAdapter()
+	if !adapter.MatchHost("openapi.its.ulsan.kr") {
+		t.Fatal("expected ulsan adapter to match openapi.its.ulsan.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("ulsan adapter should not match data.go.kr gateway")
+	}
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.its.ulsan.kr" {
+			t.Fatalf("expected ulsan host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected synthesized serviceKey in ulsan request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected ulsan paging query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<Response><error><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg><resultCode>30</resultCode></error></Response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "800", Title: "울산광역시 BIS 정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "노선정보 조회",
+			Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/RouteInfo.xo",
+			RequestParams: []datago.Param{
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "ulsan" || result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "ulsan_service_key_not_registered" {
+		t.Fatalf("unexpected ulsan verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted ulsan URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" || result.BodyShape != "xml_error" {
+		t.Fatalf("unexpected ulsan public params/body shape: params=%#v shape=%s", result.Params, result.BodyShape)
+	}
+}
+
+func TestUlsanAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewUlsanAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "801", Title: "울산 노선별정류장", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "노선별정류장정보 조회",
+			Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/AllRouteDetailInfo.xo",
+		},
+		MissingParams: []string{"Routeid", "pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "ulsan_missing_required_params" || len(result.MissingParams) != 1 || result.MissingParams[0] != "Routeid" {
+		t.Fatalf("unexpected ulsan skip result: %#v", result)
+	}
+}
+
+func TestUlsanAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewUlsanAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in ulsan call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected ulsan call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<Response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><routeNo>401</routeNo></item></items></body></Response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "802", Title: "울산 노선", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "노선정보 조회",
+			Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/RouteInfo.xo",
+			RequestParams: []datago.Param{
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "ulsan" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected ulsan call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected ulsan provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "<routeNo>401</routeNo>") {
+		t.Fatalf("unexpected ulsan call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestUlsanAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewUlsanAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "803", Title: "울산 transport", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "노선정보 조회",
+			Endpoint: "http://openapi.its.ulsan.kr/UlsanAPI/RouteInfo.xo",
+		},
+		MissingParams: []string{"pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted ulsan transport error, got %v", err)
+	}
+}
+
 func TestJeonjuAdapterCallExecutesProviderRequest(t *testing.T) {
 	adapter := NewJeonjuAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

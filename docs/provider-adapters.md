@@ -99,6 +99,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider uiryeong --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider uiryeong --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider ulsan --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider ulsan --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider jeonju --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider jeonju --json
 ```
@@ -114,6 +116,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ulsan --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider jeonju --json
 ```
 
@@ -154,6 +157,12 @@ local-government host. It preserves the upstream `ServiceKey` parameter,
 separates list filters from opaque detail/file IDs, and records the current
 upstream key-registration rejection as provider evidence instead of a generic
 missing-adapter gap.
+The ulsan adapter owns `openapi.its.ulsan.kr`, a REST XML traffic provider
+whose catalog records omit the authentication parameter even though the live
+service requires `serviceKey`. The adapter supplies that credential parameter,
+fills only conservative paging defaults, skips unknown route/road/date
+identifiers, and records upstream `resultCode=30` key-registration responses as
+provider evidence.
 The jeonju adapter owns `openapi.jeonju.go.kr`, currently the largest missing
 external host family in the imported registry. It preserves the upstream
 credential parameter name (`ServiceKey` or `authApiKey`) and only fills

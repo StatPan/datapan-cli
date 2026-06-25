@@ -130,9 +130,10 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider f
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider jeonju --kind external_endpoint --limit 5 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider geoje --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider uiryeong --kind external_endpoint --limit 6 --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ulsan --kind external_endpoint --limit 6 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
-datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/uiryeong-verification.json --output .datapan/latest-verification.json --json
+datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/uiryeong-verification.json --input .datapan/ulsan-verification.json --output .datapan/latest-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 datapan catalog release readiness --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-readiness.json --json
