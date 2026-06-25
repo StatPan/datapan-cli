@@ -423,6 +423,82 @@ func TestCoverageTopLevelLoadsDefaultInstalledRegistry(t *testing.T) {
 	}
 }
 
+func TestCoverageAutoLoadsInstalledReleaseEvidence(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]},
+		{"id":"200","title":"기관_B","provider":"data.go.kr","priority":"P2","operations":[{"name":"외부","endpoint":"https://external.example.test/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(defaultReleaseVerificationPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultReleaseVerificationPath, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"registry": ".datapan/data-go-kr.registry.json",
+		"limit": 2,
+		"timeout": "10s",
+		"truncated": false,
+		"filtered_count": 2,
+		"summary": {"total": 2, "verified": 1, "failed": 0, "skipped": 1, "unknown": 0},
+		"results": [
+			{"dataset_id":"100","title":"기관_A","operation":"목록","provider":"data.go.kr","endpoint_host":"apis.data.go.kr","dependency_class":"data_go_kr_gateway","status":"verified"},
+			{"dataset_id":"200","title":"기관_B","operation":"외부","provider":"data.go.kr","endpoint_host":"external.example.test","dependency_class":"external_endpoint","status":"skipped","reason":"external_provider_adapter_missing"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultReleaseRouteDispositionPath, []byte(`{
+		"generated_at": "2026-06-24T00:00:00Z",
+		"provider": "data.go.kr",
+		"registry": ".datapan/data-go-kr.registry.json",
+		"probe": ".datapan/release/reports/latest-verification.json",
+		"limit": 0,
+		"truncated": false,
+		"summary": {
+			"routes_total": 1,
+			"operations": 1,
+			"hosts": 1,
+			"with_probe_evidence": 1,
+			"without_probe_evidence": 0,
+			"dead_route_candidates": 1,
+			"transient_failures": 0,
+			"parameter_blocked_routes": 0,
+			"adapter_candidates": 0,
+			"by_disposition": []
+		},
+		"routes": [
+			{"dataset_id":"200","title":"기관_B","operation":"외부","endpoint_host":"external.example.test","dependency_class":"external_endpoint","disposition":"dead_route_candidate","recommended_action":"exclude"}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"coverage", "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"verification": ".datapan/release/reports/latest-verification.json"`,
+		`"route_disposition": ".datapan/release/reports/route-disposition.json"`,
+		`"evidence_operation_percent": 100`,
+		`"route_evidence":`,
+		`"remaining_adapter_candidates": 0`,
+		`"evidence_adjusted_adapter_candidates": 0`,
+		`datapan coverage --registry .datapan/data-go-kr.registry.json --verification .datapan/release/reports/latest-verification.json --route-disposition .datapan/release/reports/route-disposition.json --json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in auto evidence coverage output: %s", want, stdout)
+		}
+	}
+}
+
 func TestCatalogCoverageLoadsDefaultInstalledRegistry(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
@@ -2048,7 +2124,9 @@ func TestCatalogImportOutputFailureJSON(t *testing.T) {
 }
 
 func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
-	output := filepath.Join(t.TempDir(), "registry.json")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	output := filepath.Join(dir, "registry.json")
 	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
 	zipData := zipFilesForTest(t, map[string]string{
 		datapanRegistryZipRegistryPath: registry,
@@ -2073,6 +2151,18 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 			"failed": 0,
 			"ok": true,
 			"results": []
+		}`,
+		"reports/latest-verification.json": `{
+			"generated_at": "2026-06-24T00:00:00Z",
+			"provider": "data.go.kr",
+			"registry": "data/data-go-kr.registry.json",
+			"limit": 1,
+			"truncated": false,
+			"filtered_count": 1,
+			"summary": {"total": 1, "verified": 1, "failed": 0, "skipped": 0, "unknown": 0},
+			"results": [
+				{"dataset_id":"100","title":"테스트 API","operation":"목록","provider":"data.go.kr","dependency_class":"data_go_kr_gateway","status":"verified"}
+			]
 		}`,
 		"reports/latest-release-readiness.json": `{
 			"manifest": "manifest.json",
@@ -2159,6 +2249,9 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	if payload["ok"] != true || int(payload["specs"].(float64)) != 1 || payload["registry"] != output {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
+	if payload["release_dir"] != ".datapan/release" {
+		t.Fatalf("unexpected release dir: %#v", payload)
+	}
 	release := payload["release"].(map[string]any)
 	for _, want := range []string{
 		`"manifest_present": true`,
@@ -2172,6 +2265,9 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 		`"route_disposition_dead_route_candidates": 14`,
 		`"route_disposition_transient_failures": 14`,
 		`"route_disposition_adapter_candidates": 0`,
+		`"release_files":`,
+		`.datapan/release/reports/latest-verification.json`,
+		`.datapan/release/reports/route-disposition.json`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in install release evidence: %s", want, stdout)
@@ -2186,6 +2282,15 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"id":"100"`) {
 		t.Fatalf("expected installed registry data: %s", string(data))
+	}
+	for _, path := range []string{
+		filepath.Join(dir, ".datapan", "release", "manifest.json"),
+		filepath.Join(dir, ".datapan", "release", "reports", "latest-verification.json"),
+		filepath.Join(dir, ".datapan", "release", "reports", "route-disposition.json"),
+	} {
+		if _, err := os.ReadFile(path); err != nil {
+			t.Fatalf("expected release evidence file %s: %v", path, err)
+		}
 	}
 }
 

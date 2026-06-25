@@ -239,6 +239,7 @@ normal consumer path: it downloads the latest released `datapan-registry` zip,
 extracts `data/data-go-kr.registry.json`, validates that the registry decodes,
 writes it to `.datapan/data-go-kr.registry.json`, reports release manifest /
 readiness / route-disposition / release-notes evidence when the zip includes those artifacts,
+stores the key release evidence files under `.datapan/release` for follow-up commands,
 checks local credential presence, reports registered provider adapters, and
 returns next commands.
 
@@ -291,7 +292,10 @@ datapan search "실거래" --org 국토교통부 --json
 ```
 
 Use `datapan catalog install datapan-registry --json` when you want only the
-registry download/install step, and `datapan status --json` or `datapan doctor --json` when you want to
+registry download/install step. It also preserves key release evidence files
+under `.datapan/release` when installing to a file, so follow-up coverage
+commands can reuse the published verification and route-disposition evidence.
+Use `datapan status --json` or `datapan doctor --json` when you want to
 recheck which registry is active, how many specs and operations it contains,
 whether a data.go.kr API key is present, and which external provider adapters
 are registered.
@@ -337,7 +341,10 @@ included in the selection.
 Use `datapan coverage --json` when you want the high-level claim/gap dashboard:
 registry size, callable coverage, external adapter coverage, provider split
 readiness, optional runtime evidence from `--verification REPORT`, and optional
-route evidence from `--route-disposition REPORT`.
+route evidence from `--route-disposition REPORT`. After `datapan init` or a
+file install, it automatically reads
+`.datapan/release/reports/latest-verification.json` and
+`.datapan/release/reports/route-disposition.json` when those files are present.
 Use `datapan catalog overview --json` when you want a compact registry dashboard
 for humans, agents, or a future Studio surface: total specs and operations,
 organization/category counts, gateway/external/adapter coverage, top
@@ -347,7 +354,9 @@ Use `datapan coverage --json` or `datapan catalog coverage --json` when you want
 and gap report. It combines registry coverage, callable operations, adapter
 coverage, provider split readiness, top missing adapter hosts, optional runtime
 evidence from `--verification REPORT`, and evidence-adjusted missing route
-counts from `--route-disposition REPORT` into one agent-friendly response.
+counts from `--route-disposition REPORT` into one agent-friendly response. The
+default installed release evidence under `.datapan/release/reports` is loaded
+automatically when explicit report paths are omitted.
 Use `datapan studio --output-dir DIR --json` or `datapan catalog studio
 --output-dir DIR --json` when you want a static
 consumer bundle for a future Studio or local viewer. It writes `overview.json`,

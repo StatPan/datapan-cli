@@ -42,6 +42,9 @@ var version = "0.1.0-dev"
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
+const defaultReleaseDir = ".datapan/release"
+const defaultReleaseVerificationPath = ".datapan/release/reports/latest-verification.json"
+const defaultReleaseRouteDispositionPath = ".datapan/release/reports/route-disposition.json"
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
@@ -1230,6 +1233,9 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 			install.Release.RouteDispositionAdapterCandidates,
 		)
 	}
+	if install.ReleaseDir != "" && len(install.ReleaseFiles) > 0 {
+		fmt.Fprintf(a.stdout, "  release evidence: %s (%d files)\n", install.ReleaseDir, len(install.ReleaseFiles))
+	}
 	if install.Release.ReleaseNotesPresent {
 		fmt.Fprintln(a.stdout, "  release notes: included")
 	}
@@ -1242,6 +1248,8 @@ type datapanRegistryInstall struct {
 	RegistryData []byte
 	Specs        []datago.Spec
 	Release      datapanRegistryInstallRelease
+	ReleaseDir   string
+	ReleaseFiles []string
 }
 
 type datapanRegistryInstallRelease struct {
@@ -1267,7 +1275,7 @@ type datapanRegistryInstallRelease struct {
 }
 
 func (i datapanRegistryInstall) Payload() map[string]any {
-	return map[string]any{
+	payload := map[string]any{
 		"ok":        true,
 		"provider":  "datapan-registry",
 		"registry":  i.RegistryPath,
@@ -1277,6 +1285,13 @@ func (i datapanRegistryInstall) Payload() map[string]any {
 		"installed": i.RegistryPath != "-",
 		"release":   i.Release,
 	}
+	if i.ReleaseDir != "" {
+		payload["release_dir"] = i.ReleaseDir
+	}
+	if len(i.ReleaseFiles) > 0 {
+		payload["release_files"] = i.ReleaseFiles
+	}
+	return payload
 }
 
 func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (datapanRegistryInstall, error) {
@@ -1305,12 +1320,24 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 	if err := writeOutput(registryPath, snapshot.RegistryData, a.stdout); err != nil {
 		return datapanRegistryInstall{}, err
 	}
+	releaseDir := ""
+	releaseFiles := []string(nil)
+	if registryPath != "-" {
+		var err error
+		releaseDir = defaultReleaseDir
+		releaseFiles, err = writeDatapanRegistryReleaseFiles(releaseDir, snapshot.ReleaseFiles)
+		if err != nil {
+			return datapanRegistryInstall{}, err
+		}
+	}
 	return datapanRegistryInstall{
 		RegistryPath: registryPath,
 		AssetURL:     assetURL,
 		RegistryData: snapshot.RegistryData,
 		Specs:        specs,
 		Release:      snapshot.Release,
+		ReleaseDir:   releaseDir,
+		ReleaseFiles: releaseFiles,
 	}, nil
 }
 
@@ -1385,6 +1412,9 @@ func (a app) init(args []string, jsonOut bool) int {
 			install.Release.RouteDispositionTransient,
 			install.Release.RouteDispositionAdapterCandidates,
 		)
+	}
+	if install.ReleaseDir != "" && len(install.ReleaseFiles) > 0 {
+		fmt.Fprintf(a.stdout, "  release evidence: %s (%d files)\n", install.ReleaseDir, len(install.ReleaseFiles))
 	}
 	if keyOK {
 		fmt.Fprintf(a.stdout, "  data.go.kr key: found in %s\n", keyName)
@@ -1535,6 +1565,7 @@ func (a app) githubToken() string {
 type datapanRegistryZipSnapshot struct {
 	RegistryData []byte
 	Release      datapanRegistryInstallRelease
+	ReleaseFiles map[string][]byte
 }
 
 func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, error) {
@@ -1545,12 +1576,7 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 	entries := map[string][]byte{}
 	for _, file := range reader.File {
 		name := filepath.ToSlash(file.Name)
-		if name != datapanRegistryZipRegistryPath &&
-			name != "manifest.json" &&
-			name != "RELEASE_NOTES.md" &&
-			name != "reports/latest-release-verification.json" &&
-			name != "reports/latest-release-readiness.json" &&
-			name != "reports/route-disposition.json" {
+		if !datapanRegistryInstallKeepsZipEntry(name) {
 			continue
 		}
 		data, err := readZipFile(file)
@@ -1566,7 +1592,25 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 	return datapanRegistryZipSnapshot{
 		RegistryData: registryData,
 		Release:      installReleaseEvidenceFromZip(entries),
+		ReleaseFiles: installReleaseFilesFromZip(entries),
 	}, nil
+}
+
+func datapanRegistryInstallKeepsZipEntry(name string) bool {
+	switch name {
+	case datapanRegistryZipRegistryPath,
+		"manifest.json",
+		"RELEASE_NOTES.md",
+		"reports/latest-release-verification.json",
+		"reports/latest-release-readiness.json",
+		"reports/latest-verification.json",
+		"reports/latest-verification-summary.json",
+		"reports/coverage.json",
+		"reports/route-disposition.json":
+		return true
+	default:
+		return false
+	}
 }
 
 func registryFromDatapanRegistryZip(data []byte) ([]byte, error) {
@@ -1632,6 +1676,53 @@ func installReleaseEvidenceFromZip(entries map[string][]byte) datapanRegistryIns
 		}
 	}
 	return evidence
+}
+
+func installReleaseFilesFromZip(entries map[string][]byte) map[string][]byte {
+	files := map[string][]byte{}
+	for _, name := range []string{
+		"manifest.json",
+		"RELEASE_NOTES.md",
+		"reports/latest-release-verification.json",
+		"reports/latest-release-readiness.json",
+		"reports/latest-verification.json",
+		"reports/latest-verification-summary.json",
+		"reports/coverage.json",
+		"reports/route-disposition.json",
+	} {
+		if data, ok := entries[name]; ok {
+			files[name] = data
+		}
+	}
+	return files
+}
+
+func writeDatapanRegistryReleaseFiles(releaseDir string, files map[string][]byte) ([]string, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	root := filepath.Clean(releaseDir)
+	written := make([]string, 0, len(files))
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		cleanName := filepath.Clean(filepath.FromSlash(name))
+		if strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) || filepath.IsAbs(cleanName) || cleanName == ".." {
+			return nil, fmt.Errorf("release file path escapes release dir: %s", name)
+		}
+		path := filepath.Join(root, cleanName)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, files[name], 0o644); err != nil {
+			return nil, err
+		}
+		written = append(written, filepath.ToSlash(path))
+	}
+	return written, nil
 }
 
 func decodeRegistryBytes(data []byte) ([]datago.Spec, error) {
@@ -2008,6 +2099,12 @@ func (a app) catalogCoverage(args []string, jsonOut bool) int {
 		}
 		reg = loaded
 		source = "flag"
+	}
+	if strings.TrimSpace(verificationPath) == "" && fileExists(defaultReleaseVerificationPath) {
+		verificationPath = defaultReleaseVerificationPath
+	}
+	if strings.TrimSpace(routeDispositionPath) == "" && fileExists(defaultReleaseRouteDispositionPath) {
+		routeDispositionPath = defaultReleaseRouteDispositionPath
 	}
 	var verification *datago.VerificationReport
 	if strings.TrimSpace(verificationPath) != "" {
