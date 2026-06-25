@@ -101,6 +101,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider itfind --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider korad --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider uiryeong --json
@@ -123,6 +125,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ulsan --json
@@ -170,6 +173,11 @@ The itfind adapter owns `open.itfind.or.kr`, an ICT research and publication
 host with REST XML endpoints. It synthesizes the live `serviceKey` parameter,
 fills only conservative paging defaults, skips opaque identifier-only detail
 operations, and records `NORMAL SERVICE` XML responses as direct call evidence.
+The KORAD adapter owns `www.korad.or.kr`, skips provider WADL metadata endpoints
+with `korad_wadl_metadata_only`, synthesizes `serviceKey`, fills conservative
+year/month/quarter/date defaults, respects approval-required operations, and
+can classify upstream key-registration rejection as provider evidence once the
+call is legitimately allowed.
 The sisul adapter owns `data.sisul.or.kr`, Seoul Facilities Corporation's
 OpenDB host. Its catalog contains both callable `get...Qry` endpoints and
 WADL metadata URLs, so the adapter explicitly skips `_wadl` metadata,
@@ -474,6 +482,37 @@ registered, and stable provider reasons such as
 evidence when it proves the request reached the external provider and the
 provider rejected the credential registration state.
 
+## Tenth Adapter: korad
+
+The korad adapter covers Korea Radioactive Waste Agency APIs hosted at
+`www.korad.or.kr`. The registry currently contains both WADL metadata URLs and
+actual REST XML operation URLs. Datapan deliberately skips `_wadl` URLs as
+metadata-only endpoints and routes only the concrete service operation paths.
+
+The adapter synthesizes `serviceKey`, adds conservative smoke defaults such as
+`pageNo=1`, `numOfRows=1`, `yyyy=2024`, `yyyymm=202401`, `quart=1`, and
+`approvalDate=20240101`, and leaves unknown required identifiers unset. Search
+filters such as `nuclide`, `contractNm`, and `subject` are optional and omitted
+when no user value is supplied. Approval-required operations remain skipped
+until the user's upstream permission state allows a legitimate call.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider korad --kind external_endpoint --limit 15 --output .datapan/korad-verification.json --json
+datapan catalog verify summary --input .datapan/korad-verification.json --json
+datapan get <korad-dataset-id> pageNo=1 numOfRows=1 yyyy=2024 --operation <korad-list-operation> --json
+```
+
+Expected evidence shape: `provider=korad`,
+`endpoint_host=www.korad.or.kr`, WADL metadata skips with
+`korad_wadl_metadata_only`, approval-gated REST operations reported as
+`approval_required`, and redacted URLs with `serviceKey=REDACTED` for callable
+operations. If an approved call reaches KORAD but the upstream service rejects
+the credential registration state, Datapan classifies that as
+`korad_service_key_not_registered` rather than a generic provider failure.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -498,7 +537,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, itfind,
-sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+korad, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

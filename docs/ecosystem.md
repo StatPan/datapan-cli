@@ -210,6 +210,10 @@ Adapter status:
 - `itfind`: registered adapter for ICT research/publication APIs with
   synthesized `serviceKey`, conservative paging defaults, verified XML list
   evidence, and call behavior;
+- `korad`: registered adapter for Korea Radioactive Waste Agency APIs with WADL
+  metadata skips, synthesized `serviceKey`, conservative period defaults,
+  approval-aware verification, and call behavior for users whose key is
+  registered upstream;
 - `jeonju`: registered adapter for Jeonju city APIs with exact `ServiceKey` /
   `authApiKey` handling and upstream `HTTP 405` evidence;
 - `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
@@ -234,7 +238,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-itfind, sisul, uiryeong, and ulsan now prove multiple external call paths,
+itfind, korad, sisul, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

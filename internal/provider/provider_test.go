@@ -1222,6 +1222,121 @@ func TestItfindAdapterClassifiesMissingEndpoints(t *testing.T) {
 	}
 }
 
+func TestKoradAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
+	adapter := NewKoradAdapter()
+	if !adapter.MatchHost("www.korad.or.kr") {
+		t.Fatal("expected korad adapter to match www.korad.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("korad adapter should not match data.go.kr gateway")
+	}
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "940", Title: "한국원자력환경공단 WADL", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "RI폐기물 누적 현황",
+			Endpoint: "http://www.korad.or.kr/openapi/service/radiRiWasteOpenStatsSvc?_wadl&type=xml",
+		},
+		MissingParams: []string{"N/A"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Provider != "korad" || result.Status != "skipped" || result.Reason != "korad_wadl_metadata_only" || result.BodyShape != "wadl_metadata" {
+		t.Fatalf("unexpected korad WADL result: %#v", result)
+	}
+}
+
+func TestKoradAdapterAddsServiceKeyAndClassifiesRegistrationErrors(t *testing.T) {
+	adapter := NewKoradAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.korad.or.kr" {
+			t.Fatalf("expected korad host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected synthesized serviceKey in korad request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("yyyy") != "2024" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected korad query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>99</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "941", Title: "한국원자력환경공단_방사성폐기물 인수현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "getRadiTakeWasteStatsDataList",
+			Endpoint: "http://www.korad.or.kr/openapi/service/radiTakeWasteStatsSvc/getRadiTakeWasteStatsDataList",
+			RequestParams: []datago.Param{
+				{Name: "serviceKey"},
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+				{Name: "yyyy"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows", "yyyy"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "korad_service_key_not_registered" || result.SemanticStatus != "provider_error" {
+		t.Fatalf("unexpected korad registration result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted korad URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["yyyy"] != "2024" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected korad public params/body shape: params=%#v shape=%s", result.Params, result.BodyShape)
+	}
+}
+
+func TestKoradAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewKoradAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("yyyymm") != "202401" {
+			t.Fatalf("unexpected korad call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><insttNm>한국원자력환경공단</insttNm></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "942", Title: "한국원자력환경공단_중저준위방폐물 저장현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "getRadiRadiationStorsStatsDataList",
+			Endpoint: "http://www.korad.or.kr/openapi/service/radiationStorsSvc/getRadiRadiationStorsStatsDataList",
+		},
+		MissingParams: []string{"pageNo", "numOfRows", "yyyymm"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "korad" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected korad call envelope: %#v", envelope)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "한국원자력환경공단") {
+		t.Fatalf("unexpected korad call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestKoradAdapterRejectsWADLCall(t *testing.T) {
+	adapter := NewKoradAdapter()
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "943", Title: "한국원자력환경공단 WADL", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "RI폐기물 누적 현황",
+			Endpoint: "http://www.korad.or.kr/openapi/service/radiRiWasteOpenStatsSvc?_wadl&type=xml",
+		},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "WADL metadata endpoint") {
+		t.Fatalf("expected WADL call rejection, got %v", err)
+	}
+}
+
 func TestSisulAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
 	adapter := NewSisulAdapter()
 	if !adapter.MatchHost("data.sisul.or.kr") {

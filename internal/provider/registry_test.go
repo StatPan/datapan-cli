@@ -87,6 +87,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"api.forest.go.kr":      "forest",
 		"open.itfind.or.kr":     "itfind",
 		"openapi.jeonju.go.kr":  "jeonju",
+		"www.korad.or.kr":       "korad",
 		"openapi.its.ulsan.kr":  "ulsan",
 	} {
 		adapter, ok := registry.MatchHost(host)
@@ -98,22 +99,22 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 13 || report.HostCount != 16 {
+	if report.AdapterCount != 14 || report.HostCount != 17 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 13 || report.SplitReadiness.VerificationCapableAdapters != 13 || report.SplitReadiness.CallCapableAdapters != 8 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 14 || report.SplitReadiness.VerificationCapableAdapters != 14 || report.SplitReadiness.CallCapableAdapters != 9 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
 		t.Fatalf("unexpected split readiness reasons: %#v", report.SplitReadiness.Reasons)
 	}
-	if len(report.Adapters) != 13 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "andong" || report.Adapters[2].Name != "ekape" || report.Adapters[3].Name != "epost" || report.Adapters[4].Name != "folk" || report.Adapters[5].Name != "forest" || report.Adapters[6].Name != "geoje" || report.Adapters[7].Name != "itfind" || report.Adapters[8].Name != "jeonju" || report.Adapters[9].Name != "q-net" || report.Adapters[10].Name != "sisul" || report.Adapters[11].Name != "uiryeong" || report.Adapters[12].Name != "ulsan" {
+	if len(report.Adapters) != 14 || report.Adapters[0].Name != "airport" || report.Adapters[1].Name != "andong" || report.Adapters[2].Name != "ekape" || report.Adapters[3].Name != "epost" || report.Adapters[4].Name != "folk" || report.Adapters[5].Name != "forest" || report.Adapters[6].Name != "geoje" || report.Adapters[7].Name != "itfind" || report.Adapters[8].Name != "jeonju" || report.Adapters[9].Name != "korad" || report.Adapters[10].Name != "q-net" || report.Adapters[11].Name != "sisul" || report.Adapters[12].Name != "uiryeong" || report.Adapters[13].Name != "ulsan" {
 		t.Fatalf("unexpected provider index adapter: %#v", report)
 	}
-	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" || report.Adapters[3].Status != "registered" || report.Adapters[4].Status != "registered" || report.Adapters[5].Status != "registered" || report.Adapters[6].Status != "registered" || report.Adapters[7].Status != "registered" || report.Adapters[8].Status != "registered" || report.Adapters[9].Status != "registered" || report.Adapters[10].Status != "registered" || report.Adapters[11].Status != "registered" || report.Adapters[12].Status != "registered" {
+	if report.Adapters[0].Status != "registered" || report.Adapters[1].Status != "registered" || report.Adapters[2].Status != "registered" || report.Adapters[3].Status != "registered" || report.Adapters[4].Status != "registered" || report.Adapters[5].Status != "registered" || report.Adapters[6].Status != "registered" || report.Adapters[7].Status != "registered" || report.Adapters[8].Status != "registered" || report.Adapters[9].Status != "registered" || report.Adapters[10].Status != "registered" || report.Adapters[11].Status != "registered" || report.Adapters[12].Status != "registered" || report.Adapters[13].Status != "registered" {
 		t.Fatalf("unexpected provider index adapter status: %#v", report)
 	}
 	if strings.Join(report.Adapters[0].Hosts, ",") != "openapi.airport.co.kr" {
@@ -161,25 +162,31 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	if strings.Join(report.Adapters[8].Capabilities, ",") != "verification" {
 		t.Fatalf("unexpected jeonju provider index capabilities: %#v", report.Adapters[8].Capabilities)
 	}
-	if strings.Join(report.Adapters[9].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
-		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[9].Hosts)
+	if strings.Join(report.Adapters[9].Hosts, ",") != "www.korad.or.kr" {
+		t.Fatalf("unexpected korad provider index hosts: %#v", report.Adapters[9].Hosts)
 	}
-	if strings.Join(report.Adapters[10].Hosts, ",") != "data.sisul.or.kr" {
-		t.Fatalf("unexpected sisul provider index hosts: %#v", report.Adapters[10].Hosts)
+	if strings.Join(report.Adapters[9].Capabilities, ",") != "call,verification" {
+		t.Fatalf("unexpected korad provider index capabilities: %#v", report.Adapters[9].Capabilities)
 	}
-	if strings.Join(report.Adapters[10].Capabilities, ",") != "call,verification" {
-		t.Fatalf("unexpected sisul provider index capabilities: %#v", report.Adapters[10].Capabilities)
+	if strings.Join(report.Adapters[10].Hosts, ",") != "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr" {
+		t.Fatalf("unexpected q-net provider index hosts: %#v", report.Adapters[10].Hosts)
 	}
-	if strings.Join(report.Adapters[11].Hosts, ",") != "data.uiryeong.go.kr" {
-		t.Fatalf("unexpected uiryeong provider index hosts: %#v", report.Adapters[11].Hosts)
+	if strings.Join(report.Adapters[11].Hosts, ",") != "data.sisul.or.kr" {
+		t.Fatalf("unexpected sisul provider index hosts: %#v", report.Adapters[11].Hosts)
 	}
 	if strings.Join(report.Adapters[11].Capabilities, ",") != "call,verification" {
-		t.Fatalf("unexpected uiryeong provider index capabilities: %#v", report.Adapters[11].Capabilities)
+		t.Fatalf("unexpected sisul provider index capabilities: %#v", report.Adapters[11].Capabilities)
 	}
-	if strings.Join(report.Adapters[12].Hosts, ",") != "openapi.its.ulsan.kr" {
-		t.Fatalf("unexpected ulsan provider index hosts: %#v", report.Adapters[12].Hosts)
+	if strings.Join(report.Adapters[12].Hosts, ",") != "data.uiryeong.go.kr" {
+		t.Fatalf("unexpected uiryeong provider index hosts: %#v", report.Adapters[12].Hosts)
 	}
 	if strings.Join(report.Adapters[12].Capabilities, ",") != "call,verification" {
-		t.Fatalf("unexpected ulsan provider index capabilities: %#v", report.Adapters[12].Capabilities)
+		t.Fatalf("unexpected uiryeong provider index capabilities: %#v", report.Adapters[12].Capabilities)
+	}
+	if strings.Join(report.Adapters[13].Hosts, ",") != "openapi.its.ulsan.kr" {
+		t.Fatalf("unexpected ulsan provider index hosts: %#v", report.Adapters[13].Hosts)
+	}
+	if strings.Join(report.Adapters[13].Capabilities, ",") != "call,verification" {
+		t.Fatalf("unexpected ulsan provider index capabilities: %#v", report.Adapters[13].Capabilities)
 	}
 }
