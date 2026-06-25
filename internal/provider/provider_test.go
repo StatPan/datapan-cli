@@ -2003,6 +2003,100 @@ func TestKPXAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestMyHomeAdapterClassifiesJSONStatusDespiteHTMLContentType(t *testing.T) {
+	adapter := NewMyHomeAdapter()
+	if !adapter.MatchHost("data.myhome.go.kr:443") {
+		t.Fatal("expected myhome adapter to match data.myhome.go.kr:443")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("myhome adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected myhome capabilities: %#v", adapter.Capabilities())
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme != "https" || req.URL.Host != "data.myhome.go.kr:443" || req.URL.Path != "/rentalHouseList" {
+			t.Fatalf("unexpected myhome endpoint: %s", req.URL.String())
+		}
+		if req.URL.Query().Get("ServiceKey") != "secret" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected myhome query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`{"code":"30","msg":"SERVICE KEY IS NOT REGISTERED ERROR."}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "15058476", Title: "공공임대주택 단지정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "임대주택목록 조회",
+			Endpoint: "https://data.myhome.go.kr:443/rentalHouseList",
+			RequestParams: []datago.Param{
+				{Name: "ServiceKey"},
+				{Name: "numOfRows"},
+				{Name: "pageNo"},
+			},
+		},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-06-25T00:00:00Z",
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "myhome_service_key_not_registered" || result.BodyShape != "json" {
+		t.Fatalf("unexpected myhome verification result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Source != "code/msg" || result.ProviderStatus.Code != "30" {
+		t.Fatalf("unexpected myhome provider status: %#v", result.ProviderStatus)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "ServiceKey=REDACTED") {
+		t.Fatalf("expected redacted myhome URL: %s", result.URL)
+	}
+	if result.Params["ServiceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
+		t.Fatalf("unexpected myhome public params: %#v", result.Params)
+	}
+}
+
+func TestMyHomeAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewMyHomeAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("ServiceKey") != "secret" || req.URL.Query().Get("brtcCode") != "11" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected myhome call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"code":"00","msg":"NORMAL SERVICE.","data":[{"hsmpNm":"테스트"}]}`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "15058476", Title: "공공임대주택 단지정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "임대주택목록 조회",
+			Endpoint: "https://data.myhome.go.kr:443/rentalHouseList",
+			RequestParams: []datago.Param{
+				{Name: "ServiceKey"},
+				{Name: "numOfRows"},
+				{Name: "pageNo"},
+			},
+		},
+		Params:     map[string]string{"brtcCode": "11"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "myhome" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected myhome call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected myhome provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "ServiceKey=REDACTED") {
+		t.Fatalf("expected redacted myhome call URL: %s", envelope.URL)
+	}
+}
+
 func TestPQISAdapterRewritesWADLEndpointAndDefaults(t *testing.T) {
 	adapter := NewPQISAdapter()
 	if !adapter.MatchHost("openapi.pqis.go.kr") {

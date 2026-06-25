@@ -232,6 +232,9 @@ Adapter status:
 - `kpx`: registered adapter for Korea Power Exchange electricity APIs with
   scheme normalization, paging defaults, `resultCode/resultMsg` evidence, and
   call behavior;
+- `myhome`: registered adapter for LH MyHome rental housing APIs with
+  uppercase `ServiceKey` handling, JSON status parsing despite incorrect
+  content type, provider key-registration evidence, and call behavior;
 - `pqis`: registered adapter for Animal and Plant Quarantine Agency plant
   quarantine statistics APIs with WADL endpoint normalization, conservative
   code/date defaults, provider key-registration evidence, and call behavior;
@@ -265,7 +268,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-gblib, humetro, itfind, korad, kpx, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
+gblib, humetro, itfind, korad, kpx, lh-ebid, myhome, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

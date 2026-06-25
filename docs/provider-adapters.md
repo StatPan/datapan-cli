@@ -111,6 +111,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider kpx --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider lh-ebid --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider lh-ebid --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider myhome --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider myhome --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider pqis --json
@@ -146,6 +148,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider kpx --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider myhome --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider pqis --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider seoul-bus --json
@@ -845,6 +848,33 @@ Expected evidence shape: `provider=pqis`,
 `/importStats`, `resultCode/resultMsg` `provider_status`, and
 `pqis_service_key_not_registered` for unregistered credentials.
 
+## Twentieth Adapter: myhome
+
+The myhome adapter covers the LH MyHome public rental housing complex API
+hosted at `data.myhome.go.kr:443`. The operation uses an uppercase
+`ServiceKey` parameter and returns JSON status bodies even when the HTTP
+`Content-Type` is `text/html`, so a generic caller can misclassify a structured
+provider error as a plain HTML response.
+
+The adapter preserves `ServiceKey`, fills `pageNo=1` and `numOfRows=1`, treats
+regional filters such as `brtcCode` and `signguCode` as optional for smoke
+calls, and classifies `{"code":"30","msg":"SERVICE KEY IS NOT REGISTERED
+ERROR."}` as `myhome_service_key_not_registered`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider myhome --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider myhome --kind external_endpoint --limit 1 --output .datapan/myhome-verification.json --json
+datapan catalog verify summary --input .datapan/myhome-verification.json --json
+datapan get 15058476 --operation "임대주택목록 조회" --json
+```
+
+Expected evidence shape: `provider=myhome`,
+`endpoint_host=data.myhome.go.kr:443`, redacted URLs with
+`ServiceKey=REDACTED`, `code/msg` `provider_status`, and
+`myhome_service_key_not_registered` for unregistered credentials.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -869,7 +899,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-gblib, itfind, korad, kpx, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+gblib, itfind, korad, kpx, lh-ebid, myhome, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.
