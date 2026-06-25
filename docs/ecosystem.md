@@ -221,6 +221,9 @@ Adapter status:
   `authApiKey` handling and upstream `HTTP 405` evidence;
 - `geoje`: registered adapter for Geoje city APIs with `serviceKey` handling,
   verified XML list evidence, ID-only detail skips, and call behavior;
+- `humetro`: registered adapter for Busan Transportation Corporation APIs with
+  synthesized `ServiceKey`, conservative station/date defaults, and provider
+  access-denied evidence;
 - `sisul`: registered adapter for Seoul Facilities Corporation OpenDB APIs with
   `_wadl` metadata skips, synthesized `serviceKey` handling, and call behavior;
 - `uiryeong`: registered adapter for Uiryeong county APIs with `ServiceKey`
@@ -241,7 +244,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-itfind, korad, naqs, sisul, uiryeong, and ulsan now prove multiple external call paths,
+humetro, itfind, korad, naqs, sisul, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

@@ -2094,3 +2094,69 @@ func TestNAQSAdapterCallExecutesProviderRequest(t *testing.T) {
 		t.Fatalf("unexpected naqs call URL: %s", envelope.URL)
 	}
 }
+
+func TestHumetroAdapterAddsServiceKeyAndClassifiesAccessDenied(t *testing.T) {
+	adapter := NewHumetroAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.humetro.busan.kr" {
+			t.Fatalf("expected humetro host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("ServiceKey") != "secret" || req.URL.Query().Get("act") != "xml" || req.URL.Query().Get("scode") != "101" {
+			t.Fatalf("unexpected humetro query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>20</resultCode><resultMsg>SERVICE ACCESS DENIED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "800", Title: "Humetro", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "부산 도시철도 공공 시설물 정보",
+			Endpoint: "http://data.humetro.busan.kr/voc/api/open_api_public.tnn",
+		},
+		MissingParams: []string{"act", "scode"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "humetro_service_access_denied" {
+		t.Fatalf("unexpected humetro verification result: %#v", result)
+	}
+	if strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "ServiceKey=REDACTED") {
+		t.Fatalf("expected redacted humetro URL: %s", result.URL)
+	}
+}
+
+func TestHumetroAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewHumetroAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("kind") != "1" || req.URL.Query().Get("c_page") != "1" || req.URL.Query().Get("c_size") != "1" {
+			t.Fatalf("unexpected humetro call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><name>sample</name></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "801", Title: "Humetro contract", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "부산 도시철도 계약현황 정보",
+			Endpoint: "http://data.humetro.busan.kr/voc/api/open_api_contractinfo.tnn",
+		},
+		MissingParams: []string{"act", "kind", "c_page", "c_size"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "humetro" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected humetro call envelope: %#v", envelope)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "ServiceKey=REDACTED") {
+		t.Fatalf("expected redacted humetro call URL: %s", envelope.URL)
+	}
+}

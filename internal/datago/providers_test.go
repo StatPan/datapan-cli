@@ -140,6 +140,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 				{Name: "목록", Endpoint: "http://api.forest.go.kr/openapi/service/cultureInfoService/fStoryOpenAPI"},
 				{Name: "축산", Endpoint: "http://data.ekape.or.kr/openapi-data/service/user/grade/confirmNo"},
 				{Name: "민속", Endpoint: "https://folkency.nfm.go.kr/api/FolkTradClturMltmd/getPhotoList"},
+				{Name: "부산교통", Endpoint: "http://data.humetro.busan.kr/voc/api/open_api_public.tnn"},
 				{Name: "ICT", Endpoint: "http://open.itfind.or.kr/openapi/service/ResearchResultReportService/getResearchResultReport"},
 				{Name: "전주", Endpoint: "http://openapi.jeonju.go.kr/rest/wifizone"},
 				{Name: "원자력", Endpoint: "http://www.korad.or.kr/openapi/service/radiTakeWasteStatsSvc/getRadiTakeWasteStatsDataList"},
@@ -151,7 +152,7 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 		},
 	})
 
-	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
+	backlog := ProviderBacklogForRegistryWithAdapters(reg, 2, []string{"api.forest.go.kr", "data.ekape.or.kr", "data.humetro.busan.kr", "data.naqs.go.kr", "data.sisul.or.kr", "data.uiryeong.go.kr", "folkency.nfm.go.kr", "open.itfind.or.kr", "openapi.airport.co.kr", "openapi.its.ulsan.kr", "openapi.jeonju.go.kr", "www.andong.go.kr", "www.korad.or.kr"})
 	airport := findProviderSummary(backlog.Providers, "openapi.airport.co.kr")
 	if airport == nil || airport.AdapterStatus != "adapter" || airport.Provider != "airport" {
 		t.Fatalf("unexpected airport summary: %#v", airport)
@@ -171,6 +172,10 @@ func TestProviderBacklogNamesRegisteredExternalFamilies(t *testing.T) {
 	folk := findProviderSummary(backlog.Providers, "folkency.nfm.go.kr")
 	if folk == nil || folk.AdapterStatus != "adapter" || folk.Provider != "folk" {
 		t.Fatalf("unexpected folk summary: %#v", folk)
+	}
+	humetro := findProviderSummary(backlog.Providers, "data.humetro.busan.kr")
+	if humetro == nil || humetro.AdapterStatus != "adapter" || humetro.Provider != "humetro" {
+		t.Fatalf("unexpected humetro summary: %#v", humetro)
 	}
 	itfind := findProviderSummary(backlog.Providers, "open.itfind.or.kr")
 	if itfind == nil || itfind.AdapterStatus != "adapter" || itfind.Provider != "itfind" {

@@ -99,6 +99,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider geoje --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider geoje --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider humetro --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider humetro --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider itfind --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider korad --json
@@ -126,6 +128,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider humetro --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
@@ -172,6 +175,10 @@ external host. It uses the normal `serviceKey` credential, proves
 `resultCode=00` XML list responses, skips ID-only detail operations rather than
 inventing identifiers, and declares call capability for operations whose
 parameters are supplied or safely defaultable.
+The Humetro adapter owns `data.humetro.busan.kr`, synthesizes `ServiceKey` even
+when older metadata omits it, supplies conservative XML/station/date/paging
+defaults, and records upstream `SERVICE ACCESS DENIED` or deadline-expired XML
+status bodies as provider evidence.
 The itfind adapter owns `open.itfind.or.kr`, an ICT research and publication
 host with REST XML endpoints. It synthesizes the live `serviceKey` parameter,
 fills only conservative paging defaults, skips opaque identifier-only detail
@@ -549,6 +556,37 @@ Expected evidence shape: `provider=naqs`,
 endpoint, `provider_status.code=00` with `NORMAL SERVICE.`, and
 `naqs_mutation_endpoint` skips for `pubc` integration operations.
 
+## Twelfth Adapter: humetro
+
+The humetro adapter covers Busan Transportation Corporation APIs hosted at
+`data.humetro.busan.kr`. These APIs use `.tnn` REST XML endpoints for station,
+public facility, event, air quality, noise, and contract information. Several
+older catalog records omit the credential parameter, but live provider probes
+show that the upstream still expects a `ServiceKey`.
+
+The adapter therefore synthesizes `ServiceKey`, redacts it, and supplies
+conservative defaults: `act=xml`, `scode=101`, `year=2024`, `pageNo=1`,
+`numOfRows=1`, `kind=1`, `c_page=1`, `c_size=1`, and a bounded 2024 date range
+for event queries. Current evidence reaches the provider and records
+provider-specific XML status failures such as `humetro_service_access_denied`
+and `humetro_deadline_expired`.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider humetro --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider humetro --kind external_endpoint --limit 8 --output .datapan/humetro-verification.json --json
+datapan catalog verify summary --input .datapan/humetro-verification.json --json
+datapan get <humetro-dataset-id> act=xml scode=101 --operation <humetro-operation> --json
+```
+
+Expected evidence shape: `provider=humetro`,
+`endpoint_host=data.humetro.busan.kr`, redacted URLs with
+`ServiceKey=REDACTED`, XML status bodies, and stable provider reasons such as
+`humetro_service_access_denied`. Failed verification remains useful because it
+proves Datapan reached the external provider and classified the credential or
+provider state.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -572,8 +610,8 @@ providers and the release boundary is worth maintaining separately.
 The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
-registered verification-capable providers, and epost, forest, geoje, itfind,
-korad, naqs, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+registered verification-capable providers, and epost, forest, geoje, humetro,
+itfind, korad, naqs, sisul, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.
