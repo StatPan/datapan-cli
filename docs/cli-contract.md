@@ -92,7 +92,10 @@ release evidence artifacts under `.datapan/release` for follow-up coverage
 commands.
 `datapan status --json` and `datapan doctor --json` report the active registry source, default registry
 path, spec and operation counts, data.go.kr credential presence, registered
-provider adapters, and next-step hints. It should not print credential values.
+provider adapters, installed release evidence status, and next-step hints. The
+`release_evidence` object should expose the release directory, present files,
+verification totals, route-disposition counts, coverage headline metrics, and a
+coverage command that reuses installed evidence. It should not print credential values.
 
 `datapan search --json`, `datapan list --json`, and `datapan ls --json` must
 include per-result `examples` for immediate next steps: `show`, `use`, `kit`,

@@ -43,7 +43,13 @@ const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 const defaultReleaseDir = ".datapan/release"
+const defaultReleaseManifestPath = ".datapan/release/manifest.json"
+const defaultReleaseNotesPath = ".datapan/release/RELEASE_NOTES.md"
+const defaultReleaseCoveragePath = ".datapan/release/reports/coverage.json"
 const defaultReleaseVerificationPath = ".datapan/release/reports/latest-verification.json"
+const defaultReleaseVerificationSummaryPath = ".datapan/release/reports/latest-verification-summary.json"
+const defaultReleaseReadinessPath = ".datapan/release/reports/latest-release-readiness.json"
+const defaultReleaseManifestVerificationPath = ".datapan/release/reports/latest-release-verification.json"
 const defaultReleaseRouteDispositionPath = ".datapan/release/reports/route-disposition.json"
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
@@ -6463,6 +6469,7 @@ func (a app) doctor(args []string, jsonOut bool) int {
 	if _, err := os.Stat(defaultRegistryPath); err == nil {
 		defaultExists = true
 	}
+	releaseEvidence := installedReleaseEvidenceStatus(a.registryPath)
 	nextSteps := doctorNextSteps(a.registrySource, keyOK)
 	payload := map[string]any{
 		"ok":               true,
@@ -6484,8 +6491,9 @@ func (a app) doctor(args []string, jsonOut bool) int {
 			"selected_env_var":   keyName,
 			"accepted_env_vars":  datago.KeyEnvNames,
 		},
-		"providers":  providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
-		"next_steps": nextSteps,
+		"providers":        providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
+		"release_evidence": releaseEvidence,
+		"next_steps":       nextSteps,
 	}
 	if jsonOut {
 		return a.writeJSON(payload)
@@ -6509,10 +6517,157 @@ func (a app) doctor(args []string, jsonOut bool) int {
 	}
 	index := providerRegistry.IndexReport("", version)
 	fmt.Fprintf(a.stdout, "  provider adapters: %d adapters, %d hosts\n", index.AdapterCount, index.HostCount)
+	if releaseEvidence.Present {
+		fmt.Fprintf(a.stdout, "  release evidence: %s (%d files)\n", releaseEvidence.ReleaseDir, releaseEvidence.FileCount)
+		if releaseEvidence.VerificationPresent {
+			fmt.Fprintf(a.stdout, "    verification: %d verified / %d total\n", releaseEvidence.VerificationVerified, releaseEvidence.VerificationTotal)
+		}
+		if releaseEvidence.RouteDispositionPresent {
+			fmt.Fprintf(a.stdout, "    route disposition: %d routes, %d remaining adapter candidates\n", releaseEvidence.RouteDispositionRoutes, releaseEvidence.RouteDispositionAdapterCandidates)
+		}
+		if releaseEvidence.CoveragePresent {
+			fmt.Fprintf(a.stdout, "    coverage: %.1f%% callable, %.1f%% external adapter coverage\n", releaseEvidence.CallableOperationPercent, releaseEvidence.ExternalAdapterCoveragePercent)
+		}
+	} else {
+		fmt.Fprintf(a.stdout, "  release evidence: missing\n")
+	}
 	for _, step := range nextSteps {
 		fmt.Fprintf(a.stdout, "  next: %s\n", step)
 	}
 	return exitOK
+}
+
+type releaseEvidenceStatus struct {
+	Present                              bool     `json:"present"`
+	ReleaseDir                           string   `json:"release_dir"`
+	FileCount                            int      `json:"file_count"`
+	Files                                []string `json:"files,omitempty"`
+	ManifestPresent                      bool     `json:"manifest_present"`
+	ReleaseNotesPresent                  bool     `json:"release_notes_present"`
+	ManifestVerificationPresent          bool     `json:"manifest_verification_present"`
+	ReadinessPresent                     bool     `json:"readiness_present"`
+	VerificationPresent                  bool     `json:"verification_present"`
+	VerificationPath                     string   `json:"verification,omitempty"`
+	VerificationGeneratedAt              string   `json:"verification_generated_at,omitempty"`
+	VerificationTotal                    int      `json:"verification_total,omitempty"`
+	VerificationVerified                 int      `json:"verification_verified,omitempty"`
+	VerificationFailed                   int      `json:"verification_failed,omitempty"`
+	VerificationSkipped                  int      `json:"verification_skipped,omitempty"`
+	VerificationUnknown                  int      `json:"verification_unknown,omitempty"`
+	VerificationEvidenceOperationPercent float64  `json:"verification_evidence_operation_percent,omitempty"`
+	RouteDispositionPresent              bool     `json:"route_disposition_present"`
+	RouteDispositionPath                 string   `json:"route_disposition,omitempty"`
+	RouteDispositionRoutes               int      `json:"route_disposition_routes,omitempty"`
+	RouteDispositionDead                 int      `json:"route_disposition_dead_route_candidates"`
+	RouteDispositionTransient            int      `json:"route_disposition_transient_failures"`
+	RouteDispositionParameterBlocked     int      `json:"route_disposition_parameter_blocked"`
+	RouteDispositionAdapterCandidates    int      `json:"route_disposition_adapter_candidates"`
+	CoveragePresent                      bool     `json:"coverage_present"`
+	CoveragePath                         string   `json:"coverage,omitempty"`
+	CallableOperationPercent             float64  `json:"callable_operation_percent,omitempty"`
+	ExternalAdapterCoveragePercent       float64  `json:"external_adapter_coverage_percent,omitempty"`
+	EvidenceAdjustedAdapterCandidates    int      `json:"evidence_adjusted_adapter_candidates"`
+	CoverageCommand                      string   `json:"coverage_command,omitempty"`
+	Errors                               []string `json:"errors,omitempty"`
+}
+
+func installedReleaseEvidenceStatus(registryPath string) releaseEvidenceStatus {
+	status := releaseEvidenceStatus{
+		ReleaseDir: defaultReleaseDir,
+	}
+	knownFiles := []string{
+		defaultReleaseManifestPath,
+		defaultReleaseNotesPath,
+		defaultReleaseManifestVerificationPath,
+		defaultReleaseReadinessPath,
+		defaultReleaseVerificationPath,
+		defaultReleaseVerificationSummaryPath,
+		defaultReleaseCoveragePath,
+		defaultReleaseRouteDispositionPath,
+	}
+	for _, path := range knownFiles {
+		if fileExists(path) {
+			status.Files = append(status.Files, path)
+		}
+	}
+	status.FileCount = len(status.Files)
+	status.Present = status.FileCount > 0
+	status.ManifestPresent = fileExists(defaultReleaseManifestPath)
+	status.ReleaseNotesPresent = fileExists(defaultReleaseNotesPath)
+	status.ManifestVerificationPresent = fileExists(defaultReleaseManifestVerificationPath)
+	status.ReadinessPresent = fileExists(defaultReleaseReadinessPath)
+	status.VerificationPresent = fileExists(defaultReleaseVerificationPath)
+	status.RouteDispositionPresent = fileExists(defaultReleaseRouteDispositionPath)
+	status.CoveragePresent = fileExists(defaultReleaseCoveragePath)
+	if status.VerificationPresent {
+		status.VerificationPath = defaultReleaseVerificationPath
+		report, err := readVerificationReport(defaultReleaseVerificationPath)
+		if err != nil {
+			status.Errors = append(status.Errors, fmt.Sprintf("verification: %v", err))
+		} else {
+			status.VerificationGeneratedAt = report.GeneratedAt
+			status.VerificationTotal = report.Summary.Total
+			status.VerificationVerified = report.Summary.Verified
+			status.VerificationFailed = report.Summary.Failed
+			status.VerificationSkipped = report.Summary.Skipped
+			status.VerificationUnknown = report.Summary.Unknown
+			totalOps := registryOperationCountFromPath(registryPath)
+			if totalOps > 0 {
+				status.VerificationEvidenceOperationPercent = percent(report.Summary.Total, totalOps)
+			}
+		}
+	}
+	if status.RouteDispositionPresent {
+		status.RouteDispositionPath = defaultReleaseRouteDispositionPath
+		report, err := readRouteDispositionReport(defaultReleaseRouteDispositionPath)
+		if err != nil {
+			status.Errors = append(status.Errors, fmt.Sprintf("route_disposition: %v", err))
+		} else {
+			status.RouteDispositionRoutes = report.Summary.RoutesTotal
+			status.RouteDispositionDead = report.Summary.DeadRouteCandidates
+			status.RouteDispositionTransient = report.Summary.TransientFailures
+			status.RouteDispositionParameterBlocked = report.Summary.ParameterBlockedRoutes
+			status.RouteDispositionAdapterCandidates = report.Summary.AdapterCandidates
+		}
+	}
+	if status.CoveragePresent {
+		status.CoveragePath = defaultReleaseCoveragePath
+		data, err := os.ReadFile(defaultReleaseCoveragePath)
+		if err != nil {
+			status.Errors = append(status.Errors, fmt.Sprintf("coverage: %v", err))
+		} else {
+			var report catalogCoverageReport
+			if err := json.Unmarshal(data, &report); err != nil {
+				status.Errors = append(status.Errors, fmt.Sprintf("coverage: %v", err))
+			} else {
+				status.CallableOperationPercent = report.Summary.CallableOperationPercent
+				status.ExternalAdapterCoveragePercent = report.Summary.ExternalAdapterCoveragePercent
+				status.EvidenceAdjustedAdapterCandidates = report.RouteEvidence.EvidenceAdjustedAdapterCandidates
+			}
+		}
+	}
+	if status.Present {
+		command := "datapan coverage" + registryArgForCommand(registryPath)
+		if status.VerificationPresent {
+			command += " --verification " + quoteShellArg(defaultReleaseVerificationPath)
+		}
+		if status.RouteDispositionPresent {
+			command += " --route-disposition " + quoteShellArg(defaultReleaseRouteDispositionPath)
+		}
+		status.CoverageCommand = command + " --json"
+	}
+	return status
+}
+
+func registryOperationCountFromPath(registryPath string) int {
+	if strings.TrimSpace(registryPath) == "" || !fileExists(registryPath) {
+		return 0
+	}
+	reg, err := datago.LoadRegistry(registryPath)
+	if err != nil {
+		return 0
+	}
+	return registryOperationCount(reg.Specs())
 }
 
 func registryOperationCount(specs []datago.Spec) int {
@@ -8695,8 +8850,8 @@ Check whether a supported data.go.kr API key environment variable is present.`, 
   datapan status [--json]
   datapan doctor [--json]
 
-Check registry installation, auth environment, provider adapter state, and
-suggest next commands.`, true
+Check registry installation, auth environment, provider adapter state, installed
+release evidence, and suggested next commands.`, true
 	case "catalog":
 		return `Usage:
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]

@@ -298,7 +298,9 @@ commands can reuse the published verification and route-disposition evidence.
 Use `datapan status --json` or `datapan doctor --json` when you want to
 recheck which registry is active, how many specs and operations it contains,
 whether a data.go.kr API key is present, and which external provider adapters
-are registered.
+are registered. After `datapan init`, status also reports the installed
+release evidence files and the key verification, route-disposition, and
+coverage numbers they contain.
 Use `datapan providers --adapters --json` when you want to see external hosts
 already owned by registered provider adapters, and `datapan providers --gaps
 --json` when you want the missing external endpoint host backlog without

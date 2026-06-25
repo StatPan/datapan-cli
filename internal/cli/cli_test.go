@@ -171,6 +171,103 @@ func TestStatusJSONAliasesDoctor(t *testing.T) {
 	}
 }
 
+func TestStatusJSONReportsInstalledReleaseEvidence(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[
+		{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test"}]},
+		{"id":"local-2","title":"외부 API","provider":"data.go.kr","priority":"P2","operations":[{"name":"조회","endpoint":"https://external.example.test/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(defaultReleaseVerificationPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		defaultReleaseManifestPath: "{}",
+		defaultReleaseVerificationPath: `{
+			"generated_at": "2026-06-24T00:00:00Z",
+			"provider": "data.go.kr",
+			"registry": ".datapan/data-go-kr.registry.json",
+			"limit": 2,
+			"truncated": false,
+			"filtered_count": 2,
+			"summary": {"total": 2, "verified": 1, "failed": 0, "skipped": 1, "unknown": 0},
+			"results": []
+		}`,
+		defaultReleaseRouteDispositionPath: `{
+			"generated_at": "2026-06-24T00:00:00Z",
+			"provider": "data.go.kr",
+			"limit": 0,
+			"truncated": false,
+			"summary": {
+				"routes_total": 1,
+				"operations": 1,
+				"hosts": 1,
+				"with_probe_evidence": 1,
+				"without_probe_evidence": 0,
+				"dead_route_candidates": 1,
+				"transient_failures": 0,
+				"parameter_blocked_routes": 0,
+				"adapter_candidates": 0,
+				"by_disposition": []
+			},
+			"routes": []
+		}`,
+		defaultReleaseCoveragePath: `{
+			"generated_at": "2026-06-24T00:00:00Z",
+			"provider": "data.go.kr",
+			"registry": ".datapan/data-go-kr.registry.json",
+			"source": "release",
+			"summary": {
+				"specs": 2,
+				"operations": 2,
+				"callable_operations": 2,
+				"callable_operation_percent": 100,
+				"external_adapter_coverage_percent": 99.5
+			},
+			"route_evidence": {
+				"present": true,
+				"evidence_adjusted_adapter_candidates": 0
+			}
+		}`,
+	}
+	for path, data := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := osWriteFile(path, []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, stdout, stderr := runTest([]string{"status", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"release_evidence":`,
+		`"present": true`,
+		`"release_dir": ".datapan/release"`,
+		`"file_count": 4`,
+		`"verification_total": 2`,
+		`"verification_verified": 1`,
+		`"verification_evidence_operation_percent": 100`,
+		`"route_disposition_routes": 1`,
+		`"route_disposition_adapter_candidates": 0`,
+		`"callable_operation_percent": 100`,
+		`"external_adapter_coverage_percent": 99.5`,
+		`"evidence_adjusted_adapter_candidates": 0`,
+		`"coverage_command": "datapan coverage --registry .datapan/data-go-kr.registry.json --verification .datapan/release/reports/latest-verification.json --route-disposition .datapan/release/reports/route-disposition.json --json"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in status release evidence: %s", want, stdout)
+		}
+	}
+}
+
 func TestStatusHumanTitle(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"status"}, nil, nil)
 	if code != exitOK {
@@ -178,6 +275,9 @@ func TestStatusHumanTitle(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Datapan status") {
 		t.Fatalf("expected status title: %s", stdout)
+	}
+	if !strings.Contains(stdout, "release evidence:") {
+		t.Fatalf("expected release evidence status: %s", stdout)
 	}
 }
 
