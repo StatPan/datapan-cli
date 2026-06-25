@@ -129,11 +129,12 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider f
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider folk --kind external_endpoint --limit 3 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider jeonju --kind external_endpoint --limit 5 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider geoje --kind external_endpoint --limit 6 --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider sisul --kind external_endpoint --limit 20 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider uiryeong --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ulsan --kind external_endpoint --limit 6 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
-datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/uiryeong-verification.json --input .datapan/ulsan-verification.json --output .datapan/latest-verification.json --json
+datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/airport-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/sisul-verification.json --input .datapan/uiryeong-verification.json --input .datapan/ulsan-verification.json --output .datapan/latest-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
 datapan catalog release verify --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-verification.json --json
 datapan catalog release readiness --manifest .datapan/release/manifest.json --output .datapan/release/reports/latest-release-readiness.json --json
@@ -218,9 +219,11 @@ datapan providers --gaps --limit 10 --json
 datapan targets --limit 10 --json
 datapan ops --host openapi.jeonju.go.kr --limit 10 --json
 datapan ops --host data.geoje.go.kr --limit 10 --json
+datapan ops --host data.sisul.or.kr --limit 10 --json
 datapan ops --host data.uiryeong.go.kr --limit 10 --json
 datapan verify --host openapi.q-net.or.kr --limit 3 --json
 datapan verify --host data.geoje.go.kr --limit 6 --json
+datapan verify --host data.sisul.or.kr --limit 20 --json
 datapan verify --host data.uiryeong.go.kr --limit 6 --json
 datapan list --limit 10 --json
 datapan list --callable --limit 10 --json
@@ -357,8 +360,8 @@ built next. With `--output`, it writes a `datapan.providers.v1` report that can
 be published by `datapan-registry`. Use `--status`, `--kind`, and
 `--provider` to narrow the adapter backlog; `--status adapter` shows hosts with
 registered external adapters such as airport, q-net, epost, ekape, forest,
-folk, jeonju, geoje, and uiryeong.
-EPost, forest, geoje, and uiryeong are call-capable external adapters, so `datapan get` can route
+folk, jeonju, geoje, sisul, uiryeong, and ulsan.
+EPost, forest, geoje, sisul, uiryeong, and ulsan are call-capable external adapters, so `datapan get` can route
 their matching operations through the provider boundary instead of treating them
 as generic data.go.kr gateway calls.
 After `datapan init`, catalog observation commands such as `catalog providers`,

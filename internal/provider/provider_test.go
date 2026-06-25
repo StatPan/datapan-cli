@@ -913,6 +913,177 @@ func TestUiryeongAdapterCallRedactsTransportErrors(t *testing.T) {
 	}
 }
 
+func TestSisulAdapterSkipsWADLMetadataEndpoints(t *testing.T) {
+	adapter := NewSisulAdapter()
+	if !adapter.MatchHost("data.sisul.or.kr") {
+		t.Fatal("expected sisul adapter to match data.sisul.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("sisul adapter should not match data.go.kr gateway")
+	}
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "900", Title: "서울시설공단 retaining walls", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "옹벽 현황 WADL",
+			Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/RetainingWalls?_wadl&type=xml",
+		},
+		MissingParams: []string{"proadlinename"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Provider != "sisul" || result.Status != "skipped" || result.Reason != "sisul_wadl_metadata_only" {
+		t.Fatalf("unexpected sisul WADL skip result: %#v", result)
+	}
+}
+
+func TestSisulAdapterAddsServiceKeyAndClassifiesAuthErrors(t *testing.T) {
+	adapter := NewSisulAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.sisul.or.kr" {
+			t.Fatalf("expected sisul host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected synthesized serviceKey in sisul request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected sisul paging query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>99</resultCode><resultMsg>지원하지 않는 인증 방식이거나 인증키가 누락되었습니다. PUBC 인증(?serviceKey=) 또는 Gateway 인증(?SG_APIM=)을 사용하세요.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "901", Title: "서울시설공단 공영차고지", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "공영차고지 조회",
+			Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry",
+			RequestParams: []datago.Param{
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "sisul" || result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "sisul_auth_required" {
+		t.Fatalf("unexpected sisul verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted sisul URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected sisul public params/body shape: params=%#v shape=%s", result.Params, result.BodyShape)
+	}
+}
+
+func TestSisulAdapterSkipsUnknownRequiredParams(t *testing.T) {
+	adapter := NewSisulAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "902", Title: "서울시설공단 화장 연령 통계", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "화장 연령 통계 조회",
+			Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/CremationAgeStat/getCremationAgeStatQry",
+		},
+		MissingParams: []string{"pfromym", "ptoym", "pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+	})
+	if result.Status != "skipped" || result.Reason != "sisul_missing_required_params" || strings.Join(result.MissingParams, ",") != "pfromym,ptoym" {
+		t.Fatalf("unexpected sisul skip result: %#v", result)
+	}
+}
+
+func TestSisulAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewSisulAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in sisul call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected sisul call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><garageName>장안공영차고지</garageName></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "903", Title: "서울시설공단 공영차고지", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "공영차고지 조회",
+			Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry",
+			RequestParams: []datago.Param{
+				{Name: "pageNo"},
+				{Name: "numOfRows"},
+			},
+		},
+		MissingParams: []string{"pageNo", "numOfRows"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "sisul" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected sisul call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected sisul provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.Body, "장안공영차고지") {
+		t.Fatalf("unexpected sisul call URL/body: url=%s body=%s", envelope.URL, envelope.Body)
+	}
+}
+
+func TestSisulAdapterVerifyNormalizesTransportTimeouts(t *testing.T) {
+	adapter := NewSisulAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec: datago.Spec{ID: "904", Title: "서울시설공단 timeout", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "공영차고지 조회",
+			Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry",
+		},
+		MissingParams: []string{"pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if result.Status != "failed" || result.Reason != "sisul_request_timeout" {
+		t.Fatalf("unexpected sisul transport result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted sisul URL after timeout: %s", result.URL)
+	}
+}
+
+func TestSisulAdapterCallRedactsTransportErrors(t *testing.T) {
+	adapter := NewSisulAdapter()
+	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("Get %q: context deadline exceeded", req.URL.String())
+	})
+	_, err := adapter.Call(context.Background(), CallRequest{
+		Spec: datago.Spec{ID: "905", Title: "서울시설공단 transport", Provider: "data.go.kr"},
+		Operation: datago.Operation{
+			Name:     "공영차고지 조회",
+			Endpoint: "http://data.sisul.or.kr/AutoAPI/service/OpenDB/Publicgarage/getPublicgarageQry",
+		},
+		MissingParams: []string{"pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          httpClient,
+	})
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted sisul transport error, got %v", err)
+	}
+}
+
 func TestUlsanAdapterAddsServiceKeyAndClassifiesRegistrationErrors(t *testing.T) {
 	adapter := NewUlsanAdapter()
 	if !adapter.MatchHost("openapi.its.ulsan.kr") {
