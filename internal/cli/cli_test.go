@@ -2187,6 +2187,53 @@ func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
 	}
 }
 
+func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	var apiAuth string
+	var assetAuth string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case defaultDatapanRegistryReleaseAPI:
+			apiAuth = req.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: 200,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "vtest",
+					"assets": [
+						{"name": "datapan-registry-vtest.zip", "browser_download_url": "https://example.test/registry.zip"}
+					]
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		case "https://example.test/registry.zip":
+			assetAuth = req.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(zipData)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, fakeEnv{"GH_TOKEN": "secret-token"}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if apiAuth != "Bearer secret-token" {
+		t.Fatalf("expected GitHub API auth header, got %q", apiAuth)
+	}
+	if assetAuth != "" {
+		t.Fatalf("did not expect auth header on non-GitHub API asset request, got %q", assetAuth)
+	}
+	if strings.Contains(stdout, "secret-token") {
+		t.Fatalf("install should not leak GitHub token: %s", stdout)
+	}
+}
+
 func TestCatalogInstallDatapanRegistryAcceptsGitHubReleasePageURL(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"101","title":"릴리스 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`

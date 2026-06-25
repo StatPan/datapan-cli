@@ -1450,6 +1450,8 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json, application/zip, application/octet-stream")
+	req.Header.Set("User-Agent", "datapan-cli")
+	a.addGitHubAPIHeaders(req)
 	client := a.http
 	if client == nil {
 		client = RealHTTPClient{}
@@ -1467,6 +1469,35 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 		return nil, fmt.Errorf("download %s returned HTTP %d", rawURL, resp.StatusCode)
 	}
 	return body, nil
+}
+
+func (a app) addGitHubAPIHeaders(req *http.Request) {
+	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Host, "api.github.com") {
+		return
+	}
+	token := a.githubToken()
+	if token == "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+}
+
+func (a app) githubToken() string {
+	if a.env == nil {
+		return ""
+	}
+	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		value, ok := a.env.LookupEnv(name)
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type datapanRegistryZipSnapshot struct {
