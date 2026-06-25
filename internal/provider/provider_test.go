@@ -2151,7 +2151,10 @@ func TestEMuseumAdapterClassifiesXMLServiceKeyStatus(t *testing.T) {
 	if result.URL == "" || strings.Contains(result.URL, "secret") || result.BodyShape != "xml_status" {
 		t.Fatalf("expected redacted emuseum XML status URL: %#v", result)
 	}
-	if result.Params["name"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
+	if _, ok := result.Params["name"]; ok {
+		t.Fatalf("expected empty emuseum filter to be omitted: %#v", result.Params)
+	}
+	if result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
 		t.Fatalf("unexpected emuseum public params: %#v", result.Params)
 	}
 }

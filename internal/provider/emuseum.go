@@ -157,7 +157,7 @@ func eMuseumVerificationParams(params map[string]string, missing []string) (map[
 func eMuseumOperationParams(op datago.Operation, params map[string]string, missing []string) (map[string]string, []string) {
 	out := map[string]string{}
 	for k, v := range params {
-		if strings.TrimSpace(k) != "" {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
 			out[k] = v
 		}
 	}
