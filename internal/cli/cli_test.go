@@ -262,7 +262,7 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 		`"external_endpoint_operations": 2`,
 		`"registered_adapter_operations": 1`,
 		`"missing_adapter_operations": 1`,
-		`"adapter_count": 22`,
+		`"adapter_count": 23`,
 		`"name": "기관"`,
 		`"host": "external.example.test"`,
 		`datapan coverage --registry .datapan/data-go-kr.registry.json --json`,
@@ -2173,7 +2173,7 @@ func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
 		`"specs": 1`,
 		`"operations": 1`,
 		`"credential_present": true`,
-		`"adapter_count": 22`,
+		`"adapter_count": 23`,
 		`datapan ready --limit 10 --json`,
 		`datapan search \"실거래\" --org 국토교통부 --json`,
 		`datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json`,
@@ -4419,6 +4419,48 @@ func TestGetDryRunUsesProviderCallPlan(t *testing.T) {
 	}
 	if strings.Contains(stdout, "_wadl") || strings.Contains(stdout, "secret-value") {
 		t.Fatalf("dry-run should use provider-normalized redacted URL: %s", stdout)
+	}
+}
+
+func TestGetDryRunUsesProviderCallPlanForSchemeLessEndpoint(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{
+		"id":"15056640",
+		"title":"한국전력거래소_현재전력수급현황조회",
+		"provider":"data.go.kr",
+		"operations":[{
+			"name":"현재전력수급현황조회",
+			"endpoint":"openapi.kpx.or.kr/openapi/sukub5mMaxDatetime/getSukub5mMaxDatetime",
+			"source":{"raw":{
+				"is_confirmed_for_dev_nm":"자동승인",
+				"is_confirmed_for_prod_nm":"자동승인"
+			}}
+		}]
+	}]`
+	if err := os.WriteFile(registryPath, []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"get", "15056640", "--operation", "현재전력수급현황조회", "--dry-run", "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"dry_run": true`,
+		`"url": "https://openapi.kpx.or.kr/openapi/sukub5mMaxDatetime/getSukub5mMaxDatetime?`,
+		`"numOfRows": "1"`,
+		`"pageNo": "1"`,
+		`"serviceKey": "REDACTED"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("dry-run should redact credential: %s", stdout)
 	}
 }
 

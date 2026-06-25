@@ -2565,7 +2565,7 @@ func operationCallRoute(spec datago.Spec, op datago.Operation) callRouteMetadata
 		}
 		return callRouteMetadata{Route: "not_callable"}
 	}
-	u, err := url.Parse(strings.TrimSpace(op.Endpoint))
+	u, err := parseCallableEndpoint(op.Endpoint)
 	if err != nil || strings.TrimSpace(u.Host) == "" {
 		return callRouteMetadata{Route: "malformed_endpoint"}
 	}
@@ -2604,6 +2604,17 @@ func addCallRouteFields(item map[string]any, route callRouteMetadata) {
 	if route.Host != "" {
 		item["endpoint_host"] = route.Host
 	}
+}
+
+func parseCallableEndpoint(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("endpoint is empty")
+	}
+	if !strings.Contains(raw, "://") && strings.Contains(raw, ".") && !strings.HasPrefix(raw, "/") {
+		raw = "https://" + strings.TrimLeft(raw, "/")
+	}
+	return url.Parse(raw)
 }
 
 func formatCallRoute(route callRouteMetadata) string {
@@ -6964,7 +6975,7 @@ func (a app) curlExportPlanForSpec(spec datago.Spec, op datago.Operation, params
 }
 
 func curlURLForOperation(op datago.Operation, params map[string]string, envVar string) (string, map[string]string, error) {
-	u, err := url.Parse(op.Endpoint)
+	u, err := parseCallableEndpoint(op.Endpoint)
 	if err != nil {
 		return "", nil, err
 	}
@@ -7715,7 +7726,7 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 		}
 	}
 	missingParams = remainingMissingParams(missingParams, effectiveParams)
-	u, err := url.Parse(op.Endpoint)
+	u, err := parseCallableEndpoint(op.Endpoint)
 	if err != nil {
 		return requestPlan{}, "", err
 	}

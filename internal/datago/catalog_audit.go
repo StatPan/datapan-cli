@@ -252,18 +252,28 @@ func mergedRaw(spec Spec, op Operation) map[string]any {
 }
 
 func urlHost(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", false
-	}
-	parsed, err := url.Parse(raw)
+	parsed, err := parseURLWithInferredScheme(raw)
 	if err != nil {
 		return "", true
+	}
+	if parsed == nil {
+		return "", false
 	}
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return "", true
 	}
 	return strings.ToLower(parsed.Host), false
+}
+
+func parseURLWithInferredScheme(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if !strings.Contains(raw, "://") && strings.Contains(raw, ".") && !strings.HasPrefix(raw, "/") {
+		raw = "https://" + strings.TrimLeft(raw, "/")
+	}
+	return url.Parse(raw)
 }
 
 func isDataGoKrGateway(host string) bool {
@@ -276,7 +286,7 @@ func serviceRootOnly(raw string) bool {
 	if malformed || parsed == "" {
 		return false
 	}
-	u, err := url.Parse(strings.TrimSpace(raw))
+	u, err := parseURLWithInferredScheme(raw)
 	if err != nil {
 		return false
 	}

@@ -107,6 +107,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider korad --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider korad --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider kpx --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider kpx --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider lh-ebid --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
@@ -142,6 +144,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider humetro --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider itfind --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider kpx --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider pqis --json
@@ -777,7 +780,39 @@ Expected evidence shape: `provider=gblib`,
 `gblib_service_key_not_registered` for unregistered credentials, and
 `gblib_endpoint_not_found` for the current reading-room endpoint.
 
-## Eighteenth Adapter: pqis
+## Eighteenth Adapter: kpx
+
+The kpx adapter covers Korea Power Exchange electricity market APIs hosted at
+`openapi.kpx.or.kr`. The registry contains a small family of operation-specific
+paths such as `forecast1dMaxBaseDate/getForecast1dMaxBaseDate`,
+`sukub5mToday/getSukub5mToday`, `smp1hToday/getSmp1hToday`, and
+`sumperfuel5m/getSumperfuel5m`; a few registry endpoint values omit the URL
+scheme, so the adapter normalizes them to `https://`.
+
+The adapter adds `serviceKey`, fills conservative paging defaults
+`pageNo=1` and `numOfRows=1`, preserves operation-specific paths, and
+classifies `resultCode/resultMsg` XML statuses. The current registry marks the
+KPX operations as production approval-required, so Datapan records bounded
+verification as `approval_required` instead of making live calls with
+unapproved credentials.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider kpx --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider kpx --kind external_endpoint --limit 6 --output .datapan/kpx-verification.json --json
+datapan catalog verify summary --input .datapan/kpx-verification.json --json
+datapan get 15043670 --operation "현재전력수급현황조회" --json
+```
+
+Expected evidence shape: `provider=kpx`,
+`endpoint_host=openapi.kpx.or.kr`, redacted URLs with
+`serviceKey=REDACTED`, normalized `https://` endpoints,
+`approval_required` skips for the current registry metadata, and
+`resultCode/resultMsg` `provider_status` when a credential is approved for the
+operation.
+
+## Nineteenth Adapter: pqis
 
 The pqis adapter covers the Animal and Plant Quarantine Agency plant
 quarantine statistics API hosted at `openapi.pqis.go.kr`. The data.go.kr
@@ -834,7 +869,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-gblib, itfind, korad, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+gblib, itfind, korad, kpx, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

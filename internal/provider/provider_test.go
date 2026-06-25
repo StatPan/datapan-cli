@@ -1900,6 +1900,109 @@ func TestGBLibAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestKPXAdapterNormalizesEndpointAndDefaults(t *testing.T) {
+	adapter := NewKPXAdapter()
+	if !adapter.MatchHost("openapi.kpx.or.kr") {
+		t.Fatal("expected kpx adapter to match openapi.kpx.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("kpx adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected kpx capabilities: %#v", adapter.Capabilities())
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme != "https" || req.URL.Host != "openapi.kpx.or.kr" {
+			t.Fatalf("expected normalized kpx https endpoint, got %s", req.URL.String())
+		}
+		if req.URL.Path != "/openapi/sukub5mMaxDatetime/getSukub5mMaxDatetime" {
+			t.Fatalf("unexpected kpx path: %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected kpx query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><supply>1</supply></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15043670", Title: "현재전력수급현황", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "현재전력수급현황조회", Endpoint: "openapi.kpx.or.kr/openapi/sukub5mMaxDatetime/getSukub5mMaxDatetime"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "kpx" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected kpx verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") || !strings.HasPrefix(result.URL, "https://openapi.kpx.or.kr/") {
+		t.Fatalf("expected redacted normalized kpx URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["pageNo"] != "1" || result.Params["numOfRows"] != "1" {
+		t.Fatalf("unexpected kpx public params: %#v", result.Params)
+	}
+}
+
+func TestKPXAdapterClassifiesInvalidRequestParameter(t *testing.T) {
+	adapter := NewKPXAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>10</resultCode><resultMsg>INVALID REQUEST PARAMETER ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15051436", Title: "전력수급예보조회", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "전력수급예보조회", Endpoint: "https://openapi.kpx.or.kr/openapi/forecast1dMaxBaseDate/getForecast1dMaxBaseDate"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "kpx_invalid_request_parameter" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected kpx invalid request result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "10" {
+		t.Fatalf("unexpected kpx provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestKPXAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewKPXAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.kpx.or.kr" {
+			t.Fatalf("expected kpx host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected kpx call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><smp>1</smp></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:       datago.Spec{ID: "15065266", Title: "계통한계가격조회", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "계통한계가격조회", Endpoint: "https://openapi.kpx.or.kr/openapi/smp1hToday/getSmp1hToday"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "kpx" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected kpx call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected kpx provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted kpx call URL: %s", envelope.URL)
+	}
+}
+
 func TestPQISAdapterRewritesWADLEndpointAndDefaults(t *testing.T) {
 	adapter := NewPQISAdapter()
 	if !adapter.MatchHost("openapi.pqis.go.kr") {

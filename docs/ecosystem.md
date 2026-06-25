@@ -229,6 +229,9 @@ Adapter status:
 - `oneclick-law`: registered adapter for Ministry of Government Legislation
   Easy Law SOAP APIs with SOAP envelope generation, approval-aware skips, and
   transport-state evidence for currently refused upstream endpoints;
+- `kpx`: registered adapter for Korea Power Exchange electricity APIs with
+  scheme normalization, paging defaults, `resultCode/resultMsg` evidence, and
+  call behavior;
 - `pqis`: registered adapter for Animal and Plant Quarantine Agency plant
   quarantine statistics APIs with WADL endpoint normalization, conservative
   code/date defaults, provider key-registration evidence, and call behavior;
@@ -262,7 +265,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-gblib, humetro, itfind, korad, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
+gblib, humetro, itfind, korad, kpx, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 
