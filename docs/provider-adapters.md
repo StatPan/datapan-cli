@@ -111,6 +111,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider naqs --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider naqs --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider pqis --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider pqis --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider seoul-bus --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider seoul-bus --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider sisul --json
@@ -142,6 +144,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider korad --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider lh-ebid --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider naqs --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider pqis --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider seoul-bus --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider sisul --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider uiryeong --json
@@ -219,6 +222,13 @@ The NAQS adapter owns `data.naqs.go.kr`, verifies the no-auth environmental
 certification XML endpoint, and deliberately skips `pubc` integration
 endpoints with `naqs_mutation_endpoint` because their parameters model
 insert/update/delete style data exchange rather than safe catalog reads.
+The PQIS adapter owns `openapi.pqis.go.kr`, the Animal and Plant Quarantine
+Agency plant quarantine statistics host. The imported registry records the
+WADL metadata URL as the endpoint, so the adapter rewrites calls to the live
+WADL-declared operation paths: `nationCode`, `plantCode`, `importStats`, and
+`exportStats`. It fills conservative code/date/paging defaults and records
+upstream `SERVICE KEY IS NOT REGISTERED` responses as provider-specific
+evidence.
 The sisul adapter owns `data.sisul.or.kr`, Seoul Facilities Corporation's
 OpenDB host. Its catalog contains both callable `get...Qry` endpoints and
 WADL metadata URLs, so the adapter explicitly skips `_wadl` metadata,
@@ -767,6 +777,39 @@ Expected evidence shape: `provider=gblib`,
 `gblib_service_key_not_registered` for unregistered credentials, and
 `gblib_endpoint_not_found` for the current reading-room endpoint.
 
+## Eighteenth Adapter: pqis
+
+The pqis adapter covers the Animal and Plant Quarantine Agency plant
+quarantine statistics API hosted at `openapi.pqis.go.kr`. The data.go.kr
+registry stores the WADL metadata endpoint
+`/openapi/service/plntQrantStats?_wadl&type=xml`, while the live WADL declares
+the callable paths `nationCode`, `plantCode`, `importStats`, and
+`exportStats`.
+
+The adapter removes the metadata query, rewrites the request to the proper
+operation path based on the Korean operation name, adds `serviceKey`, fills
+safe smoke defaults such as `nationName=한국`, `plantName=사과`,
+`fromYYYYMM=202501`, `toYYYYMM=202501`, `nationCode=CN`, `plantCode=1000`,
+`pageNo=1`, and `numOfRows=1`, and classifies `resultCode/resultMsg` XML
+statuses. Live probes currently return `pqis_service_key_not_registered` for
+all four operations with the local data.go.kr key, which proves the endpoint
+shape while preserving the provider-specific access failure.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider pqis --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider pqis --kind external_endpoint --limit 4 --output .datapan/pqis-verification.json --json
+datapan catalog verify summary --input .datapan/pqis-verification.json --json
+datapan get 3055528 nationName=한국 --operation "국가코드" --json
+```
+
+Expected evidence shape: `provider=pqis`,
+`endpoint_host=openapi.pqis.go.kr`, redacted URLs with
+`serviceKey=REDACTED`, rewritten paths such as `/nationCode` and
+`/importStats`, `resultCode/resultMsg` `provider_status`, and
+`pqis_service_key_not_registered` for unregistered credentials.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -791,7 +834,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-gblib, itfind, korad, lh-ebid, naqs, oneclick-law, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+gblib, itfind, korad, lh-ebid, naqs, oneclick-law, pqis, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

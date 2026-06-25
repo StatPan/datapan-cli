@@ -7730,6 +7730,30 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 	if preparer, ok := adapter.(providers.CallParamPreparer); ok {
 		effectiveParams, missingParams = preparer.PrepareCallParams(effectiveParams, missingParams)
 	}
+	if planner, ok := adapter.(providers.CallPlanner); ok {
+		callPlan, err := planner.PlanCall(providers.CallRequest{
+			Spec:          spec,
+			Operation:     op,
+			Params:        effectiveParams,
+			MissingParams: missingParams,
+			Credential:    providers.Credential{Name: keyName, Value: key},
+		})
+		if err != nil {
+			return requestPlan{}, "", err
+		}
+		return requestPlan{
+			Spec:          spec,
+			Operation:     op,
+			URL:           callPlan.URL,
+			RedactedURL:   callPlan.RedactedURL,
+			PublicParams:  callPlan.PublicParams,
+			Params:        effectiveParams,
+			MissingParams: missingParams,
+			Timeout:       defaultCallTimeout,
+			Adapter:       adapter,
+			Credential:    providers.Credential{Name: keyName, Value: key},
+		}, keyName, nil
+	}
 	q := u.Query()
 	for k, v := range effectiveParams {
 		q.Set(k, v)

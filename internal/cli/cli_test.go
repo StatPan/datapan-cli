@@ -262,7 +262,7 @@ func TestCatalogOverviewJSONLoadsDefaultRegistry(t *testing.T) {
 		`"external_endpoint_operations": 2`,
 		`"registered_adapter_operations": 1`,
 		`"missing_adapter_operations": 1`,
-		`"adapter_count": 21`,
+		`"adapter_count": 22`,
 		`"name": "기관"`,
 		`"host": "external.example.test"`,
 		`datapan coverage --registry .datapan/data-go-kr.registry.json --json`,
@@ -2173,7 +2173,7 @@ func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
 		`"specs": 1`,
 		`"operations": 1`,
 		`"credential_present": true`,
-		`"adapter_count": 21`,
+		`"adapter_count": 22`,
 		`datapan ready --limit 10 --json`,
 		`datapan search \"실거래\" --org 국토교통부 --json`,
 		`datapan use 15084084 base_date=20260622 base_time=0500 nx=60 ny=127 --json`,
@@ -4371,6 +4371,54 @@ func TestGetMissingAuthJSON(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"error": "missing_auth"`) || !strings.Contains(stdout, `"DATAPAN_DATA_GO_KR_KEY"`) {
 		t.Fatalf("expected missing_auth JSON: %s", stdout)
+	}
+}
+
+func TestGetDryRunUsesProviderCallPlan(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{
+		"id":"3055528",
+		"title":"농림축산식품부 농림축산검역본부_식물검역정보",
+		"provider":"data.go.kr",
+		"operations":[{
+			"name":"국가코드",
+			"endpoint":"http://openapi.pqis.go.kr/openapi/service/plntQrantStats?_wadl&type=xml",
+			"request_params":[
+				{"name":"nationName"},
+				{"name":"pageNo"},
+				{"name":"numOfRows"}
+			],
+			"source":{"raw":{
+				"request_param_nm_en":"nationName,pageNo,numOfRows",
+				"request_param_nm":"국가명,페이지번호,한페이지결과수",
+				"is_confirmed_for_dev_nm":"자동승인",
+				"is_confirmed_for_prod_nm":"자동승인"
+			}}
+		}]
+	}]`
+	if err := os.WriteFile(registryPath, []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"get", "3055528", "--operation", "국가코드", "--dry-run", "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"dry_run": true`,
+		`"url": "http://openapi.pqis.go.kr/openapi/service/plntQrantStats/nationCode?`,
+		`"nationName": "한국"`,
+		`"serviceKey": "REDACTED"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "_wadl") || strings.Contains(stdout, "secret-value") {
+		t.Fatalf("dry-run should use provider-normalized redacted URL: %s", stdout)
 	}
 }
 

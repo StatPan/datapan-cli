@@ -1900,6 +1900,139 @@ func TestGBLibAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestPQISAdapterRewritesWADLEndpointAndDefaults(t *testing.T) {
+	adapter := NewPQISAdapter()
+	if !adapter.MatchHost("openapi.pqis.go.kr") {
+		t.Fatal("expected pqis adapter to match openapi.pqis.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("pqis adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected pqis capabilities: %#v", adapter.Capabilities())
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.pqis.go.kr" {
+			t.Fatalf("expected pqis host, got %s", req.URL.Host)
+		}
+		if req.URL.Path != "/openapi/service/plntQrantStats/nationCode" {
+			t.Fatalf("expected pqis nationCode path, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("_wadl") != "" || req.URL.Query().Get("type") != "" {
+			t.Fatalf("did not expect registry WADL query in provider call: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("nationName") != "한국" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected pqis query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><nationCode>KR</nationCode></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "3055528", Title: "식물검역정보", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "국가코드", Endpoint: "http://openapi.pqis.go.kr/openapi/service/plntQrantStats?_wadl&type=xml"},
+		MissingParams: []string{"nationName"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "pqis" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected pqis verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "/nationCode") {
+		t.Fatalf("expected redacted pqis URL with operation path: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["nationName"] != "한국" || result.Params["pageNo"] != "1" {
+		t.Fatalf("unexpected pqis public params: %#v", result.Params)
+	}
+}
+
+func TestPQISAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewPQISAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/openapi/service/plntQrantStats/plantCode" {
+			t.Fatalf("expected pqis plantCode path, got %s", req.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>99</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "3055528", Title: "식물검역정보", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "식물코드", Endpoint: "http://openapi.pqis.go.kr/openapi/service/plntQrantStats?_wadl&type=xml"},
+		MissingParams: []string{"plantName"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "pqis_service_key_not_registered" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected pqis service key result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "99" {
+		t.Fatalf("unexpected pqis provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestPQISAdapterClassifiesNotFoundEndpoint(t *testing.T) {
+	adapter := NewPQISAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/xml"}},
+			Body:       io.NopCloser(strings.NewReader(``)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "3055528", Title: "식물검역정보", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "수입식물검역통계", Endpoint: "http://openapi.pqis.go.kr/openapi/service/plntQrantStats?_wadl&type=xml"},
+		MissingParams: []string{"fromYYYYMM", "toYYYYMM", "nationCode", "plantCode"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "http_error" || result.Reason != "pqis_endpoint_not_found" || result.HTTPStatus != 404 {
+		t.Fatalf("unexpected pqis not found result: %#v", result)
+	}
+}
+
+func TestPQISAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewPQISAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/openapi/service/plntQrantStats/importStats" {
+			t.Fatalf("expected pqis importStats path, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("fromYYYYMM") != "202501" || req.URL.Query().Get("toYYYYMM") != "202501" || req.URL.Query().Get("nationCode") != "CN" || req.URL.Query().Get("plantCode") != "1000" {
+			t.Fatalf("unexpected pqis call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><plantNm>사과</plantNm></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "3055528", Title: "식물검역정보", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "수입식물검역통계", Endpoint: "http://openapi.pqis.go.kr/openapi/service/plntQrantStats?_wadl&type=xml"},
+		MissingParams: []string{"fromYYYYMM", "toYYYYMM", "nationCode", "plantCode"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "pqis" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected pqis call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected pqis provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") || !strings.Contains(envelope.URL, "/importStats") {
+		t.Fatalf("expected redacted pqis call URL: %s", envelope.URL)
+	}
+}
+
 func TestTourAdapterAddsServiceKeyAndDefaults(t *testing.T) {
 	adapter := NewTourAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {

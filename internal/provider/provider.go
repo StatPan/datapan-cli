@@ -53,6 +53,16 @@ type CallParamPreparer interface {
 	PrepareCallParams(params map[string]string, missing []string) (map[string]string, []string)
 }
 
+type CallPlan struct {
+	URL          string
+	RedactedURL  string
+	PublicParams map[string]string
+}
+
+type CallPlanner interface {
+	PlanCall(req CallRequest) (CallPlan, error)
+}
+
 type CatalogImporter interface {
 	ImportCatalog(ctx context.Context) ([]datago.Spec, error)
 }
