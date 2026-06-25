@@ -93,6 +93,8 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider folk --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider folk --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider gblib --json
+datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider gblib --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider airport --json
 datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --provider andong --json
@@ -131,6 +133,7 @@ datapan catalog providers --registry .datapan/data-go-kr.registry.json --status 
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider ekape --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider forest --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider folk --json
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider gblib --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider airport --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider andong --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider geoje --json
@@ -170,6 +173,11 @@ The forest adapter owns `api.forest.go.kr` and verifies a small but real
 external provider family with observed `NORMAL SERVICE` XML responses.
 The folk adapter owns `folkency.nfm.go.kr` and verifies National Folk Museum
 multimedia list APIs with provider-specific JSON `result_code=200` responses.
+The gblib adapter owns `openapi.gblib.or.kr`, covering Gangbuk library and
+sports-center APIs. It synthesizes `serviceKey`, supplies safe smoke defaults
+for search/date/page fields, classifies `resultCode=99` key-registration
+responses, and records the current reading-room endpoint `HTTP 404` as
+provider evidence instead of leaving the host as a missing adapter.
 The airport adapter owns `openapi.airport.co.kr` and captures Korea Airports
 Corporation low-visibility API credential-registration responses as
 provider-specific evidence instead of leaving those operations as generic
@@ -730,6 +738,35 @@ redacted URLs with `serviceKey=REDACTED`, `ServiceResult/msgHeader`
 operations, and stable provider reasons such as
 `seoul_bus_service_key_not_registered`.
 
+## Seventeenth Adapter: gblib
+
+The gblib adapter covers Gangbuk Urban Management Corporation library and
+sports-center APIs hosted at `openapi.gblib.or.kr`. The current registry has
+three REST XML operations: sports-center usage, library book search, and
+reading-room status.
+
+The adapter adds the data.go.kr API key as `serviceKey`, fills conservative
+smoke defaults such as `keyword=공공`, `pub=도서`, `lib=MA`, `org=1`,
+`date=20260625`, `pageNo=1`, and `numOfRows=1`, and classifies provider
+`resultCode/resultMsg` XML statuses. Live probes currently return
+`gblib_service_key_not_registered` for callable search/sports endpoints and
+`gblib_endpoint_not_found` for the reading-room endpoint.
+
+Observed evidence commands:
+
+```bash
+datapan catalog providers --registry .datapan/data-go-kr.registry.json --status adapter --provider gblib --json
+datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider gblib --kind external_endpoint --limit 3 --output .datapan/gblib-verification.json --json
+datapan catalog verify summary --input .datapan/gblib-verification.json --json
+datapan get 3075291 keyword=공공 pub=도서 lib=MA --operation "도서자료검색" --json
+```
+
+Expected evidence shape: `provider=gblib`,
+`endpoint_host=openapi.gblib.or.kr`, redacted URLs with
+`serviceKey=REDACTED`, `resultCode/resultMsg` `provider_status`,
+`gblib_service_key_not_registered` for unregistered credentials, and
+`gblib_endpoint_not_found` for the current reading-room endpoint.
+
 ## Adapter Readiness Bar
 
 A provider adapter is not ready just because it can build a URL. It needs:
@@ -754,7 +791,7 @@ The provider index now makes that decision explicit under `split_readiness`.
 Consumers and maintainers should treat `split_readiness` as a release signal,
 not a mandate to split immediately. The current adapter set has enough
 registered verification-capable providers, and epost, forest, geoje, humetro,
-itfind, korad, lh-ebid, naqs, oneclick-law, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
+gblib, itfind, korad, lh-ebid, naqs, oneclick-law, seoul-bus, sisul, tour, andong, uiryeong, and ulsan declare stable `call` capability, so the boundary is ready
 to consider.
 Keep adapters inside `datapan-cli` until release cadence or maintenance cost
 makes a separate `datapan-providers` repository clearly worth it.

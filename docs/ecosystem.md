@@ -202,6 +202,9 @@ Adapter status:
   APIs with verified XML response evidence and external provider call behavior;
 - `folk`: registered observation-stage adapter for National Folk Museum
   multimedia APIs with provider-specific JSON result evidence;
+- `gblib`: registered adapter for Gangbuk library and sports-center APIs with
+  `serviceKey` synthesis, safe search/date defaults, endpoint-not-found
+  evidence, and call behavior;
 - `airport`: registered observation-stage adapter for Korea Airports
   Corporation APIs with provider key-registration error evidence;
 - `andong`: registered adapter for Andong city APIs with synthesized
@@ -256,7 +259,7 @@ Creation trigger:
 
 Adapter planning currently lives in `docs/provider-adapters.md`. The first
 code boundary lives in `internal/provider`; andong, epost, forest, geoje,
-humetro, itfind, korad, lh-ebid, naqs, oneclick-law, seoul-bus, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
+gblib, humetro, itfind, korad, lh-ebid, naqs, oneclick-law, seoul-bus, sisul, tour, uiryeong, and ulsan now prove multiple external call paths,
 while jeonju expands high-impact external host ownership. The split should wait for
 sustained maintenance pressure.
 

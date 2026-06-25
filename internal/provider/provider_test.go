@@ -1777,6 +1777,129 @@ func TestSeoulBusAdapterCallExecutesProviderRequest(t *testing.T) {
 	}
 }
 
+func TestGBLibAdapterAddsServiceKeyAndDefaults(t *testing.T) {
+	adapter := NewGBLibAdapter()
+	if !adapter.MatchHost("openapi.gblib.or.kr") {
+		t.Fatal("expected gblib adapter to match openapi.gblib.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("gblib adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapter.Capabilities(), ",") != "call" {
+		t.Fatalf("unexpected gblib capabilities: %#v", adapter.Capabilities())
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.gblib.or.kr" {
+			t.Fatalf("expected gblib host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey in gblib request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("keyword") != "공공" || req.URL.Query().Get("pub") != "도서" || req.URL.Query().Get("lib") != "MA" || req.URL.Query().Get("pageNo") != "1" || req.URL.Query().Get("numOfRows") != "1" {
+			t.Fatalf("unexpected gblib query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><title>공공</title></item></items></body></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "3075291", Title: "강북문화정보도서관", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "도서자료검색", Endpoint: "http://openapi.gblib.or.kr/OpenAPI/service/SearchBook/getSearchBook"},
+		MissingParams: []string{"keyword", "pub", "lib", "numOfRows", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+		VerifiedAt:    "2026-06-25T00:00:00Z",
+	})
+	if result.Provider != "gblib" || result.Status != "verified" || result.SemanticStatus != "provider_ok" || result.BodyShape != "xml_items" {
+		t.Fatalf("unexpected gblib verification result: %#v", result)
+	}
+	if result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("expected redacted gblib URL: %s", result.URL)
+	}
+	if result.Params["serviceKey"] != "" || result.Params["keyword"] != "공공" || result.Params["lib"] != "MA" {
+		t.Fatalf("unexpected gblib public params: %#v", result.Params)
+	}
+}
+
+func TestGBLibAdapterClassifiesServiceKeyFailures(t *testing.T) {
+	adapter := NewGBLibAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>99</resultCode><resultMsg>SERVICE KEY IS NOT REGISTERED ERROR.</resultMsg></header></response>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15003489", Title: "강북 스포츠시설", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "이용현황검색", Endpoint: "http://openapi.gblib.or.kr/OpenAPI/service/SportsCenterNow/getNow"},
+		MissingParams: []string{"org", "date"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "provider_error" || result.Reason != "gblib_service_key_not_registered" || result.BodyShape != "xml_status" {
+		t.Fatalf("unexpected gblib service key result: %#v", result)
+	}
+	if result.ProviderStatus == nil || result.ProviderStatus.OK || result.ProviderStatus.Code != "99" {
+		t.Fatalf("unexpected gblib provider status: %#v", result.ProviderStatus)
+	}
+}
+
+func TestGBLibAdapterClassifiesNotFoundEndpoint(t *testing.T) {
+	adapter := NewGBLibAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<html><body>Not Found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "3075292", Title: "일반열람실", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "일반열람실 목록 조회", Endpoint: "http://openapi.gblib.or.kr/OpenAPI/service/ReadingRoomInfoService"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if result.Status != "failed" || result.SemanticStatus != "http_error" || result.Reason != "gblib_endpoint_not_found" || result.HTTPStatus != 404 {
+		t.Fatalf("unexpected gblib not found result: %#v", result)
+	}
+}
+
+func TestGBLibAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewGBLibAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" || req.URL.Query().Get("org") != "1" || req.URL.Query().Get("date") != "20260625" {
+			t.Fatalf("unexpected gblib call query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/xml"}},
+			Body:       io.NopCloser(strings.NewReader(`<response><header><resultCode>00</resultCode><resultMsg>NORMAL SERVICE.</resultMsg></header><body><items><item><cnt>1</cnt></item></items></body></response>`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "15003489", Title: "강북 스포츠시설", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "이용현황검색", Endpoint: "http://openapi.gblib.or.kr/OpenAPI/service/SportsCenterNow/getNow"},
+		MissingParams: []string{"org", "date"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "gblib" || envelope.SemanticStatus != "provider_ok" || envelope.StatusCode != 200 {
+		t.Fatalf("unexpected gblib call envelope: %#v", envelope)
+	}
+	if envelope.ProviderStatus == nil || !envelope.ProviderStatus.OK || envelope.ProviderStatus.Code != "00" {
+		t.Fatalf("unexpected gblib provider status: %#v", envelope.ProviderStatus)
+	}
+	if strings.Contains(envelope.URL, "secret") || !strings.Contains(envelope.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted gblib call URL: %s", envelope.URL)
+	}
+}
+
 func TestTourAdapterAddsServiceKeyAndDefaults(t *testing.T) {
 	adapter := NewTourAdapter()
 	httpClient := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
