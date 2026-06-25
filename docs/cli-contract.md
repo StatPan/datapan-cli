@@ -222,10 +222,10 @@ same default installed registry discovery used by consumer commands.
 
 `datapan coverage [--registry PATH] --json` is the consumer-facing shortcut for
 the claim-oriented coverage and gap report. It accepts the same
-`--verification`, `--limit`, and `--output` options as `catalog coverage`, uses
-the default installed registry when no `--registry` is supplied, and returns
-the same JSON envelope. Release jobs can continue to use `catalog coverage
---output` for pure report artifacts.
+`--verification`, `--route-disposition`, `--limit`, and `--output` options as
+`catalog coverage`, uses the default installed registry when no `--registry` is
+supplied, and returns the same JSON envelope. Release jobs can continue to use
+`catalog coverage --output` for pure report artifacts.
 
 `datapan catalog coverage --registry PATH --json` emits a claim-oriented
 coverage and gap report. It combines registry counts, callable operation
@@ -240,13 +240,17 @@ split readiness target, each with a boolean `*_met` status.
 Callers may pass `--verification REPORT` to include runtime verification
 evidence: total checked operations, verified/failed/skipped/unknown counts,
 verification timeout, verified percentage, and the percentage of catalog
-operations represented by that verification report. With `--output PATH|-`,
-the command writes a pure coverage report containing `generated_at`,
-`provider`, `registry`, `source`, `verification`, `summary`, `goals`, `evidence`,
-`gaps`, `adapters`, and `next`. `--json` may wrap that report in a command
-envelope for agent use and must not be combined with `--output -`. When no
-`--registry` is supplied, it follows the same default installed registry
-discovery used by consumer commands.
+operations represented by that verification report. Callers may pass
+`--route-disposition REPORT` to include evidence-adjusted missing route counts:
+raw missing adapter operations, dead-route candidates, transient failures,
+parameter-blocked routes, and remaining adapter candidates. With
+`--output PATH|-`, the command writes a pure coverage report containing
+`generated_at`, `provider`, `registry`, `source`, `verification`,
+`route_disposition`, `summary`, `goals`, `evidence`, `route_evidence`, `gaps`,
+`adapters`, and `next`. `--json` may wrap that report in a command envelope for
+agent use and must not be combined with `--output -`. When no `--registry` is
+supplied, it follows the same default installed registry discovery used by
+consumer commands.
 
 `datapan studio --output-dir DIR --json` is the consumer-facing shortcut for
 the static Studio bundle. It accepts the same `--registry`, `--output-dir`,

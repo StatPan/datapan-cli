@@ -287,6 +287,7 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 	dir := t.TempDir()
 	registryPath := filepath.Join(dir, "registry.json")
 	verificationPath := filepath.Join(dir, "verification.json")
+	routeDispositionPath := filepath.Join(dir, "route-disposition.json")
 	output := filepath.Join(dir, "coverage.json")
 	if err := osWriteFile(registryPath, []byte(`[
 		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list","default_params":{"pageNo":"1"}}]},
@@ -312,7 +313,30 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 	}`)); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runTest([]string{"catalog", "coverage", "--registry", registryPath, "--verification", verificationPath, "--limit", "1", "--output", output, "--json"}, nil, nil)
+	if err := osWriteFile(routeDispositionPath, []byte(`{
+		"generated_at":"2026-06-24T00:00:00Z",
+		"provider":"data.go.kr",
+		"registry":"registry.json",
+		"probe":"probe.json",
+		"limit":0,
+		"truncated":false,
+		"summary":{
+			"routes_total":1,
+			"operations":1,
+			"hosts":1,
+			"with_probe_evidence":1,
+			"without_probe_evidence":0,
+			"dead_route_candidates":1,
+			"transient_failures":0,
+			"parameter_blocked_routes":0,
+			"adapter_candidates":0,
+			"by_disposition":[{"key":"dead_route_candidate","count":1,"disposition":"dead_route_candidate"}]
+		},
+		"routes":[]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "coverage", "--registry", registryPath, "--verification", verificationPath, "--route-disposition", routeDispositionPath, "--limit", "1", "--output", output, "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -335,6 +359,12 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 		`"timeout": "10s"`,
 		`"verified": 1`,
 		`"evidence_operation_percent": 100`,
+		`"route_evidence":`,
+		`"routes_total": 1`,
+		`"dead_route_candidates": 1`,
+		`"remaining_adapter_candidates": 0`,
+		`"raw_missing_adapter_operations": 1`,
+		`"evidence_adjusted_adapter_candidates": 0`,
 		`"host": "external.example.test"`,
 		`datapan coverage --registry`,
 		`datapan providers --registry`,
@@ -351,6 +381,13 @@ func TestCatalogCoverageJSONIncludesVerificationEvidence(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"verification":`) || !strings.Contains(string(data), `"provider_split_ready": true`) || !strings.Contains(string(data), `"missing_adapter_operations_target": 10`) {
 		t.Fatalf("unexpected coverage report file: %s", data)
+	}
+	validator, available, err := loadReleaseSchemaValidator(filepath.Clean(filepath.Join("..", "..")))
+	if err != nil || !available {
+		t.Fatalf("expected schema validator: available=%v err=%v", available, err)
+	}
+	if err := validator.validate("https://schemas.datapan.dev/datapan.coverage.v1.schema.json", data); err != nil {
+		t.Fatalf("coverage report schema validation failed: %v", err)
 	}
 }
 
