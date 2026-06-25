@@ -455,8 +455,9 @@ they are evidence, not noise.
 Use `datapan catalog release draft` to assemble a local registry release layout
 from existing registry, optional previous-registry diff, provider index,
 catalog audit, error catalog, dependency inventory, adapter targets, provider
-backlog, schema, schema index, verification, verification summary, provenance,
-release notes, and manifest artifacts without calling upstream APIs.
+backlog, schema, schema index, verification, verification summary, optional
+unadapted external probe evidence, provenance, release notes, and manifest
+artifacts without calling upstream APIs.
 Use `datapan catalog release verify --manifest PATH --output REPORT` to recheck
 the manifest's artifact paths, byte sizes, SHA-256 checksums, and schema-bound
 artifact shapes before publishing and preserve a `datapan.release-verification.v1`
@@ -466,7 +467,10 @@ manifest verification to produce a `datapan.release-readiness.v1` gate report.
 It checks whether the release contains the required registry, schema index,
 provider index, catalog audit, error catalog, dependency inventory, adapter
 target, provider backlog, and provenance artifacts, while treating catalog diff
-and runtime verification evidence as recommended gates.
+and runtime verification evidence as recommended gates. When coverage still has
+missing external adapter operations, readiness requires
+`reports/unadapted-external-probe.json` and its summary so those endpoints are
+documented with bounded probe evidence instead of being silent unknowns.
 Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`

@@ -4276,7 +4276,10 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	}
 	verificationCopied := false
 	verificationSummaryWritten := false
+	unadaptedProbeIncluded := false
+	unadaptedProbeSummaryWritten := false
 	var verificationSummary *datago.VerificationSummaryReport
+	var unadaptedProbeSummary *datago.VerificationSummaryReport
 	var verificationReport *datago.VerificationReport
 	if verificationPath != "" {
 		report, err := readVerificationReport(verificationPath)
@@ -4298,6 +4301,25 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		verificationCopied = true
 		verificationSummaryWritten = true
 	}
+	if fileExists(paths.UnadaptedProbePath) {
+		report, err := readVerificationReport(paths.UnadaptedProbePath)
+		if err != nil {
+			return a.releaseFailure(jsonOut, err)
+		}
+		if report.FilteredCount == 0 && len(report.Results) > 0 {
+			report.FilteredCount = len(report.Results)
+		}
+		if err := writeJSONFile(paths.UnadaptedProbePath, report); err != nil {
+			return a.releaseFailure(jsonOut, err)
+		}
+		summary := datago.SummarizeVerificationReport(report, paths.UnadaptedProbePath, 0)
+		if err := writeJSONFile(paths.UnadaptedProbeSummaryPath, summary); err != nil {
+			return a.releaseFailure(jsonOut, err)
+		}
+		unadaptedProbeSummary = &summary
+		unadaptedProbeIncluded = true
+		unadaptedProbeSummaryWritten = true
+	}
 	coverageReport, err := a.buildCatalogCoverage(reg, paths.RegistryPath, "release", emptyIfFalse(paths.VerificationPath, verificationCopied), verificationReport, 10)
 	if err != nil {
 		return a.releaseFailure(jsonOut, err)
@@ -4312,45 +4334,49 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	if err := writeJSONFile(paths.VerificationPlanPath, verificationPlan); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	provenance := releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath, providerLimit, paths)
+	provenance := releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath, providerLimit, unadaptedProbeIncluded, paths)
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, coverageReport, verificationPlan, verificationSummary, dependencyReport, adapterTargetReport, providerReport)
+	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, coverageReport, verificationPlan, verificationSummary, unadaptedProbeSummary, dependencyReport, adapterTargetReport, providerReport)
 	if err := writeOutput(paths.ReleaseNotesPath, []byte(notes), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	manifest, err := writeReleaseManifest(generatedAt, registryPath, diffWritten, verificationCopied, paths)
+	manifest, err := writeReleaseManifest(generatedAt, registryPath, diffWritten, verificationCopied, unadaptedProbeIncluded, paths)
 	if err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
 	payload := map[string]any{
-		"ok":                           true,
-		"output_dir":                   outputDir,
-		"generated_at":                 generatedAt,
-		"registry":                     paths.RegistryPath,
-		"previous_registry":            previousRegistryPath,
-		"provider_index":               paths.ProviderIndexPath,
-		"schemas":                      datapanSchemaFileNames(),
-		"catalog_diff":                 emptyIfFalse(paths.CatalogDiffPath, diffWritten),
-		"catalog_audit":                paths.CatalogAuditPath,
-		"error_catalog":                paths.ErrorCatalogPath,
-		"dependencies":                 paths.DependencyInventoryPath,
-		"adapter_targets":              paths.AdapterTargetsPath,
-		"provider_backlog":             paths.ProviderBacklogPath,
-		"coverage":                     paths.CoveragePath,
-		"verification_plan":            paths.VerificationPlanPath,
-		"verification":                 emptyIfFalse(paths.VerificationPath, verificationCopied),
-		"verification_summary":         emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
-		"provenance":                   paths.ProvenancePath,
-		"release_notes":                paths.ReleaseNotesPath,
-		"manifest":                     paths.ManifestPath,
-		"artifacts":                    manifest.ArtifactCount,
-		"specs":                        len(specs),
-		"providers":                    len(providers),
-		"provider_truncated":           providerReport.Truncated,
-		"verification_copied":          verificationCopied,
-		"verification_summary_written": verificationSummaryWritten,
+		"ok":                               true,
+		"output_dir":                       outputDir,
+		"generated_at":                     generatedAt,
+		"registry":                         paths.RegistryPath,
+		"previous_registry":                previousRegistryPath,
+		"provider_index":                   paths.ProviderIndexPath,
+		"schemas":                          datapanSchemaFileNames(),
+		"catalog_diff":                     emptyIfFalse(paths.CatalogDiffPath, diffWritten),
+		"catalog_audit":                    paths.CatalogAuditPath,
+		"error_catalog":                    paths.ErrorCatalogPath,
+		"dependencies":                     paths.DependencyInventoryPath,
+		"adapter_targets":                  paths.AdapterTargetsPath,
+		"provider_backlog":                 paths.ProviderBacklogPath,
+		"coverage":                         paths.CoveragePath,
+		"verification_plan":                paths.VerificationPlanPath,
+		"verification":                     emptyIfFalse(paths.VerificationPath, verificationCopied),
+		"verification_summary":             emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
+		"unadapted_external_probe":         emptyIfFalse(paths.UnadaptedProbePath, unadaptedProbeIncluded),
+		"unadapted_external_probe_summary": emptyIfFalse(paths.UnadaptedProbeSummaryPath, unadaptedProbeSummaryWritten),
+		"provenance":                       paths.ProvenancePath,
+		"release_notes":                    paths.ReleaseNotesPath,
+		"manifest":                         paths.ManifestPath,
+		"artifacts":                        manifest.ArtifactCount,
+		"specs":                            len(specs),
+		"providers":                        len(providers),
+		"provider_truncated":               providerReport.Truncated,
+		"verification_copied":              verificationCopied,
+		"verification_summary_written":     verificationSummaryWritten,
+		"unadapted_probe_included":         unadaptedProbeIncluded,
+		"unadapted_probe_summary_written":  unadaptedProbeSummaryWritten,
 	}
 	if jsonOut {
 		return a.writeJSON(payload)
@@ -4372,6 +4398,10 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	if verificationCopied {
 		fmt.Fprintf(a.stdout, "  verification: %s\n", paths.VerificationPath)
 		fmt.Fprintf(a.stdout, "  verification summary: %s\n", paths.VerificationSummaryPath)
+	}
+	if unadaptedProbeIncluded {
+		fmt.Fprintf(a.stdout, "  unadapted external probe: %s\n", paths.UnadaptedProbePath)
+		fmt.Fprintf(a.stdout, "  unadapted external probe summary: %s\n", paths.UnadaptedProbeSummaryPath)
 	}
 	fmt.Fprintf(a.stdout, "  provenance: %s\n", paths.ProvenancePath)
 	fmt.Fprintf(a.stdout, "  release notes: %s\n", paths.ReleaseNotesPath)
@@ -8827,52 +8857,56 @@ func writeOutput(path string, data []byte, stdout io.Writer) error {
 }
 
 type releasePaths struct {
-	OutputDir               string
-	SchemaDir               string
-	SchemaIndexPath         string
-	DataDir                 string
-	ReportsDir              string
-	ProvenanceDir           string
-	RegistryPath            string
-	ProviderIndexPath       string
-	CatalogDiffPath         string
-	ProviderBacklogPath     string
-	DependencyInventoryPath string
-	AdapterTargetsPath      string
-	CatalogAuditPath        string
-	ErrorCatalogPath        string
-	CoveragePath            string
-	VerificationPlanPath    string
-	VerificationPath        string
-	VerificationSummaryPath string
-	ProvenancePath          string
-	ReleaseNotesPath        string
-	ManifestPath            string
+	OutputDir                 string
+	SchemaDir                 string
+	SchemaIndexPath           string
+	DataDir                   string
+	ReportsDir                string
+	ProvenanceDir             string
+	RegistryPath              string
+	ProviderIndexPath         string
+	CatalogDiffPath           string
+	ProviderBacklogPath       string
+	DependencyInventoryPath   string
+	AdapterTargetsPath        string
+	CatalogAuditPath          string
+	ErrorCatalogPath          string
+	CoveragePath              string
+	VerificationPlanPath      string
+	VerificationPath          string
+	VerificationSummaryPath   string
+	UnadaptedProbePath        string
+	UnadaptedProbeSummaryPath string
+	ProvenancePath            string
+	ReleaseNotesPath          string
+	ManifestPath              string
 }
 
 func releaseDraftPaths(outputDir string) releasePaths {
 	return releasePaths{
-		OutputDir:               outputDir,
-		SchemaDir:               joinPath(outputDir, "schemas"),
-		SchemaIndexPath:         joinPath(outputDir, "schemas/index.json"),
-		DataDir:                 joinPath(outputDir, "data"),
-		ReportsDir:              joinPath(outputDir, "reports"),
-		ProvenanceDir:           joinPath(outputDir, "provenance"),
-		RegistryPath:            joinPath(outputDir, "data/data-go-kr.registry.json"),
-		ProviderIndexPath:       joinPath(outputDir, "data/provider-index.json"),
-		CatalogDiffPath:         joinPath(outputDir, "reports/catalog-diff.json"),
-		ProviderBacklogPath:     joinPath(outputDir, "reports/provider-backlog.json"),
-		DependencyInventoryPath: joinPath(outputDir, "reports/dependencies.json"),
-		AdapterTargetsPath:      joinPath(outputDir, "reports/adapter-targets.json"),
-		CatalogAuditPath:        joinPath(outputDir, "reports/catalog-audit.json"),
-		ErrorCatalogPath:        joinPath(outputDir, "reports/error-catalog.json"),
-		CoveragePath:            joinPath(outputDir, "reports/coverage.json"),
-		VerificationPlanPath:    joinPath(outputDir, "reports/verification-plan.json"),
-		VerificationPath:        joinPath(outputDir, "reports/latest-verification.json"),
-		VerificationSummaryPath: joinPath(outputDir, "reports/latest-verification-summary.json"),
-		ProvenancePath:          joinPath(outputDir, "provenance/data-go-kr.md"),
-		ReleaseNotesPath:        joinPath(outputDir, "RELEASE_NOTES.md"),
-		ManifestPath:            joinPath(outputDir, "manifest.json"),
+		OutputDir:                 outputDir,
+		SchemaDir:                 joinPath(outputDir, "schemas"),
+		SchemaIndexPath:           joinPath(outputDir, "schemas/index.json"),
+		DataDir:                   joinPath(outputDir, "data"),
+		ReportsDir:                joinPath(outputDir, "reports"),
+		ProvenanceDir:             joinPath(outputDir, "provenance"),
+		RegistryPath:              joinPath(outputDir, "data/data-go-kr.registry.json"),
+		ProviderIndexPath:         joinPath(outputDir, "data/provider-index.json"),
+		CatalogDiffPath:           joinPath(outputDir, "reports/catalog-diff.json"),
+		ProviderBacklogPath:       joinPath(outputDir, "reports/provider-backlog.json"),
+		DependencyInventoryPath:   joinPath(outputDir, "reports/dependencies.json"),
+		AdapterTargetsPath:        joinPath(outputDir, "reports/adapter-targets.json"),
+		CatalogAuditPath:          joinPath(outputDir, "reports/catalog-audit.json"),
+		ErrorCatalogPath:          joinPath(outputDir, "reports/error-catalog.json"),
+		CoveragePath:              joinPath(outputDir, "reports/coverage.json"),
+		VerificationPlanPath:      joinPath(outputDir, "reports/verification-plan.json"),
+		VerificationPath:          joinPath(outputDir, "reports/latest-verification.json"),
+		VerificationSummaryPath:   joinPath(outputDir, "reports/latest-verification-summary.json"),
+		UnadaptedProbePath:        joinPath(outputDir, "reports/unadapted-external-probe.json"),
+		UnadaptedProbeSummaryPath: joinPath(outputDir, "reports/unadapted-external-probe-summary.json"),
+		ProvenancePath:            joinPath(outputDir, "provenance/data-go-kr.md"),
+		ReleaseNotesPath:          joinPath(outputDir, "RELEASE_NOTES.md"),
+		ManifestPath:              joinPath(outputDir, "manifest.json"),
 	}
 }
 
@@ -9124,8 +9158,8 @@ func schemaContractVersion(name string) (string, string) {
 	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
 }
 
-func writeReleaseManifest(generatedAt, sourceRegistry string, includeCatalogDiff, includeVerification bool, paths releasePaths) (releaseManifest, error) {
-	artifacts := releaseManifestArtifacts(paths, includeCatalogDiff, includeVerification)
+func writeReleaseManifest(generatedAt, sourceRegistry string, includeCatalogDiff, includeVerification, includeUnadaptedProbe bool, paths releasePaths) (releaseManifest, error) {
+	artifacts := releaseManifestArtifacts(paths, includeCatalogDiff, includeVerification, includeUnadaptedProbe)
 	manifest := releaseManifest{
 		SchemaVersion:  "datapan.release-manifest.v1",
 		GeneratedAt:    generatedAt,
@@ -9290,7 +9324,41 @@ func releaseReadinessReportForManifest(manifestPath, generatedAt string) (releas
 			Actual:       len(artifacts),
 		})
 	}
+	missingAdapterOps, hasCoverage := releaseCoverageMissingAdapterOperations(root, byKind["coverage"])
+	unadaptedProbeKinds := []string{"unadapted_external_probe", "unadapted_external_probe_summary"}
+	if hasCoverage && missingAdapterOps > 0 {
+		for _, kind := range unadaptedProbeKinds {
+			report.Summary.RequiredArtifacts++
+			artifacts := byKind[kind]
+			if len(artifacts) == 0 {
+				report.Summary.MissingRequiredArtifacts++
+				report.addReadinessGate(releaseReadinessGate{
+					ID:           "required_artifact_" + kind,
+					Status:       "fail",
+					Severity:     "required",
+					Message:      "unadapted external endpoint evidence is required while missing adapter operations remain",
+					ArtifactKind: kind,
+					Expected:     1,
+					Actual:       0,
+				})
+				continue
+			}
+			report.addReadinessGate(releaseReadinessGate{
+				ID:           "required_artifact_" + kind,
+				Status:       "pass",
+				Severity:     "required",
+				Message:      "unadapted external endpoint evidence is present",
+				ArtifactKind: kind,
+				ArtifactPath: artifacts[0].Path,
+				Expected:     1,
+				Actual:       len(artifacts),
+			})
+		}
+	}
 	recommended := []string{"catalog_diff", "verification", "verification_summary"}
+	if !hasCoverage || missingAdapterOps == 0 {
+		recommended = append(recommended, unadaptedProbeKinds...)
+	}
 	for _, kind := range recommended {
 		report.Summary.RecommendedArtifacts++
 		artifacts := byKind[kind]
@@ -9420,6 +9488,29 @@ func releaseRegistryReadinessGate(root string, artifacts []releaseManifestArtifa
 		Expected:     1,
 		Actual:       specs,
 	}
+}
+
+func releaseCoverageMissingAdapterOperations(root string, artifacts []releaseManifestArtifact) (int, bool) {
+	if len(artifacts) == 0 {
+		return 0, false
+	}
+	path, ok := releaseArtifactPath(root, artifacts[0].Path)
+	if !ok {
+		return 0, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	var report struct {
+		Summary struct {
+			MissingAdapterOperations int `json:"missing_adapter_operations"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return 0, false
+	}
+	return report.Summary.MissingAdapterOperations, true
 }
 
 func (r *releaseReadinessReport) addReadinessGate(gate releaseReadinessGate) {
@@ -9598,7 +9689,7 @@ func releaseArtifactPath(root, artifactPath string) (string, bool) {
 	return full, true
 }
 
-func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVerification bool) []releaseManifestArtifact {
+func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVerification, includeUnadaptedProbe bool) []releaseManifestArtifact {
 	artifacts := make([]releaseManifestArtifact, 0, len(datapanSchemaFiles())+5)
 	for _, schema := range datapanSchemaFiles() {
 		artifacts = append(artifacts, releaseManifestArtifact{
@@ -9631,6 +9722,12 @@ func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVer
 			releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.VerificationSummaryPath), Kind: "verification_summary", Schema: "https://schemas.datapan.dev/datapan.verification-summary.v1.schema.json"},
 		)
 	}
+	if includeUnadaptedProbe {
+		artifacts = append(artifacts,
+			releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.UnadaptedProbePath), Kind: "unadapted_external_probe", Schema: "https://schemas.datapan.dev/datapan.verification.v1.schema.json"},
+			releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.UnadaptedProbeSummaryPath), Kind: "unadapted_external_probe_summary", Schema: "https://schemas.datapan.dev/datapan.verification-summary.v1.schema.json"},
+		)
+	}
 	artifacts = append(artifacts, releaseManifestArtifact{
 		Path: releaseRelativePath(paths.OutputDir, paths.ProvenancePath),
 		Kind: "provenance",
@@ -9652,6 +9749,11 @@ func releaseArtifactMetadata(outputDir string, artifact releaseManifestArtifact)
 	artifact.Bytes = int64(len(data))
 	artifact.SHA256 = fmt.Sprintf("%x", sum)
 	return artifact, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func releaseRelativePath(outputDir, path string) string {
@@ -9681,7 +9783,7 @@ func emptyIfFalse(value string, ok bool) string {
 	return value
 }
 
-func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, coverageReport catalogCoverageReport, verificationPlan catalogVerificationPlanReport, verificationSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport) string {
+func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, coverageReport catalogCoverageReport, verificationPlan catalogVerificationPlanReport, verificationSummary, unadaptedProbeSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Datapan Registry Release")
 	fmt.Fprintln(&b)
@@ -9730,6 +9832,13 @@ func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCo
 		coverageReport.Evidence.EvidenceOperationPercent,
 	)
 	fmt.Fprintf(&b, "- coverage_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.CoveragePath))
+	fmt.Fprintf(&b, "- coverage_goals: callable `%.0f%%`, external adapters `%.0f%%`, verification evidence `%.0f%%`, call-capable adapters `%d`, missing-adapter operations `<=%d`\n",
+		coverageReport.Goals.CallableOperationPercentTarget,
+		coverageReport.Goals.ExternalAdapterCoveragePercentTarget,
+		coverageReport.Goals.EvidenceOperationPercentTarget,
+		coverageReport.Goals.CallCapableAdaptersTarget,
+		coverageReport.Goals.MissingAdapterOperationsTarget,
+	)
 	fmt.Fprintf(&b, "- verification_plan: `%d` batches, `%d` planned operations, `%d` gateway gaps, `%d` adapter gaps\n",
 		verificationPlan.Summary.PlannedBatches,
 		verificationPlan.Summary.PlannedOperations,
@@ -9780,6 +9889,31 @@ func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCo
 		fmt.Fprintln(&b, "- verification: not included; provide `--verification` to include bounded runtime evidence")
 	}
 	fmt.Fprintln(&b)
+	if unadaptedProbeSummary != nil {
+		fmt.Fprintf(&b, "- unadapted_external_probe: `%d` total, `%d` verified, `%d` failed, `%d` skipped, `%d` unknown\n",
+			unadaptedProbeSummary.Summary.Total,
+			unadaptedProbeSummary.Summary.Verified,
+			unadaptedProbeSummary.Summary.Failed,
+			unadaptedProbeSummary.Summary.Skipped,
+			unadaptedProbeSummary.Summary.Unknown,
+		)
+		fmt.Fprintf(&b, "- unadapted_external_probe_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.UnadaptedProbePath))
+		fmt.Fprintf(&b, "- unadapted_external_probe_summary_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.UnadaptedProbeSummaryPath))
+		if len(unadaptedProbeSummary.Groups.ByReason) > 0 {
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, "Unadapted external probe reasons:")
+			fmt.Fprintln(&b)
+			for idx, group := range unadaptedProbeSummary.Groups.ByReason {
+				if idx >= 6 {
+					break
+				}
+				fmt.Fprintf(&b, "- `%s`: `%d`\n", group.Key, group.Count)
+			}
+		}
+	} else if coverageReport.Summary.MissingAdapterOperations > 0 {
+		fmt.Fprintf(&b, "- unadapted_external_probe: not included; `%d` missing-adapter operations still need bounded probe evidence\n", coverageReport.Summary.MissingAdapterOperations)
+	}
+	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "## Publication Checks")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "```bash")
@@ -9789,7 +9923,7 @@ func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCo
 	return b.String()
 }
 
-func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath string, providerLimit int, paths releasePaths) string {
+func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath string, providerLimit int, includeUnadaptedProbe bool, paths releasePaths) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# data.go.kr Release Provenance")
 	fmt.Fprintln(&b)
@@ -9804,6 +9938,9 @@ func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verifica
 	fmt.Fprintf(&b, "- provider_limit: %d\n", providerLimit)
 	if verificationPath != "" {
 		fmt.Fprintf(&b, "- verification_source: %s\n", verificationPath)
+	}
+	if includeUnadaptedProbe {
+		fmt.Fprintf(&b, "- unadapted_external_probe_source: %s\n", paths.UnadaptedProbePath)
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "## Commands")
@@ -9829,6 +9966,10 @@ func releaseProvenance(generatedAt, registryPath, previousRegistryPath, verifica
 	if verificationPath != "" {
 		fmt.Fprintf(&b, "datapan catalog verify --input %s --json\n", paths.VerificationPath)
 		fmt.Fprintf(&b, "datapan catalog verify summary --input %s --output %s --json\n", paths.VerificationPath, paths.VerificationSummaryPath)
+	}
+	if includeUnadaptedProbe {
+		fmt.Fprintf(&b, "datapan catalog verify --input %s --json\n", paths.UnadaptedProbePath)
+		fmt.Fprintf(&b, "datapan catalog verify summary --input %s --output %s --json\n", paths.UnadaptedProbePath, paths.UnadaptedProbeSummaryPath)
 	}
 	coverageVerificationArg := ""
 	if verificationPath != "" {

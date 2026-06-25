@@ -459,6 +459,10 @@ datapan catalog release readiness --manifest .datapan/release/manifest.json --ou
 When `--verification` is provided, `catalog release draft` writes both
 `reports/latest-verification.json` and
 `reports/latest-verification-summary.json`.
+When `reports/unadapted-external-probe.json` already exists in the release
+output directory, the draft normalizes it, regenerates
+`reports/unadapted-external-probe-summary.json`, and includes both as
+schema-bound manifest artifacts.
 Every draft also writes `data/provider-index.json`,
 `reports/catalog-audit.json`, `reports/error-catalog.json`,
 `reports/dependencies.json`, `reports/adapter-targets.json`,
@@ -478,7 +482,8 @@ provider APIs. It assembles release artifacts from existing local inputs:
 registry JSON, optional previous-registry diff, provider index, schema files,
 catalog audit, error catalog, dependency inventory, adapter targets, and
 provider backlog generated from that registry, optional verification evidence,
-provenance notes, human-facing release notes, and a manifest.
+optional unadapted external probe evidence, provenance notes, human-facing
+release notes, and a manifest.
 
 ## Release Gates
 
@@ -497,6 +502,10 @@ Before publishing a registry snapshot:
 - verification must be bounded and must state its `--limit`;
 - verification reports must be readable again with `catalog verify --input`;
 - verification summaries should be generated for provider/reason review;
+- when coverage still reports missing adapter operations,
+  `reports/unadapted-external-probe.json` and
+  `reports/unadapted-external-probe-summary.json` must be present and
+  manifest-bound;
 - `schemas/index.json` must list every copied schema with size and SHA-256
   checksum;
 - `manifest.json` must list every release artifact except itself with size and

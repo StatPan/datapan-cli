@@ -3531,6 +3531,24 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}`)); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(paths.ReportsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(paths.UnadaptedProbePath, []byte(`{
+		"generated_at": "2026-06-24T00:01:00Z",
+		"provider": "data.go.kr",
+		"registry": "registry.json",
+		"limit": 1,
+		"timeout": "1s",
+		"truncated": false,
+		"filtered_count": 1,
+		"summary": {"total": 1, "verified": 0, "failed": 1, "skipped": 0, "unknown": 0},
+		"results": [
+			{"dataset_id": "999", "title": "미적응 외부", "operation": "목록", "provider": "data.go.kr", "endpoint_host": "external.example", "dependency_class": "external_endpoint", "status": "failed", "reason": "unadapted_probe_http_404", "http_status": 404}
+		]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
 	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--previous-registry", previousRegistryPath, "--verification", verificationPath, "--output-dir", outputDir, "--json"}, nil, nil)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
@@ -3549,10 +3567,14 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"coverage":`,
 		`"verification_plan":`,
 		`"verification_summary":`,
+		`"unadapted_external_probe":`,
+		`"unadapted_external_probe_summary":`,
 		`"manifest":`,
-		`"artifacts": 33`,
+		`"artifacts": 35`,
 		`"provenance":`,
 		`"release_notes":`,
+		`"unadapted_probe_included": true`,
+		`"unadapted_probe_summary_written": true`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -3590,6 +3612,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/reports/verification-plan.json",
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
+		outputDir + "/reports/unadapted-external-probe.json",
+		outputDir + "/reports/unadapted-external-probe-summary.json",
 		outputDir + "/provenance/data-go-kr.md",
 		outputDir + "/RELEASE_NOTES.md",
 		outputDir + "/manifest.json",
@@ -3616,10 +3640,14 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		"- provider_adapters:",
 		"- coverage:",
 		"- coverage_artifact:",
+		"- coverage_goals:",
 		"- verification_plan:",
 		"- verification_plan_artifact:",
 		"- split_readiness:",
 		"- verification: `1` total, `0` verified, `0` failed, `1` skipped, `0` unknown",
+		"- unadapted_external_probe: `1` total, `0` verified, `1` failed, `0` skipped, `0` unknown",
+		"- unadapted_external_probe_artifact:",
+		"- unadapted_external_probe_summary_artifact:",
 		"datapan catalog release verify --manifest manifest.json",
 		"datapan catalog release readiness --manifest manifest.json",
 	} {
@@ -3729,7 +3757,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 33`,
+		`"artifact_count": 35`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -3750,6 +3778,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"kind": "verification_plan"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
+		`"path": "reports/unadapted-external-probe.json"`,
+		`"kind": "unadapted_external_probe"`,
+		`"path": "reports/unadapted-external-probe-summary.json"`,
+		`"kind": "unadapted_external_probe_summary"`,
 		`"path": "RELEASE_NOTES.md"`,
 		`"kind": "release_notes"`,
 		`"sha256":`,
@@ -3768,7 +3800,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 33`,
+		`"checked": 35`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -3797,6 +3829,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"id": "required_artifact_adapter_targets"`,
 		`"id": "required_artifact_release_notes"`,
 		`"id": "recommended_artifact_catalog_diff"`,
+		`"id": "recommended_artifact_unadapted_external_probe"`,
+		`"id": "recommended_artifact_unadapted_external_probe_summary"`,
 		`"registry_specs": 1`,
 	} {
 		if !strings.Contains(stdout, want) {
@@ -3891,6 +3925,37 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	if _, err := osReadFile(filepath.Join(releaseRoot, "reports", "catalog-diff.json")); err != nil {
 		t.Fatalf("expected catalog diff from schema-only release root: %v", err)
+	}
+}
+
+func TestCatalogReleaseReadinessRequiresUnadaptedProbeForMissingAdapters(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	outputDir := filepath.Join(dir, "release")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"미적응 외부기관","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[{"name":"목록","endpoint":"https://unadapted.example/openapi/list"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--output-dir", outputDir, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	readinessOutput := filepath.Join(outputDir, "reports", "latest-release-readiness.json")
+	code, stdout, stderr = runTest([]string{"catalog", "release", "readiness", "--manifest", filepath.Join(outputDir, "manifest.json"), "--output", readinessOutput, "--json"}, nil, nil)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": false`,
+		`"ready": false`,
+		`"id": "required_artifact_unadapted_external_probe"`,
+		`"id": "required_artifact_unadapted_external_probe_summary"`,
+		`"message": "unadapted external endpoint evidence is required while missing adapter operations remain"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in readiness output: %s", want, stdout)
+		}
 	}
 }
 
