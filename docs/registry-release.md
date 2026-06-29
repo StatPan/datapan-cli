@@ -45,6 +45,7 @@ schemas/
   datapan.verification.v1.schema.json
   datapan.verification-plan.v1.schema.json
   datapan.verification-summary.v1.schema.json
+  datapan.runtime-evidence-growth.v1.schema.json
   datapan.release-manifest.v1.schema.json
   datapan.release-verification.v1.schema.json
   datapan.release-readiness.v1.schema.json
@@ -63,6 +64,8 @@ reports/
   provider-backlog.json
   coverage.json
   verification-plan.json
+  data-go-kr/
+    runtime-evidence-growth.json
   latest-verification.json
   latest-verification-summary.json
   latest-release-verification.json
@@ -159,6 +162,21 @@ operation coverage, external adapter coverage, verification evidence coverage,
 provider split readiness, and top adapter gaps so maintainers can see whether
 Datapan is moving toward broader public-data coverage or merely accumulating
 files.
+
+### Runtime Evidence Growth Schema
+
+Path:
+
+```text
+schemas/datapan.runtime-evidence-growth.v1.schema.json
+```
+
+The runtime evidence growth schema lets registry releases describe source-scoped
+verification coverage against an explicit target. The schema is part of the
+release schema inventory and validates
+`reports/data-go-kr/runtime-evidence-growth.json`, which records the current
+runtime evidence percentage, target evidence count, remaining gap, next planned
+verification batches, provider split readiness, and any below-target warning.
 
 ### Studio Schemas
 
