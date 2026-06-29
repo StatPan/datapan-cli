@@ -3946,7 +3946,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"unadapted_external_probe":`,
 		`"unadapted_external_probe_summary":`,
 		`"manifest":`,
-		`"artifacts": 37`,
+		`"artifacts": 38`,
 		`"provenance":`,
 		`"release_notes":`,
 		`"unadapted_probe_included": true`,
@@ -3966,6 +3966,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-plan.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
+		outputDir + "/schemas/datapan.runtime-evidence-growth.v1.schema.json",
 		outputDir + "/schemas/datapan.release-manifest.v1.schema.json",
 		outputDir + "/schemas/datapan.release-verification.v1.schema.json",
 		outputDir + "/schemas/datapan.release-readiness.v1.schema.json",
@@ -4100,12 +4101,13 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 19`,
+		`"count": 20`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
 		`"path": "schemas/datapan.route-disposition.v1.schema.json"`,
 		`"path": "schemas/datapan.coverage.v1.schema.json"`,
 		`"path": "schemas/datapan.verification-plan.v1.schema.json"`,
+		`"path": "schemas/datapan.runtime-evidence-growth.v1.schema.json"`,
 		`"path": "schemas/datapan.release-readiness.v1.schema.json"`,
 		`"path": "schemas/datapan.schema-index.v1.schema.json"`,
 		`"path": "schemas/datapan.catalog-diff.v1.schema.json"`,
@@ -4119,6 +4121,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"contract": "route-disposition"`,
 		`"contract": "coverage"`,
 		`"contract": "verification-plan"`,
+		`"contract": "runtime-evidence-growth"`,
 		`"contract": "release-readiness"`,
 		`"contract": "schema-index"`,
 		`"contract": "catalog-diff"`,
@@ -4139,7 +4142,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 37`,
+		`"artifact_count": 38`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -4184,7 +4187,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 37`,
+		`"checked": 38`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -4296,7 +4299,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 35`,
+		`"artifacts": 36`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
 	} {
