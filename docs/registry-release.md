@@ -64,6 +64,8 @@ reports/
   provider-backlog.json
   coverage.json
   verification-plan.json
+  data-go-kr/
+    runtime-evidence-growth.json
   latest-verification.json
   latest-verification-summary.json
   latest-release-verification.json
@@ -171,8 +173,10 @@ schemas/datapan.runtime-evidence-growth.v1.schema.json
 
 The runtime evidence growth schema lets registry releases describe source-scoped
 verification coverage against an explicit target. The schema is part of the
-release schema inventory before release draft generation learns to emit a
-source-scoped runtime evidence growth report artifact.
+release schema inventory and validates
+`reports/data-go-kr/runtime-evidence-growth.json`, which records the current
+runtime evidence percentage, target evidence count, remaining gap, next planned
+verification batches, provider split readiness, and any below-target warning.
 
 ### Studio Schemas
 

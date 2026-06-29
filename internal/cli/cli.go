@@ -1961,6 +1961,94 @@ type catalogVerificationPlanGaps struct {
 	MissingAdapterHosts []datago.ProviderSummary `json:"missing_adapter_hosts,omitempty"`
 }
 
+type runtimeEvidenceGrowthReport struct {
+	SchemaVersion          string                         `json:"schema_version"`
+	GeneratedAt            string                         `json:"generated_at"`
+	DatapanVersion         string                         `json:"datapan_version,omitempty"`
+	Provider               string                         `json:"provider"`
+	SourceID               string                         `json:"source_id"`
+	SourceProfile          string                         `json:"source_profile"`
+	GenerationInputs       runtimeEvidenceGenerationInput `json:"generation_inputs"`
+	Coverage               runtimeEvidenceCoverage        `json:"coverage"`
+	Evidence               runtimeEvidenceSummary         `json:"evidence"`
+	GrowthTarget           runtimeEvidenceGrowthTarget    `json:"growth_target"`
+	VerificationPlan       runtimeEvidencePlan            `json:"verification_plan"`
+	ProviderSplitReadiness runtimeProviderSplitReadiness  `json:"provider_split_readiness"`
+	Warnings               []runtimeEvidenceWarning       `json:"warnings"`
+}
+
+type runtimeEvidenceGenerationInput struct {
+	Coverage                  string `json:"coverage"`
+	LatestVerification        string `json:"latest_verification"`
+	LatestVerificationSummary string `json:"latest_verification_summary"`
+	VerificationPlan          string `json:"verification_plan"`
+	ProviderIndex             string `json:"provider_index"`
+}
+
+type runtimeEvidenceCoverage struct {
+	Operations                  int `json:"operations"`
+	CallableOperations          int `json:"callable_operations"`
+	DataGoKrGatewayOperations   int `json:"data_go_kr_gateway_operations"`
+	ExternalEndpointOperations  int `json:"external_endpoint_operations"`
+	RegisteredAdapterOperations int `json:"registered_adapter_operations"`
+	CallCapableAdapters         int `json:"call_capable_adapters"`
+}
+
+type runtimeEvidenceSummary struct {
+	Total           int                       `json:"total"`
+	Verified        int                       `json:"verified"`
+	Failed          int                       `json:"failed"`
+	Skipped         int                       `json:"skipped"`
+	Unknown         int                       `json:"unknown"`
+	CoveragePercent float64                   `json:"coverage_percent"`
+	ByKind          []runtimeEvidenceKeyCount `json:"by_kind"`
+}
+
+type runtimeEvidenceGrowthTarget struct {
+	TargetPercent       float64 `json:"target_percent"`
+	TargetEvidenceTotal int     `json:"target_evidence_total"`
+	RemainingToTarget   int     `json:"remaining_to_target"`
+	Status              string  `json:"status"`
+}
+
+type runtimeEvidencePlan struct {
+	PlannedBatches             int                       `json:"planned_batches"`
+	PlannedOperations          int                       `json:"planned_operations"`
+	UncoveredGatewayCandidates int                       `json:"uncovered_gateway_candidates"`
+	UncoveredAdapterCandidates int                       `json:"uncovered_adapter_candidates"`
+	MissingAdapterHosts        int                       `json:"missing_adapter_hosts"`
+	PlannedByKind              []runtimeEvidenceKeyCount `json:"planned_by_kind"`
+	Batches                    []runtimeEvidenceBatch    `json:"batches"`
+}
+
+type runtimeEvidenceBatch struct {
+	Label               string `json:"label"`
+	Provider            string `json:"provider,omitempty"`
+	Kind                string `json:"kind"`
+	Candidates          int    `json:"candidates"`
+	UncoveredCandidates int    `json:"uncovered_candidates"`
+	PlannedOperations   int    `json:"planned_operations"`
+	Output              string `json:"output"`
+}
+
+type runtimeProviderSplitReadiness struct {
+	Status                      string `json:"status"`
+	AdapterCount                int    `json:"adapter_count"`
+	VerificationCapableAdapters int    `json:"verification_capable_adapters"`
+	CallCapableAdapters         int    `json:"call_capable_adapters"`
+}
+
+type runtimeEvidenceKeyCount struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
+type runtimeEvidenceWarning struct {
+	Kind     string `json:"kind"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
 type catalogStudioFile struct {
 	Kind string `json:"kind"`
 	Path string `json:"path"`
@@ -4650,11 +4738,15 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	if err := writeJSONFile(paths.VerificationPlanPath, verificationPlan); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
+	runtimeEvidenceGrowth := buildRuntimeEvidenceGrowthReport(generatedAt, paths, coverageReport, verificationReport, verificationSummary, verificationPlan, providerIndex)
+	if err := writeJSONFile(paths.RuntimeEvidenceGrowthPath, runtimeEvidenceGrowth); err != nil {
+		return a.releaseFailure(jsonOut, err)
+	}
 	provenance := releaseProvenance(generatedAt, registryPath, previousRegistryPath, verificationPath, providerLimit, unadaptedProbeIncluded, paths)
 	if err := writeOutput(paths.ProvenancePath, []byte(provenance), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, coverageReport, verificationPlan, verificationSummary, unadaptedProbeSummary, dependencyReport, adapterTargetReport, providerReport, routeDisposition)
+	notes := releaseNotes(generatedAt, registryPath, previousRegistryPath, len(specs), providerIndex, catalogDiff, paths, coverageReport, runtimeEvidenceGrowth, verificationPlan, verificationSummary, unadaptedProbeSummary, dependencyReport, adapterTargetReport, providerReport, routeDisposition)
 	if err := writeOutput(paths.ReleaseNotesPath, []byte(notes), a.stdout); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
@@ -4679,6 +4771,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 		"provider_backlog":                 paths.ProviderBacklogPath,
 		"coverage":                         paths.CoveragePath,
 		"verification_plan":                paths.VerificationPlanPath,
+		"runtime_evidence_growth":          paths.RuntimeEvidenceGrowthPath,
 		"verification":                     emptyIfFalse(paths.VerificationPath, verificationCopied),
 		"verification_summary":             emptyIfFalse(paths.VerificationSummaryPath, verificationSummaryWritten),
 		"unadapted_external_probe":         emptyIfFalse(paths.UnadaptedProbePath, unadaptedProbeIncluded),
@@ -4713,6 +4806,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	fmt.Fprintf(a.stdout, "  provider backlog: %s\n", paths.ProviderBacklogPath)
 	fmt.Fprintf(a.stdout, "  coverage: %s\n", paths.CoveragePath)
 	fmt.Fprintf(a.stdout, "  verification plan: %s\n", paths.VerificationPlanPath)
+	fmt.Fprintf(a.stdout, "  runtime evidence growth: %s\n", paths.RuntimeEvidenceGrowthPath)
 	if verificationCopied {
 		fmt.Fprintf(a.stdout, "  verification: %s\n", paths.VerificationPath)
 		fmt.Fprintf(a.stdout, "  verification summary: %s\n", paths.VerificationSummaryPath)
@@ -9632,6 +9726,7 @@ type releasePaths struct {
 	ErrorCatalogPath          string
 	CoveragePath              string
 	VerificationPlanPath      string
+	RuntimeEvidenceGrowthPath string
 	VerificationPath          string
 	VerificationSummaryPath   string
 	UnadaptedProbePath        string
@@ -9660,6 +9755,7 @@ func releaseDraftPaths(outputDir string) releasePaths {
 		ErrorCatalogPath:          joinPath(outputDir, "reports/error-catalog.json"),
 		CoveragePath:              joinPath(outputDir, "reports/coverage.json"),
 		VerificationPlanPath:      joinPath(outputDir, "reports/verification-plan.json"),
+		RuntimeEvidenceGrowthPath: joinPath(outputDir, "reports/data-go-kr/runtime-evidence-growth.json"),
 		VerificationPath:          joinPath(outputDir, "reports/latest-verification.json"),
 		VerificationSummaryPath:   joinPath(outputDir, "reports/latest-verification-summary.json"),
 		UnadaptedProbePath:        joinPath(outputDir, "reports/unadapted-external-probe.json"),
@@ -9866,7 +9962,7 @@ type releaseReadinessGate struct {
 	ArtifactKind string `json:"artifact_kind,omitempty"`
 	ArtifactPath string `json:"artifact_path,omitempty"`
 	Expected     int    `json:"expected,omitempty"`
-	Actual       int    `json:"actual,omitempty"`
+	Actual       int    `json:"actual"`
 }
 
 type releaseSchemaValidator struct {
@@ -9918,6 +10014,141 @@ func schemaContractVersion(name string) (string, string) {
 		return name, ""
 	}
 	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
+}
+
+func buildRuntimeEvidenceGrowthReport(generatedAt string, paths releasePaths, coverage catalogCoverageReport, verification *datago.VerificationReport, verificationSummary *datago.VerificationSummaryReport, verificationPlan catalogVerificationPlanReport, providerIndex providers.IndexReport) runtimeEvidenceGrowthReport {
+	evidence := datago.VerificationSummary{}
+	if verificationSummary != nil {
+		evidence = verificationSummary.Summary
+	}
+	operations := coverage.Summary.Operations
+	targetPercent := coverageGoalEvidenceOperationPercent
+	targetTotal := int(math.Ceil(float64(operations) * (targetPercent / 100)))
+	remaining := targetTotal - evidence.Total
+	if remaining < 0 {
+		remaining = 0
+	}
+	status := "at_target"
+	if remaining > 0 {
+		status = "below_target"
+	} else if evidence.Total > targetTotal {
+		status = "above_target"
+	}
+	report := runtimeEvidenceGrowthReport{
+		SchemaVersion:  "datapan.runtime-evidence-growth.v1",
+		GeneratedAt:    generatedAt,
+		DatapanVersion: version,
+		Provider:       "data.go.kr",
+		SourceID:       "data_go_kr",
+		SourceProfile:  "sources/data_go_kr.json",
+		GenerationInputs: runtimeEvidenceGenerationInput{
+			Coverage:                  releaseRelativePath(paths.OutputDir, paths.CoveragePath),
+			LatestVerification:        releaseRelativePath(paths.OutputDir, paths.VerificationPath),
+			LatestVerificationSummary: releaseRelativePath(paths.OutputDir, paths.VerificationSummaryPath),
+			VerificationPlan:          releaseRelativePath(paths.OutputDir, paths.VerificationPlanPath),
+			ProviderIndex:             releaseRelativePath(paths.OutputDir, paths.ProviderIndexPath),
+		},
+		Coverage: runtimeEvidenceCoverage{
+			Operations:                  coverage.Summary.Operations,
+			CallableOperations:          coverage.Summary.CallableOperations,
+			DataGoKrGatewayOperations:   coverage.Summary.DataGoKrGatewayOperations,
+			ExternalEndpointOperations:  coverage.Summary.ExternalEndpointOperations,
+			RegisteredAdapterOperations: coverage.Summary.RegisteredAdapterOperations,
+			CallCapableAdapters:         coverage.Summary.CallCapableAdapters,
+		},
+		Evidence: runtimeEvidenceSummary{
+			Total:           evidence.Total,
+			Verified:        evidence.Verified,
+			Failed:          evidence.Failed,
+			Skipped:         evidence.Skipped,
+			Unknown:         evidence.Unknown,
+			CoveragePercent: percent(evidence.Total, operations),
+			ByKind:          runtimeEvidenceKindCounts(verification),
+		},
+		GrowthTarget: runtimeEvidenceGrowthTarget{
+			TargetPercent:       targetPercent,
+			TargetEvidenceTotal: targetTotal,
+			RemainingToTarget:   remaining,
+			Status:              status,
+		},
+		VerificationPlan: runtimeEvidencePlan{
+			PlannedBatches:             verificationPlan.Summary.PlannedBatches,
+			PlannedOperations:          verificationPlan.Summary.PlannedOperations,
+			UncoveredGatewayCandidates: verificationPlan.Summary.UncoveredGatewayCandidates,
+			UncoveredAdapterCandidates: verificationPlan.Summary.UncoveredAdapterCandidates,
+			MissingAdapterHosts:        verificationPlan.Summary.MissingAdapterHosts,
+			PlannedByKind:              runtimeEvidencePlannedKindCounts(verificationPlan.Batches),
+			Batches:                    runtimeEvidenceBatches(verificationPlan.Batches),
+		},
+		ProviderSplitReadiness: runtimeProviderSplitReadiness{
+			Status:                      providerIndex.SplitReadiness.Status,
+			AdapterCount:                providerIndex.SplitReadiness.AdapterCount,
+			VerificationCapableAdapters: providerIndex.SplitReadiness.VerificationCapableAdapters,
+			CallCapableAdapters:         providerIndex.SplitReadiness.CallCapableAdapters,
+		},
+		Warnings: []runtimeEvidenceWarning{},
+	}
+	if remaining > 0 {
+		report.Warnings = append(report.Warnings, runtimeEvidenceWarning{
+			Kind:     "runtime_evidence_below_target",
+			Severity: "warning",
+			Message:  fmt.Sprintf("Runtime evidence coverage is %.1f%% against the %.1f%% target; %d additional evidence records are needed before this target is met.", report.Evidence.CoveragePercent, targetPercent, remaining),
+		})
+	}
+	return report
+}
+
+func runtimeEvidenceKindCounts(report *datago.VerificationReport) []runtimeEvidenceKeyCount {
+	counts := map[string]int{}
+	if report != nil {
+		for _, result := range report.Results {
+			if strings.TrimSpace(result.DependencyClass) == "" {
+				continue
+			}
+			counts[result.DependencyClass]++
+		}
+	}
+	return runtimeEvidenceSortedCounts(counts)
+}
+
+func runtimeEvidencePlannedKindCounts(batches []catalogVerificationBatch) []runtimeEvidenceKeyCount {
+	counts := map[string]int{}
+	for _, batch := range batches {
+		if strings.TrimSpace(batch.Kind) == "" {
+			continue
+		}
+		counts[batch.Kind] += batch.PlannedOperations
+	}
+	return runtimeEvidenceSortedCounts(counts)
+}
+
+func runtimeEvidenceSortedCounts(counts map[string]int) []runtimeEvidenceKeyCount {
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]runtimeEvidenceKeyCount, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, runtimeEvidenceKeyCount{Key: key, Count: counts[key]})
+	}
+	return out
+}
+
+func runtimeEvidenceBatches(batches []catalogVerificationBatch) []runtimeEvidenceBatch {
+	out := make([]runtimeEvidenceBatch, 0, len(batches))
+	for _, batch := range batches {
+		out = append(out, runtimeEvidenceBatch{
+			Label:               batch.Label,
+			Provider:            batch.Provider,
+			Kind:                batch.Kind,
+			Candidates:          batch.Candidates,
+			UncoveredCandidates: batch.UncoveredCandidates,
+			PlannedOperations:   batch.PlannedOperations,
+			Output:              batch.Output,
+		})
+	}
+	return out
 }
 
 func writeReleaseManifest(generatedAt, sourceRegistry string, includeCatalogDiff, includeVerification, includeUnadaptedProbe bool, paths releasePaths) (releaseManifest, error) {
@@ -10058,6 +10289,7 @@ func releaseReadinessReportForManifest(manifestPath, generatedAt string) (releas
 		"provider_backlog",
 		"coverage",
 		"verification_plan",
+		"runtime_evidence_growth",
 		"provenance",
 		"release_notes",
 	}
@@ -10172,6 +10404,9 @@ func releaseReadinessReportForManifest(manifestPath, generatedAt string) (releas
 	registrySpecs, registryGate := releaseRegistryReadinessGate(root, byKind["registry"])
 	report.Summary.RegistrySpecs = registrySpecs
 	report.addReadinessGate(registryGate)
+	if gate, ok := releaseRuntimeEvidenceGrowthReadinessGate(root, byKind["runtime_evidence_growth"]); ok {
+		report.addReadinessGate(gate)
+	}
 	report.Ready = report.Summary.Failed == 0
 	return report, nil
 }
@@ -10274,6 +10509,62 @@ func releaseCoverageMissingAdapterOperations(root string, artifacts []releaseMan
 		return 0, false
 	}
 	return report.Summary.MissingAdapterOperations, true
+}
+
+func releaseRuntimeEvidenceGrowthReadinessGate(root string, artifacts []releaseManifestArtifact) (releaseReadinessGate, bool) {
+	if len(artifacts) == 0 {
+		return releaseReadinessGate{}, false
+	}
+	path, ok := releaseArtifactPath(root, artifacts[0].Path)
+	if !ok {
+		return releaseReadinessGate{
+			ID:           "runtime_evidence_growth_target",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "runtime evidence growth artifact path is invalid",
+			ArtifactKind: "runtime_evidence_growth",
+			ArtifactPath: artifacts[0].Path,
+		}, true
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return releaseReadinessGate{
+			ID:           "runtime_evidence_growth_target",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "runtime evidence growth artifact cannot be read",
+			ArtifactKind: "runtime_evidence_growth",
+			ArtifactPath: artifacts[0].Path,
+		}, true
+	}
+	var report runtimeEvidenceGrowthReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return releaseReadinessGate{
+			ID:           "runtime_evidence_growth_target",
+			Status:       "fail",
+			Severity:     "required",
+			Message:      "runtime evidence growth artifact cannot be decoded",
+			ArtifactKind: "runtime_evidence_growth",
+			ArtifactPath: artifacts[0].Path,
+		}, true
+	}
+	status := "pass"
+	severity := "recommended"
+	message := "runtime evidence coverage meets the release target"
+	if report.GrowthTarget.RemainingToTarget > 0 || report.GrowthTarget.Status == "below_target" {
+		status = "warn"
+		message = "runtime evidence coverage is below the release target"
+	}
+	return releaseReadinessGate{
+		ID:           "runtime_evidence_growth_target",
+		Status:       status,
+		Severity:     severity,
+		Message:      message,
+		ArtifactKind: "runtime_evidence_growth",
+		ArtifactPath: artifacts[0].Path,
+		Expected:     report.GrowthTarget.TargetEvidenceTotal,
+		Actual:       report.Evidence.Total,
+	}, true
 }
 
 func (r *releaseReadinessReport) addReadinessGate(gate releaseReadinessGate) {
@@ -10479,6 +10770,7 @@ func releaseManifestArtifacts(paths releasePaths, includeCatalogDiff, includeVer
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.ProviderBacklogPath), Kind: "provider_backlog", Schema: "https://schemas.datapan.dev/datapan.providers.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.CoveragePath), Kind: "coverage", Schema: "https://schemas.datapan.dev/datapan.coverage.v1.schema.json"},
 		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.VerificationPlanPath), Kind: "verification_plan", Schema: "https://schemas.datapan.dev/datapan.verification-plan.v1.schema.json"},
+		releaseManifestArtifact{Path: releaseRelativePath(paths.OutputDir, paths.RuntimeEvidenceGrowthPath), Kind: "runtime_evidence_growth", Schema: "https://schemas.datapan.dev/datapan.runtime-evidence-growth.v1.schema.json"},
 	)
 	if includeVerification {
 		artifacts = append(artifacts,
@@ -10559,7 +10851,7 @@ func emptyIfFalse(value string, ok bool) string {
 	return value
 }
 
-func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, coverageReport catalogCoverageReport, verificationPlan catalogVerificationPlanReport, verificationSummary, unadaptedProbeSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport, routeDisposition datago.RouteDispositionReport) string {
+func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCount int, providerIndex providers.IndexReport, catalogDiff *datago.CatalogDiffReport, paths releasePaths, coverageReport catalogCoverageReport, runtimeEvidenceGrowth runtimeEvidenceGrowthReport, verificationPlan catalogVerificationPlanReport, verificationSummary, unadaptedProbeSummary *datago.VerificationSummaryReport, dependencyReport datago.DependencyInventoryReport, adapterTargetReport datago.AdapterTargetReport, providerReport datago.ProviderBacklogReport, routeDisposition datago.RouteDispositionReport) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Datapan Registry Release")
 	fmt.Fprintln(&b)
@@ -10631,6 +10923,16 @@ func releaseNotes(generatedAt, registryPath, previousRegistryPath string, specCo
 		verificationPlan.Summary.UncoveredAdapterCandidates,
 	)
 	fmt.Fprintf(&b, "- verification_plan_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.VerificationPlanPath))
+	fmt.Fprintf(&b, "- runtime_evidence_growth: `%.1f%%` coverage, target `%.1f%%`, remaining `%d`, status `%s`\n",
+		runtimeEvidenceGrowth.Evidence.CoveragePercent,
+		runtimeEvidenceGrowth.GrowthTarget.TargetPercent,
+		runtimeEvidenceGrowth.GrowthTarget.RemainingToTarget,
+		runtimeEvidenceGrowth.GrowthTarget.Status,
+	)
+	fmt.Fprintf(&b, "- runtime_evidence_growth_artifact: `%s`\n", releaseRelativePath(paths.OutputDir, paths.RuntimeEvidenceGrowthPath))
+	for _, warning := range runtimeEvidenceGrowth.Warnings {
+		fmt.Fprintf(&b, "- runtime_evidence_warning: `%s` `%s`\n", warning.Severity, warning.Kind)
+	}
 	if len(adapterTargetReport.Targets) > 0 {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "Top adapter targets:")

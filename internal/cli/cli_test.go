@@ -3946,7 +3946,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"unadapted_external_probe":`,
 		`"unadapted_external_probe_summary":`,
 		`"manifest":`,
-		`"artifacts": 38`,
+		`"artifacts": 39`,
+		`"runtime_evidence_growth":`,
 		`"provenance":`,
 		`"release_notes":`,
 		`"unadapted_probe_included": true`,
@@ -3989,6 +3990,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/reports/provider-backlog.json",
 		outputDir + "/reports/coverage.json",
 		outputDir + "/reports/verification-plan.json",
+		outputDir + "/reports/data-go-kr/runtime-evidence-growth.json",
 		outputDir + "/reports/latest-verification.json",
 		outputDir + "/reports/latest-verification-summary.json",
 		outputDir + "/reports/unadapted-external-probe.json",
@@ -4024,6 +4026,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		"- coverage_goals:",
 		"- verification_plan:",
 		"- verification_plan_artifact:",
+		"- runtime_evidence_growth: `100.0%` coverage, target `10.0%`, remaining `0`, status `at_target`",
+		"- runtime_evidence_growth_artifact:",
 		"- split_readiness:",
 		"- verification: `1` total, `0` verified, `0` failed, `1` skipped, `0` unknown",
 		"- unadapted_external_probe: `1` total, `0` verified, `1` failed, `0` skipped, `0` unknown",
@@ -4142,7 +4146,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 38`,
+		`"artifact_count": 39`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -4163,6 +4167,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"kind": "coverage"`,
 		`"path": "reports/verification-plan.json"`,
 		`"kind": "verification_plan"`,
+		`"path": "reports/data-go-kr/runtime-evidence-growth.json"`,
+		`"kind": "runtime_evidence_growth"`,
 		`"path": "reports/latest-verification-summary.json"`,
 		`"kind": "verification_summary"`,
 		`"path": "reports/unadapted-external-probe.json"`,
@@ -4187,7 +4193,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 38`,
+		`"checked": 39`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -4215,6 +4221,8 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"id": "required_artifact_dependencies"`,
 		`"id": "required_artifact_adapter_targets"`,
 		`"id": "required_artifact_release_notes"`,
+		`"id": "required_artifact_runtime_evidence_growth"`,
+		`"id": "runtime_evidence_growth_target"`,
 		`"id": "recommended_artifact_catalog_diff"`,
 		`"id": "recommended_artifact_unadapted_external_probe"`,
 		`"id": "recommended_artifact_unadapted_external_probe_summary"`,
@@ -4244,6 +4252,85 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"ok": false`) || !strings.Contains(stdout, `"size_mismatch"`) {
 		t.Fatalf("expected size mismatch in output: %s", stdout)
+	}
+}
+
+func TestCatalogReleaseDraftWarnsWhenRuntimeEvidenceBelowTarget(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := dir + "/registry.json"
+	outputDir := dir + "/release"
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"100","title":"기관_A","provider":"data.go.kr","priority":"P2","organization":"기관","operations":[
+			{"name":"목록1","endpoint":"https://api.data.go.kr/openapi/list1"},
+			{"name":"목록2","endpoint":"https://api.data.go.kr/openapi/list2"},
+			{"name":"목록3","endpoint":"https://api.data.go.kr/openapi/list3"},
+			{"name":"목록4","endpoint":"https://api.data.go.kr/openapi/list4"},
+			{"name":"목록5","endpoint":"https://api.data.go.kr/openapi/list5"},
+			{"name":"목록6","endpoint":"https://api.data.go.kr/openapi/list6"},
+			{"name":"목록7","endpoint":"https://api.data.go.kr/openapi/list7"},
+			{"name":"목록8","endpoint":"https://api.data.go.kr/openapi/list8"},
+			{"name":"목록9","endpoint":"https://api.data.go.kr/openapi/list9"},
+			{"name":"목록10","endpoint":"https://api.data.go.kr/openapi/list10"},
+			{"name":"목록11","endpoint":"https://api.data.go.kr/openapi/list11"},
+			{"name":"목록12","endpoint":"https://api.data.go.kr/openapi/list12"}
+		]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"catalog", "release", "draft", "--registry", registryPath, "--output-dir", outputDir, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"runtime_evidence_growth":`,
+		`"artifacts": 34`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	runtimeEvidence, err := osReadFile(outputDir + "/reports/data-go-kr/runtime-evidence-growth.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"schema_version": "datapan.runtime-evidence-growth.v1"`,
+		`"operations": 12`,
+		`"total": 0`,
+		`"target_evidence_total": 2`,
+		`"remaining_to_target": 2`,
+		`"status": "below_target"`,
+		`"kind": "runtime_evidence_below_target"`,
+	} {
+		if !strings.Contains(string(runtimeEvidence), want) {
+			t.Fatalf("expected %q in runtime evidence growth report: %s", want, runtimeEvidence)
+		}
+	}
+	verifyOutput := outputDir + "/reports/latest-release-verification.json"
+	code, stdout, stderr = runTest([]string{"catalog", "release", "verify", "--manifest", outputDir + "/manifest.json", "--output", verifyOutput, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"kind": "runtime_evidence_growth"`) || !strings.Contains(stdout, `"status": "verified"`) {
+		t.Fatalf("expected verified runtime evidence growth artifact: %s", stdout)
+	}
+	readinessOutput := outputDir + "/reports/latest-release-readiness.json"
+	code, stdout, stderr = runTest([]string{"catalog", "release", "readiness", "--manifest", outputDir + "/manifest.json", "--output", readinessOutput, "--json"}, nil, nil)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"ok": true`,
+		`"id": "runtime_evidence_growth_target"`,
+		`"status": "warn"`,
+		`"artifact_kind": "runtime_evidence_growth"`,
+		`"expected": 2`,
+		`"actual": 0`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in readiness output: %s", want, stdout)
+		}
 	}
 }
 
@@ -4299,7 +4386,8 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 36`,
+		`"artifacts": 37`,
+		`"runtime_evidence_growth":`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
 	} {
