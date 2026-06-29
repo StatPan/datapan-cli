@@ -28,6 +28,10 @@
       "type": "integer",
       "minimum": 0
     },
+    "workers": {
+      "type": "integer",
+      "minimum": 1
+    },
     "timeout": {
       "type": "string",
       "minLength": 1

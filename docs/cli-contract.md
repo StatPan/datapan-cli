@@ -11,8 +11,8 @@ The canonical command is:
 datapan
 ```
 
-Installers may add `dp` as a convenience alias. Documentation and agent
-instructions should prefer `datapan`.
+Installers may add `dp` as a convenience alias only when explicitly requested.
+Documentation and agent instructions should prefer `datapan`.
 
 ## Output
 
@@ -403,7 +403,7 @@ narrows the work yet.
 `datapan verify [--registry PATH] --json` is the consumer-facing shortcut for
 bounded runtime evidence collection. It accepts the same `--ref`,
 `--operation`, `--limit`, `--provider`, `--host`, `--kind`, `--exclude-input`,
-`--timeout`, and `--output` options as `catalog verify`; it also preserves
+`--timeout`, `--workers`, and `--output` options as `catalog verify`; it also preserves
 `verify plan`, `verify summary`, and `verify merge` as shortcuts to the
 corresponding catalog subcommands. Release jobs can continue to use
 `catalog verify` when they need the full maintenance namespace.
@@ -413,12 +413,15 @@ evidence. It must not blindly call the whole catalog. By default it should
 consider a small bounded set of operations; when `--registry` is omitted, it
 uses the default installed registry. Callers may pass `--ref REF`,
 `--operation NAME`, `--limit N`, `--provider NAME`, `--host HOST`, `--kind
-KIND`, `--exclude-input REPORT`, `--timeout DURATION`, and `--output PATH|-`.
+KIND`, `--exclude-input REPORT`, `--timeout DURATION`, `--workers N`, and
+`--output PATH|-`.
 Provider, host, and kind
 filters apply before the limit, so `--provider q-net --limit 5` means five
 q-net candidates, not the first five catalog operations. `--timeout` bounds
 each eligible provider call; it accepts Go durations such as `500ms` or `10s`,
-or bare seconds, and defaults to 30 seconds. `--exclude-input` removes
+or bare seconds, and defaults to 30 seconds. `--workers` bounds concurrent
+upstream requests after filtering and limiting; it defaults to `1`, must be
+positive, and does not change result ordering in JSON reports. `--exclude-input` removes
 operations already present in an existing verification report before applying
 the limit, so scheduled batches can accumulate evidence without repeating the
 same dataset operation. The command should call only
@@ -431,7 +434,7 @@ protocols, malformed endpoints, approval-gated entries, and operations missing
 required parameters should be returned as `skipped` with a clear reason.
 
 Verification JSON includes a `report` with `generated_at`, `provider`,
-`registry`, `ref`, `operation`, `limit`, `timeout`, `exclude_input`,
+`registry`, `ref`, `operation`, `limit`, `workers`, `timeout`, `exclude_input`,
 `truncated`, `filters`, `filtered_count`, `summary`, and `results`. Each result includes dataset ID,
 operation, dependency class, status,
 timestamp when a call was attempted, HTTP status, semantic status, provider

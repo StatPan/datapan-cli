@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
@@ -858,7 +859,7 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog coverage [--registry PATH] [--verification REPORT] [--route-disposition REPORT] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog route-disposition [--registry PATH] [--probe REPORT] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog coverage [--registry PATH] [--verification REPORT] [--route-disposition REPORT] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog route-disposition [--registry PATH] [--probe REPORT] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--workers N] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
@@ -3935,6 +3936,13 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	workers, args, err := consumeInt(args, "--workers", 1)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if workers <= 0 {
+		return a.fail(exitUsage, "--workers requires a positive integer")
+	}
 	if ref == "" && len(args) > 0 {
 		ref = args[0]
 		args = args[1:]
@@ -3943,7 +3951,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--workers N] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
@@ -3952,8 +3960,8 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--status must be one of: verified, failed, skipped, unknown")
 	}
 	if input != "" {
-		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || hostFilter != "" || kindFilter != "" || excludeInput != "" || probeUnadapted || timeoutProvided {
-			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --host, --kind, --exclude-input, --probe-unadapted, or --timeout")
+		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || hostFilter != "" || kindFilter != "" || excludeInput != "" || probeUnadapted || timeoutProvided || workers != 1 {
+			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --host, --kind, --exclude-input, --probe-unadapted, --timeout, or --workers")
 		}
 		return a.catalogVerifyInput(input, output, statusFilter, limit, jsonOut)
 	}
@@ -3996,102 +4004,8 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		candidates, truncated = filterUnseenVerificationCandidates(candidates, excludeSeen, limit)
 	}
 	generatedAt := time.Now().UTC().Format(time.RFC3339)
-	results := make([]datago.VerificationResult, 0, len(candidates))
-	authMissing := false
 	providerRegistry, _ := providers.DefaultRegistry()
-	for _, candidate := range candidates {
-		if adapter, ok := providerRegistry.MatchHost(candidate.EndpointHost); ok && (candidate.DependencyClass == "external_endpoint" || candidate.DependencyClass == "service_root") {
-			keyName, key, _ := a.resolveKeyValue()
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			result := adapter.Verify(ctx, providers.VerificationRequest{
-				Spec:          candidate.Spec,
-				Operation:     candidate.Operation,
-				Params:        candidate.Params,
-				MissingParams: candidate.MissingParams,
-				Credential:    providers.Credential{Name: keyName, Value: key},
-				HTTP:          a.http,
-				VerifiedAt:    generatedAt,
-			})
-			cancel()
-			if result.Reason == "missing_auth" {
-				authMissing = true
-			}
-			results = append(results, result)
-			continue
-		}
-		if candidate.SkipReason != "" {
-			if probeUnadapted && candidate.SkipReason == "external_provider_adapter_missing" {
-				ctx, cancel := context.WithTimeout(context.Background(), timeout)
-				results = append(results, a.probeUnadaptedExternal(ctx, candidate, generatedAt))
-				cancel()
-				continue
-			}
-			results = append(results, datago.NewSkippedVerificationResult(candidate, ""))
-			continue
-		}
-		if _, _, ok := a.resolveKeyValue(); !ok {
-			authMissing = true
-			results = append(results, datago.NewSkippedVerificationResult(candidate, "missing_auth"))
-			continue
-		}
-		plan, _, err := a.requestPlanForOperation(candidate.Spec, candidate.Operation, candidate.Params)
-		if err != nil {
-			results = append(results, datago.VerificationResult{
-				DatasetID:       candidate.Spec.ID,
-				Title:           candidate.Spec.Title,
-				Operation:       candidate.Operation.Name,
-				Provider:        candidate.Spec.Provider,
-				EndpointHost:    candidate.EndpointHost,
-				DependencyClass: candidate.DependencyClass,
-				Status:          "failed",
-				Reason:          err.Error(),
-				VerifiedAt:      generatedAt,
-				Params:          candidate.Params,
-			})
-			continue
-		}
-		plan.Timeout = timeout
-		envelope, err := a.execute(plan)
-		if err != nil {
-			results = append(results, datago.VerificationResult{
-				DatasetID:       candidate.Spec.ID,
-				Title:           candidate.Spec.Title,
-				Operation:       candidate.Operation.Name,
-				Provider:        candidate.Spec.Provider,
-				EndpointHost:    candidate.EndpointHost,
-				DependencyClass: candidate.DependencyClass,
-				Status:          "failed",
-				Reason:          err.Error(),
-				VerifiedAt:      generatedAt,
-				URL:             plan.RedactedURL,
-				Params:          candidate.Params,
-			})
-			continue
-		}
-		status := "verified"
-		reason := ""
-		if !envelope.OK {
-			status = "failed"
-			reason = envelope.Message
-		}
-		results = append(results, datago.VerificationResult{
-			DatasetID:       candidate.Spec.ID,
-			Title:           candidate.Spec.Title,
-			Operation:       candidate.Operation.Name,
-			Provider:        candidate.Spec.Provider,
-			EndpointHost:    candidate.EndpointHost,
-			DependencyClass: candidate.DependencyClass,
-			Status:          status,
-			Reason:          reason,
-			VerifiedAt:      generatedAt,
-			HTTPStatus:      envelope.StatusCode,
-			SemanticStatus:  envelope.SemanticStatus,
-			ProviderStatus:  envelope.ProviderStatus,
-			URL:             envelope.URL,
-			Params:          candidate.Params,
-			BodyShape:       verificationBodyShape(envelope),
-		})
-	}
+	results, authMissing := a.verifyCandidates(candidates, providerRegistry, probeUnadapted, generatedAt, timeout, workers)
 	report := datago.VerificationReport{
 		GeneratedAt:   generatedAt,
 		Provider:      "data.go.kr",
@@ -4099,6 +4013,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		Ref:           ref,
 		Operation:     operation,
 		Limit:         limit,
+		Workers:       workers,
 		Timeout:       timeout.String(),
 		ExcludeInput:  excludeInput,
 		Truncated:     truncated,
@@ -4140,6 +4055,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if output != "" {
 		fmt.Fprintf(a.stdout, "  output: %s\n", output)
 	}
+	fmt.Fprintf(a.stdout, "  workers: %d\n", workers)
 	fmt.Fprintf(a.stdout, "  verified: %d\n", report.Summary.Verified)
 	fmt.Fprintf(a.stdout, "  failed: %d\n", report.Summary.Failed)
 	fmt.Fprintf(a.stdout, "  skipped: %d\n", report.Summary.Skipped)
@@ -6411,6 +6327,139 @@ func verificationReportFilters(status string) *datago.VerificationReportFilters 
 		return nil
 	}
 	return &datago.VerificationReportFilters{Status: status}
+}
+
+func (a app) verifyCandidates(candidates []datago.VerificationCandidate, providerRegistry providers.Registry, probeUnadapted bool, generatedAt string, timeout time.Duration, workers int) ([]datago.VerificationResult, bool) {
+	if len(candidates) == 0 {
+		return nil, false
+	}
+	if workers <= 1 {
+		results := make([]datago.VerificationResult, 0, len(candidates))
+		authMissing := false
+		for _, candidate := range candidates {
+			result, missing := a.verifyCandidate(candidate, providerRegistry, probeUnadapted, generatedAt, timeout)
+			if missing {
+				authMissing = true
+			}
+			results = append(results, result)
+		}
+		return results, authMissing
+	}
+	workerCount := workers
+	if workerCount > len(candidates) {
+		workerCount = len(candidates)
+	}
+	results := make([]datago.VerificationResult, len(candidates))
+	jobs := make(chan int)
+	authMissing := false
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				result, missing := a.verifyCandidate(candidates[idx], providerRegistry, probeUnadapted, generatedAt, timeout)
+				results[idx] = result
+				if missing {
+					mu.Lock()
+					authMissing = true
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+	for idx := range candidates {
+		jobs <- idx
+	}
+	close(jobs)
+	wg.Wait()
+	return results, authMissing
+}
+
+func (a app) verifyCandidate(candidate datago.VerificationCandidate, providerRegistry providers.Registry, probeUnadapted bool, generatedAt string, timeout time.Duration) (datago.VerificationResult, bool) {
+	if adapter, ok := providerRegistry.MatchHost(candidate.EndpointHost); ok && (candidate.DependencyClass == "external_endpoint" || candidate.DependencyClass == "service_root") {
+		keyName, key, _ := a.resolveKeyValue()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		result := adapter.Verify(ctx, providers.VerificationRequest{
+			Spec:          candidate.Spec,
+			Operation:     candidate.Operation,
+			Params:        candidate.Params,
+			MissingParams: candidate.MissingParams,
+			Credential:    providers.Credential{Name: keyName, Value: key},
+			HTTP:          a.http,
+			VerifiedAt:    generatedAt,
+		})
+		cancel()
+		return result, result.Reason == "missing_auth"
+	}
+	if candidate.SkipReason != "" {
+		if probeUnadapted && candidate.SkipReason == "external_provider_adapter_missing" {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			result := a.probeUnadaptedExternal(ctx, candidate, generatedAt)
+			cancel()
+			return result, false
+		}
+		return datago.NewSkippedVerificationResult(candidate, ""), false
+	}
+	if _, _, ok := a.resolveKeyValue(); !ok {
+		return datago.NewSkippedVerificationResult(candidate, "missing_auth"), true
+	}
+	plan, _, err := a.requestPlanForOperation(candidate.Spec, candidate.Operation, candidate.Params)
+	if err != nil {
+		return datago.VerificationResult{
+			DatasetID:       candidate.Spec.ID,
+			Title:           candidate.Spec.Title,
+			Operation:       candidate.Operation.Name,
+			Provider:        candidate.Spec.Provider,
+			EndpointHost:    candidate.EndpointHost,
+			DependencyClass: candidate.DependencyClass,
+			Status:          "failed",
+			Reason:          err.Error(),
+			VerifiedAt:      generatedAt,
+			Params:          candidate.Params,
+		}, false
+	}
+	plan.Timeout = timeout
+	envelope, err := a.execute(plan)
+	if err != nil {
+		return datago.VerificationResult{
+			DatasetID:       candidate.Spec.ID,
+			Title:           candidate.Spec.Title,
+			Operation:       candidate.Operation.Name,
+			Provider:        candidate.Spec.Provider,
+			EndpointHost:    candidate.EndpointHost,
+			DependencyClass: candidate.DependencyClass,
+			Status:          "failed",
+			Reason:          err.Error(),
+			VerifiedAt:      generatedAt,
+			URL:             plan.RedactedURL,
+			Params:          candidate.Params,
+		}, false
+	}
+	status := "verified"
+	reason := ""
+	if !envelope.OK {
+		status = "failed"
+		reason = envelope.Message
+	}
+	return datago.VerificationResult{
+		DatasetID:       candidate.Spec.ID,
+		Title:           candidate.Spec.Title,
+		Operation:       candidate.Operation.Name,
+		Provider:        candidate.Spec.Provider,
+		EndpointHost:    candidate.EndpointHost,
+		DependencyClass: candidate.DependencyClass,
+		Status:          status,
+		Reason:          reason,
+		VerifiedAt:      generatedAt,
+		HTTPStatus:      envelope.StatusCode,
+		SemanticStatus:  envelope.SemanticStatus,
+		ProviderStatus:  envelope.ProviderStatus,
+		URL:             envelope.URL,
+		Params:          candidate.Params,
+		BodyShape:       verificationBodyShape(envelope),
+	}, false
 }
 
 func limitVerificationResults(results []datago.VerificationResult, limit int) []datago.VerificationResult {
@@ -9039,7 +9088,7 @@ Usage:
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
   datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]
-  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--workers N] [--json]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--json]
@@ -9054,7 +9103,7 @@ Usage:
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
   datapan catalog dependencies [--registry PATH] [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--output PATH|-] [--json]
   datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
-  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--workers N] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
@@ -9209,7 +9258,7 @@ List adapter targets for external provider hosts that still need coverage.`, tru
 List registry operations with dependency and adapter status filters.`, true
 	case "verify":
 		return `Usage:
-  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--workers N] [--json]
 
 Run bounded runtime verification against selected registry operations.`, true
 	case "show":
@@ -9317,7 +9366,7 @@ Write the prioritized queue of external provider hosts needing adapters.`, true
 Generate static Studio data files and viewer HTML from the registry.`, true
 	case "catalog verify":
 		return `Usage:
-  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--workers N] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]

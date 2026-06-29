@@ -4,10 +4,10 @@ set -eu
 repo="StatPan/datapan-cli"
 version="${DATAPAN_VERSION:-latest}"
 install_dir="${DATAPAN_INSTALL_DIR:-"$HOME/.datapan/bin"}"
-install_dp="${DATAPAN_INSTALL_DP:-1}"
+install_dp="${DATAPAN_INSTALL_DP:-0}"
 
 usage() {
-  echo "Usage: DATAPAN_VERSION=latest DATAPAN_INSTALL_DIR=\$HOME/.datapan/bin sh scripts/install.sh"
+  echo "Usage: DATAPAN_VERSION=latest DATAPAN_INSTALL_DIR=\$HOME/.datapan/bin DATAPAN_INSTALL_DP=1 sh scripts/install.sh"
 }
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
@@ -81,9 +81,15 @@ mkdir -p "$install_dir"
 cp "$payload/datapan" "$install_dir/datapan"
 chmod +x "$install_dir/datapan"
 
-if [ "$install_dp" != "0" ]; then
-  cp "$payload/dp" "$install_dir/dp"
-  chmod +x "$install_dir/dp"
+if [ "$install_dp" = "1" ]; then
+  existing_dp="$(command -v dp 2>/dev/null || true)"
+  target_dp="$install_dir/dp"
+  if [ -n "$existing_dp" ] && [ "$existing_dp" != "$target_dp" ]; then
+    echo "Skipping optional dp alias because another dp command exists at $existing_dp." >&2
+  else
+    cp "$payload/dp" "$target_dp"
+    chmod +x "$target_dp"
+  fi
 fi
 
 "$install_dir/datapan" version --json

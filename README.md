@@ -58,10 +58,20 @@ curl -fsSL https://raw.githubusercontent.com/StatPan/datapan-cli/main/scripts/in
 ```
 
 The installers download the latest GitHub Release archive, verify
-`checksums.txt`, install `datapan` and the optional `dp` alias into
-`$HOME/.datapan/bin`, and print `datapan version --json`.
+`checksums.txt`, install `datapan` into `$HOME/.datapan/bin`, and print
+`datapan version --json`.
 To pin a specific release, download the script first and pass `-Version v0.1.1`
 on PowerShell, or set `DATAPAN_VERSION=v0.1.1` for the shell installer.
+Install the optional `dp` alias with `-InstallAlias` on PowerShell or
+`DATAPAN_INSTALL_DP=1` for the shell installer; if another `dp` command exists,
+the alias is skipped.
+
+Detailed docs:
+
+- [Install](docs-site/install.md)
+- [Quickstart](docs-site/quickstart.md)
+- [Command reference](docs-site/command-reference.md)
+- [Troubleshooting](docs-site/troubleshooting.md)
 
 From source:
 
@@ -459,8 +469,9 @@ paging parameters or a registered provider adapter, then records `verified`,
 `failed`, or `skipped` with provider status, HTTP status, dependency class,
 redacted URL, skip reasons, and the per-call timeout used for the run. Q-Net has
 a narrow verification path for proven XML endpoints. Use `--timeout` to bound
-each provider call, and use `--provider`, `--host`, and `--kind` to collect
-bounded adapter evidence without blindly calling the whole catalog. Add
+each provider call, use `--workers` to bound concurrent upstream requests
+after filtering and limiting, and use `--provider`, `--host`, and `--kind` to
+collect bounded adapter evidence without blindly calling the whole catalog. Add
 `--probe-unadapted` when auditing external endpoints without a registered
 adapter; Datapan performs a credential-free GET probe and records DNS, timeout,
 HTTP 404, HTTP 503, and other transport failures as explicit verification
