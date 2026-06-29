@@ -12,6 +12,7 @@ type VerificationReport struct {
 	Ref           string                     `json:"ref,omitempty"`
 	Operation     string                     `json:"operation,omitempty"`
 	Limit         int                        `json:"limit"`
+	Workers       int                        `json:"workers,omitempty"`
 	Timeout       string                     `json:"timeout,omitempty"`
 	ExcludeInput  string                     `json:"exclude_input,omitempty"`
 	Truncated     bool                       `json:"truncated"`

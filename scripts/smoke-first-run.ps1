@@ -47,7 +47,7 @@ $ProjectDir = Join-Path $WorkDir "project"
 New-Item -ItemType Directory -Path $InstallDir, $ProjectDir -Force | Out-Null
 
 try {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "scripts/install.ps1") -Version $Version -InstallDir $InstallDir
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "scripts/install.ps1") -Version $Version -InstallDir $InstallDir -InstallAlias
     if ($LASTEXITCODE -ne 0) {
         throw "install.ps1 failed with exit code $LASTEXITCODE"
     }

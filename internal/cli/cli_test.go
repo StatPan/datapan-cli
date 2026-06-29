@@ -3560,6 +3560,88 @@ func TestCatalogVerifyGatewayUsesTimeout(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyWorkersRunsConcurrentlyAndKeepsResultOrder(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"100",
+			"title":"기관_A",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"operations":[
+				{"name":"첫번째","endpoint":"https://apis.data.go.kr/100/first","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]},
+				{"name":"두번째","endpoint":"https://apis.data.go.kr/100/second","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]}
+			]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		entered <- req.URL.Path
+		<-release
+		header := make(http.Header)
+		header.Set("Content-Type", "application/json")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"00","resultMsg":"OK"},"body":{"items":{"item":[{"name":"ok"}]}}}}`)),
+			Header:     header,
+		}, nil
+	})
+	type runResult struct {
+		code   int
+		stdout string
+		stderr string
+	}
+	done := make(chan runResult, 1)
+	go func() {
+		code, stdout, stderr := runTest(
+			[]string{"catalog", "verify", "--registry", tmp, "--ref", "100", "--workers", "2", "--json"},
+			fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+			client,
+		)
+		done <- runResult{code: code, stdout: stdout, stderr: stderr}
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("expected two concurrent verification requests")
+		}
+	}
+	close(release)
+	result := <-done
+	if result.code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", result.code, result.stdout, result.stderr)
+	}
+	for _, want := range []string{
+		`"workers": 2`,
+		`"filtered_count": 2`,
+		`"verified": 2`,
+	} {
+		if !strings.Contains(result.stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, result.stdout)
+		}
+	}
+	first := strings.Index(result.stdout, `"operation": "첫번째"`)
+	second := strings.Index(result.stdout, `"operation": "두번째"`)
+	if first < 0 || second < 0 || first > second {
+		t.Fatalf("verification results should keep candidate order: %s", result.stdout)
+	}
+}
+
+func TestCatalogVerifyRejectsInvalidWorkers(t *testing.T) {
+	code, _, stderr := runTest([]string{"catalog", "verify", "--workers", "0", "--json"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--workers requires a positive integer") {
+		t.Fatalf("expected workers usage error: %s", stderr)
+	}
+}
+
 func TestCatalogVerifyMissingAuthKeepsExitAuth(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[
@@ -3874,6 +3956,13 @@ func TestCatalogVerifyInputRejectsRegistryArgs(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--timeout") {
 		t.Fatalf("expected input timeout conflict message: %s", stderr)
+	}
+	code, _, stderr = runTest([]string{"catalog", "verify", "--input", "report.json", "--workers", "2"}, nil, nil)
+	if code != exitUsage {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--workers") {
+		t.Fatalf("expected input workers conflict message: %s", stderr)
 	}
 }
 

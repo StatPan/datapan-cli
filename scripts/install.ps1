@@ -1,6 +1,7 @@
 param(
     [string]$Version = "latest",
     [string]$InstallDir = "$HOME\.datapan\bin",
+    [switch]$InstallAlias,
     [switch]$NoDp,
     [switch]$Help
 )
@@ -22,8 +23,16 @@ function Get-GitHubHeaders {
 }
 
 if ($Help) {
-    Write-Output "Usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Version latest|vX.Y.Z] [-InstallDir DIR] [-NoDp]"
+    Write-Output "Usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Version latest|vX.Y.Z] [-InstallDir DIR] [-InstallAlias]"
     exit 0
+}
+
+$installDp = $InstallAlias.IsPresent
+if ($env:DATAPAN_INSTALL_DP -eq "1") {
+    $installDp = $true
+}
+if ($env:DATAPAN_INSTALL_DP -eq "0" -or $NoDp) {
+    $installDp = $false
 }
 
 function Get-ReleaseTag {
@@ -81,11 +90,17 @@ try {
 
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     Copy-Item -LiteralPath $datapan -Destination (Join-Path $InstallDir "datapan.exe") -Force
-    if (-not $NoDp) {
+    if ($installDp) {
         if (-not (Test-Path $dp)) {
             throw "dp.exe not found in $asset"
         }
-        Copy-Item -LiteralPath $dp -Destination (Join-Path $InstallDir "dp.exe") -Force
+        $dpTarget = Join-Path $InstallDir "dp.exe"
+        $existingDp = Get-Command "dp" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($existingDp -and $existingDp.Source -and ([System.IO.Path]::GetFullPath($existingDp.Source) -ne [System.IO.Path]::GetFullPath($dpTarget))) {
+            Write-Warning "Skipping optional dp alias because another dp command exists at $($existingDp.Source)."
+        } else {
+            Copy-Item -LiteralPath $dp -Destination $dpTarget -Force
+        }
     }
 
     & (Join-Path $InstallDir "datapan.exe") version --json
