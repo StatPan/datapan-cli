@@ -521,6 +521,106 @@ func TestWork24AdapterFailsNonOKOpenAPIPage(t *testing.T) {
 	}
 }
 
+func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
+	adapter := NewSeoulOpenDataAdapter()
+	if !adapter.MatchHost("data.seoul.go.kr") {
+		t.Fatal("expected seoul-open-data adapter to match data.seoul.go.kr")
+	}
+	if !adapter.MatchHost("openapi.seoul.go.kr:8088") {
+		t.Fatal("expected seoul-open-data adapter to match openapi.seoul.go.kr:8088")
+	}
+	if adapter.MatchHost("ws.bus.go.kr") {
+		t.Fatal("seoul-open-data adapter should not match Seoul bus API")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "call,verification" {
+		t.Fatalf("unexpected seoul-open-data capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.seoul.go.kr" {
+			t.Fatalf("expected data.seoul.go.kr host, got %s", req.URL.Host)
+		}
+		if strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("dataset page verification should not leak credential: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>서울 열린데이터광장</title></head><body>역사 건축 현황</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15003164", Title: "서울교통공사_역사 건축 현황", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "서울교통공사_역사 건축 현황_20240331 외부 링크 1", Endpoint: "http://data.seoul.go.kr/dataList/datasetView.do?infId=OA-11572&srvType=F&serviceKind=1&currentPageNo=1"},
+		Credential: Credential{Name: "SEOUL_OPEN_DATA_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "seoul-open-data" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected seoul-open-data verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected seoul-open-data URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestSeoulOpenDataAdapterSkipsPathAPIWithoutAuth(t *testing.T) {
+	adapter := NewSeoulOpenDataAdapter()
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "seoul-open-data-subway-station-list", Title: "Seoul Open Data subway station bounded query", Provider: "data.seoul.go.kr"},
+		Operation: datago.Operation{Name: "bounded sample", Endpoint: "http://openapi.seoul.go.kr:8088/{KEY}/{format}/{service}/{start_index}/{end_index}"},
+		Params: map[string]string{
+			"format":      "json",
+			"service":     "SearchSTNBySubwayLineInfo",
+			"start_index": "1",
+			"end_index":   "5",
+		},
+	})
+	if result.Provider != "seoul-open-data" || result.Status != "skipped" || result.Reason != "missing_auth" {
+		t.Fatalf("unexpected seoul-open-data missing auth result: %#v", result)
+	}
+	if strings.Contains(result.URL, "{KEY}") {
+		t.Fatalf("expected redacted planned URL, got %s", result.URL)
+	}
+}
+
+func TestSeoulOpenDataAdapterCallsPathAPIWithCredential(t *testing.T) {
+	adapter := NewSeoulOpenDataAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "openapi.seoul.go.kr:8088" {
+			t.Fatalf("expected openapi.seoul.go.kr:8088 host, got %s", req.URL.Host)
+		}
+		if req.URL.Path != "/secret/json/SearchSTNBySubwayLineInfo/1/5" {
+			t.Fatalf("unexpected Seoul Open Data path: %s", req.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`{"SearchSTNBySubwayLineInfo":{"RESULT":{"CODE":"INFO-000","MESSAGE":"정상 처리되었습니다"},"row":[{"STATION_NM":"서울"}]}}`)),
+		}, nil
+	})
+	envelope, err := adapter.Call(context.Background(), CallRequest{
+		Spec:      datago.Spec{ID: "seoul-open-data-subway-station-list", Title: "Seoul Open Data subway station bounded query", Provider: "data.seoul.go.kr"},
+		Operation: datago.Operation{Name: "bounded sample", Endpoint: "http://openapi.seoul.go.kr:8088/{KEY}/{format}/{service}/{start_index}/{end_index}"},
+		Params: map[string]string{
+			"format":      "json",
+			"service":     "SearchSTNBySubwayLineInfo",
+			"start_index": "1",
+			"end_index":   "5",
+		},
+		Credential: Credential{Name: "SEOUL_OPEN_DATA_KEY", Value: "secret"},
+		HTTP:       client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Provider != "seoul-open-data" || envelope.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected seoul-open-data call envelope: %#v", envelope)
+	}
+	if !strings.Contains(envelope.URL, "/REDACTED/json/SearchSTNBySubwayLineInfo/1/5") || strings.Contains(envelope.URL, "secret") {
+		t.Fatalf("expected redacted seoul-open-data call URL: %s", envelope.URL)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {

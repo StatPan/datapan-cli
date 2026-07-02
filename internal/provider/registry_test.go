@@ -75,39 +75,41 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		t.Fatal(err)
 	}
 	for host, name := range map[string]string{
-		"openapi.airport.co.kr": "airport",
-		"www.andong.go.kr":      "andong",
-		"data.gg.go.kr":         "data-gg",
-		"www.emuseum.go.kr":     "emuseum",
-		"openapi.q-net.or.kr":   "q-net",
-		"openapi.epost.go.kr":   "epost",
-		"data.ekape.or.kr":      "ekape",
-		"www.garak.co.kr":       "garak",
-		"openapi.gblib.or.kr":   "gblib",
-		"data.geoje.go.kr":      "geoje",
-		"data.gwanak.go.kr":     "gwanak",
-		"data.humetro.busan.kr": "humetro",
-		"data.sisul.or.kr":      "sisul",
-		"data.uiryeong.go.kr":   "uiryeong",
-		"folkency.nfm.go.kr":    "folk",
-		"api.forest.go.kr":      "forest",
-		"open.itfind.or.kr":     "itfind",
-		"data.jeju.go.kr":       "jeju",
-		"openapi.jeonju.go.kr":  "jeonju",
-		"www.korad.or.kr":       "korad",
-		"openapi.kpx.or.kr":     "kpx",
-		"openapi.ebid.lh.or.kr": "lh-ebid",
-		"data.mafra.go.kr":      "mafra",
-		"data.myhome.go.kr:443": "myhome",
-		"data.naqs.go.kr":       "naqs",
-		"www.nfqs.go.kr":        "nfqs",
-		"www.nongsaro.go.kr":    "nongsaro",
-		"oneclick.law.go.kr":    "oneclick-law",
-		"openapi.pqis.go.kr":    "pqis",
-		"openapi.tour.go.kr":    "tour",
-		"ws.bus.go.kr":          "seoul-bus",
-		"openapi.its.ulsan.kr":  "ulsan",
-		"www.work24.go.kr":      "work24",
+		"openapi.airport.co.kr":    "airport",
+		"www.andong.go.kr":         "andong",
+		"data.gg.go.kr":            "data-gg",
+		"www.emuseum.go.kr":        "emuseum",
+		"openapi.q-net.or.kr":      "q-net",
+		"openapi.epost.go.kr":      "epost",
+		"data.ekape.or.kr":         "ekape",
+		"www.garak.co.kr":          "garak",
+		"openapi.gblib.or.kr":      "gblib",
+		"data.geoje.go.kr":         "geoje",
+		"data.gwanak.go.kr":        "gwanak",
+		"data.humetro.busan.kr":    "humetro",
+		"data.sisul.or.kr":         "sisul",
+		"data.uiryeong.go.kr":      "uiryeong",
+		"folkency.nfm.go.kr":       "folk",
+		"api.forest.go.kr":         "forest",
+		"open.itfind.or.kr":        "itfind",
+		"data.jeju.go.kr":          "jeju",
+		"openapi.jeonju.go.kr":     "jeonju",
+		"www.korad.or.kr":          "korad",
+		"openapi.kpx.or.kr":        "kpx",
+		"openapi.ebid.lh.or.kr":    "lh-ebid",
+		"data.mafra.go.kr":         "mafra",
+		"data.myhome.go.kr:443":    "myhome",
+		"data.naqs.go.kr":          "naqs",
+		"www.nfqs.go.kr":           "nfqs",
+		"www.nongsaro.go.kr":       "nongsaro",
+		"oneclick.law.go.kr":       "oneclick-law",
+		"openapi.pqis.go.kr":       "pqis",
+		"openapi.tour.go.kr":       "tour",
+		"data.seoul.go.kr":         "seoul-open-data",
+		"openapi.seoul.go.kr:8088": "seoul-open-data",
+		"ws.bus.go.kr":             "seoul-bus",
+		"openapi.its.ulsan.kr":     "ulsan",
+		"www.work24.go.kr":         "work24",
 	} {
 		adapter, ok := registry.MatchHost(host)
 		if !ok {
@@ -118,13 +120,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 33 || report.HostCount != 37 {
+	if report.AdapterCount != 34 || report.HostCount != 39 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 33 || report.SplitReadiness.VerificationCapableAdapters != 33 || report.SplitReadiness.CallCapableAdapters != 21 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 34 || report.SplitReadiness.VerificationCapableAdapters != 34 || report.SplitReadiness.CallCapableAdapters != 22 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -163,6 +165,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"pqis", "openapi.pqis.go.kr", "call,verification"},
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
 		{"seoul-bus", "ws.bus.go.kr", "call,verification"},
+		{"seoul-open-data", "data.seoul.go.kr,openapi.seoul.go.kr:8088", "call,verification"},
 		{"sisul", "data.sisul.or.kr", "call,verification"},
 		{"tour", "openapi.tour.go.kr", "call,verification"},
 		{"uiryeong", "data.uiryeong.go.kr", "call,verification"},
