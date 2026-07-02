@@ -827,6 +827,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewFoodSafetyKoreaAdapter(),
 		},
 		{
+			name:     "gwangmyeong",
+			provider: "gwangmyeong",
+			host:     "data.gm.go.kr",
+			endpoint: "https://data.gm.go.kr/api/example",
+			adapter:  NewGwangmyeongAdapter(),
+		},
+		{
 			name:     "ins24",
 			provider: "ins24",
 			host:     "www.ins24.go.kr",
@@ -839,6 +846,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			host:     "www.jejudatahub.net",
 			endpoint: "https://www.jejudatahub.net/api/example",
 			adapter:  NewJejuDataHubAdapter(),
+		},
+		{
+			name:     "seogu",
+			provider: "seogu",
+			host:     "seogu.go.kr",
+			endpoint: "https://seogu.go.kr/api/example",
+			adapter:  NewSeoguAdapter(),
 		},
 		{
 			name:     "vworld",
@@ -898,8 +912,10 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		adapter  Adapter
 	}{
 		{name: "foodsafetykorea", provider: "foodsafetykorea", endpoint: "https://www.foodsafetykorea.go.kr/api/missing", adapter: NewFoodSafetyKoreaAdapter()},
+		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
 		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
+		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
 	}
 	for _, tc := range cases {
