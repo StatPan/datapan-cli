@@ -2098,6 +2098,59 @@ func TestCatalogImportAllFetchesUntilTotalCount(t *testing.T) {
 	}
 }
 
+func TestCatalogImportEnrichesLinkDetailOperations(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Host + req.URL.Path {
+		case "api.odcloud.kr/api/15077093/v1/open-data-list":
+			body := `{
+				"currentCount": 1,
+				"data": [
+					{"api_type": "LINK", "list_id": "15005231", "list_title": "경기도 정기간행물 현황", "title": "정기간행물 현황", "org_nm": "경기도", "data_format": "XML"}
+				],
+				"page": 1,
+				"perPage": 1,
+				"totalCount": 1
+			}`
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		case "www.data.go.kr/data/15005231/openapi.do":
+			body := `<a href="https://data.gg.go.kr/portal/data/service/selectServicePage.do?page=1&amp;infId=ABC&amp;infSeq=3" onclick="fn_LinkApiRequest('uddi:test')">link</a>`
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected request %s", req.URL)
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--per-page", "1", "--pages", "1", "--enrich-link-details", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"operations": 1`, `"link_detail_enrichment"`, `"operations_added": 1`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	data, err := osReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"endpoint": "https://data.gg.go.kr/portal/data/service/selectServicePage.do?page=1&infId=ABC&infSeq=3"`) {
+		t.Fatalf("expected enriched endpoint in registry: %s", data)
+	}
+}
+
 func TestCatalogImportAllStopsAtMaxPages(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {

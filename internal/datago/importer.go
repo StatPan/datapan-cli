@@ -5,9 +5,11 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,6 +53,18 @@ type ImportResult struct {
 	Operations   int    `json:"operations"`
 	Retries      int    `json:"retries,omitempty"`
 	FailedPage   int    `json:"failed_page,omitempty"`
+}
+
+type LinkDetailEnrichmentOptions struct {
+	Limit int
+}
+
+type LinkDetailEnrichmentResult struct {
+	Candidates      int `json:"candidates"`
+	DetailsFetched  int `json:"details_fetched"`
+	RowsAdded       int `json:"rows_added"`
+	OperationsAdded int `json:"operations_added"`
+	Skipped         int `json:"skipped"`
 }
 
 type OpenDataListResponse struct {
@@ -160,6 +174,46 @@ func FetchDataGoKrOpenDataList(ctx context.Context, client HTTPClient, opts Impo
 		}
 	}
 	return rows, result, nil
+}
+
+func EnrichLinkDetailOperations(ctx context.Context, client HTTPClient, rows []OpenDataListRow, opts LinkDetailEnrichmentOptions) ([]OpenDataListRow, LinkDetailEnrichmentResult, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	out := append([]OpenDataListRow(nil), rows...)
+	result := LinkDetailEnrichmentResult{}
+	for idx, row := range rows {
+		if !needsLinkDetailOperation(row) {
+			continue
+		}
+		result.Candidates++
+		if opts.Limit > 0 && result.DetailsFetched >= opts.Limit {
+			result.Skipped++
+			continue
+		}
+		links, err := fetchLinkDetailOperationURLs(ctx, client, row)
+		if err != nil {
+			return out, result, err
+		}
+		result.DetailsFetched++
+		if len(links) == 0 {
+			result.Skipped++
+			continue
+		}
+		for linkIdx, link := range links {
+			enriched := row
+			enriched.OperationURL = link
+			enriched.OperationName = linkDetailOperationName(row, linkIdx, len(links))
+			if linkIdx == 0 {
+				out[idx] = enriched
+			} else {
+				out = append(out, enriched)
+				result.RowsAdded++
+			}
+			result.OperationsAdded++
+		}
+	}
+	return out, result, nil
 }
 
 func fetchOpenDataListPageWithRetry(ctx context.Context, client HTTPClient, opts ImportOptions, page int) (OpenDataListResponse, int, error) {
@@ -280,6 +334,67 @@ func fetchOpenDataListPage(ctx context.Context, client HTTPClient, opts ImportOp
 	return payload, nil
 }
 
+func fetchLinkDetailOperationURLs(ctx context.Context, client HTTPClient, row OpenDataListRow) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataGoKrApplicationURL(row.ListID), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("data.go.kr link detail fetch failed for %s: HTTP %d %s", row.ListID, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	return ExtractLinkDetailOperationURLs(string(body)), nil
+}
+
+var (
+	anchorTagPattern = regexp.MustCompile(`(?is)<a\b[^>]*>`)
+	hrefAttrPattern  = regexp.MustCompile(`(?is)\bhref\s*=\s*["']([^"']+)["']`)
+)
+
+func ExtractLinkDetailOperationURLs(pageHTML string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, tag := range anchorTagPattern.FindAllString(pageHTML, -1) {
+		if !strings.Contains(tag, "fn_LinkApiRequest") {
+			continue
+		}
+		match := hrefAttrPattern.FindStringSubmatch(tag)
+		if len(match) != 2 {
+			continue
+		}
+		raw := strings.TrimSpace(html.UnescapeString(match[1]))
+		if raw == "" {
+			continue
+		}
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Host == "" {
+			continue
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			continue
+		}
+		host := strings.ToLower(parsed.Hostname())
+		if host == "data.go.kr" || host == "www.data.go.kr" {
+			continue
+		}
+		if seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		out = append(out, raw)
+	}
+	return out
+}
+
 func (r OpenDataListRow) operation() Operation {
 	endpoint := operationEndpoint(r.EndpointURL, r.OperationURL)
 	name := strings.TrimSpace(r.OperationName)
@@ -341,6 +456,22 @@ func hasOperation(spec Spec, op Operation) bool {
 		}
 	}
 	return false
+}
+
+func needsLinkDetailOperation(row OpenDataListRow) bool {
+	return strings.TrimSpace(row.ListID) != "" &&
+		strings.EqualFold(strings.TrimSpace(row.APIType), "LINK") &&
+		strings.TrimSpace(row.OperationName) == "" &&
+		strings.TrimSpace(row.OperationURL) == "" &&
+		strings.TrimSpace(row.EndpointURL) == ""
+}
+
+func linkDetailOperationName(row OpenDataListRow, index, total int) string {
+	name := firstNonEmpty(row.Title, row.ListTitle)
+	if total <= 1 {
+		return name
+	}
+	return fmt.Sprintf("%s 외부 링크 %d", name, index+1)
 }
 
 func pairParams(namesEN, labels string) []Param {

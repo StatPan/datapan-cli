@@ -386,6 +386,10 @@ Use `--all` to continue fetching pages until the upstream `totalCount` has been
 reached; use `--pages N` for a bounded sample or smoke test. `--all` has a
 default `--max-pages 1000` guard that can be raised for unusually large
 catalogs.
+Add `--enrich-link-details` when refreshing LINK-style rows that have no
+operation metadata in the list API. The importer then fetches the corresponding
+data.go.kr detail pages and materializes external 활용 links as operations;
+use `--enrich-limit N` for bounded batches while expanding coverage.
 
 Commands that operate on one dataset accept a `<ref>`. A ref can be a
 data.go.kr list ID, a data.go.kr detail URL, an exact title, or a search query.
@@ -500,8 +504,9 @@ Use `datapan catalog update data-go-kr` for the safer update path. It imports
 the full upstream catalog with bounded retries, diffs it against the current
 registry, audits the new registry, and stays in dry-run mode unless `--apply`
 is present. Add `--backup` with `--apply` to keep a timestamped copy of the
-previous registry. Diff output is bounded by default; use `--diff-limit 0` when
-a full machine-readable diff is needed.
+previous registry. Add `--enrich-link-details` to include LINK detail-page
+operation enrichment in the refreshed registry. Diff output is bounded by
+default; use `--diff-limit 0` when a full machine-readable diff is needed.
 
 `datapan show <ref> --json` is the bridge from discovery to use. It keeps the
 normalized spec, and also returns access metadata, operation parameter names,
