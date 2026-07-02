@@ -101,6 +101,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.korad.or.kr":          "korad",
 		"openapi.kpx.or.kr":        "kpx",
 		"openapi.ebid.lh.or.kr":    "lh-ebid",
+		"www.lofin365.go.kr":       "lofin365",
 		"data.mafra.go.kr":         "mafra",
 		"data.myhome.go.kr:443":    "myhome",
 		"data.naqs.go.kr":          "naqs",
@@ -127,13 +128,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 41 || report.HostCount != 46 {
+	if report.AdapterCount != 42 || report.HostCount != 47 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 41 || report.SplitReadiness.VerificationCapableAdapters != 41 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 42 || report.SplitReadiness.VerificationCapableAdapters != 42 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -167,6 +168,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"korad", "www.korad.or.kr", "call,verification"},
 		{"kpx", "openapi.kpx.or.kr", "call,verification"},
 		{"lh-ebid", "openapi.ebid.lh.or.kr", "call,verification"},
+		{"lofin365", "www.lofin365.go.kr", "verification"},
 		{"mafra", "data.mafra.go.kr", "verification"},
 		{"myhome", "data.myhome.go.kr:443", "call,verification"},
 		{"naqs", "data.naqs.go.kr", "call,verification"},
