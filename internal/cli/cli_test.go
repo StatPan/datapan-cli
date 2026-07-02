@@ -2151,6 +2151,18 @@ func TestCatalogImportEnrichesLinkDetailOperations(t *testing.T) {
 	}
 }
 
+func TestCatalogImportTimeoutExpandsForLinkDetailEnrichment(t *testing.T) {
+	if got := catalogImportTimeout(false, 0); got != 2*time.Minute {
+		t.Fatalf("default timeout=%v", got)
+	}
+	if got := catalogImportTimeout(true, 25); got != 5*time.Minute {
+		t.Fatalf("bounded enrichment timeout=%v", got)
+	}
+	if got := catalogImportTimeout(true, 0); got != 30*time.Minute {
+		t.Fatalf("full enrichment timeout=%v", got)
+	}
+}
+
 func TestCatalogImportAllStopsAtMaxPages(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
