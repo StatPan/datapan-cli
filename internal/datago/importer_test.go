@@ -85,3 +85,55 @@ func TestEnrichLinkDetailOperationsAddsOperationsForLinkRows(t *testing.T) {
 		t.Fatalf("endpoint=%q", got)
 	}
 }
+
+func TestEnrichRegistryLinkDetailOperationsAddsOperationsToExistingRegistry(t *testing.T) {
+	reg := NewRegistry([]Spec{
+		{
+			ID:           "15005231",
+			Title:        "경기도 정기간행물 현황",
+			Provider:     "data.go.kr",
+			Organization: "경기도",
+			Priority:     "P2",
+			Operations:   []Operation{},
+			Source: &Source{System: "data.go.kr", Raw: map[string]any{
+				"api_type":      "LINK",
+				"list_id":       "15005231",
+				"list_title":    "경기도 정기간행물 현황",
+				"title":         "정기간행물 현황",
+				"operation_nm":  "",
+				"operation_url": "",
+				"end_point_url": "",
+			}},
+		},
+	})
+	client := importerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://www.data.go.kr/data/15005231/openapi.do" {
+			t.Fatalf("unexpected detail request %s", req.URL)
+		}
+		body := `<a href="https://data.gg.go.kr/portal/data/service/selectServicePage.do?page=1&amp;infId=ABC&amp;infSeq=3" onclick="fn_LinkApiRequest('uddi:test')">link</a>`
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	enriched, result, err := EnrichRegistryLinkDetailOperations(context.Background(), client, reg, LinkDetailEnrichmentOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Candidates != 1 || result.DetailsFetched != 1 || result.OperationsAdded != 1 {
+		t.Fatalf("unexpected enrichment result %#v", result)
+	}
+	specs := enriched.Specs()
+	if len(specs) != 1 || len(specs[0].Operations) != 1 {
+		t.Fatalf("specs=%#v", specs)
+	}
+	op := specs[0].Operations[0]
+	if op.Endpoint != "https://data.gg.go.kr/portal/data/service/selectServicePage.do?page=1&infId=ABC&infSeq=3" {
+		t.Fatalf("endpoint=%q", op.Endpoint)
+	}
+	if got := rawString(op.Source.Raw, "operation_url"); got != op.Endpoint {
+		t.Fatalf("operation_url raw=%q", got)
+	}
+}

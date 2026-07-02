@@ -858,13 +858,15 @@ func (a app) catalog(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog coverage [--registry PATH] [--verification REPORT] [--route-disposition REPORT] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog route-disposition [--registry PATH] [--probe REPORT] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr ... | datapan catalog update data-go-kr ... | datapan catalog enrich link-details ... | datapan catalog install datapan-registry ... | datapan catalog overview [--registry PATH] [--output PATH|-] [--json] | datapan catalog coverage [--registry PATH] [--verification REPORT] [--route-disposition REPORT] [--output PATH|-] [--json] | datapan catalog studio [--registry PATH] [--output-dir DIR] [--limit N] [--query TEXT] [--org NAME] [--json] | datapan catalog diff --old OLD --new NEW [--limit N] [--output PATH|-] [--json] | datapan catalog audit [--registry PATH] [--output PATH|-] [--json] | datapan catalog errors [--registry PATH] [--output PATH|-] [--json] | datapan catalog providers [--registry PATH] [--status STATUS] [--kind KIND] [--output PATH] [--json] | datapan catalog dependencies [--registry PATH] [--kind KIND] [--status STATUS] [--output PATH|-] [--json] | datapan catalog adapter-targets [--registry PATH] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json] | datapan catalog route-disposition [--registry PATH] [--probe REPORT] [--output PATH|-] [--json] | datapan catalog verify [--registry PATH|--input REPORT|summary] [--timeout DURATION] [--json] | datapan catalog release draft --registry PATH [--previous-registry PATH] [--json] | datapan catalog release verify --manifest PATH [--output PATH|-] [--json] | datapan catalog release readiness --manifest PATH [--output PATH|-] [--json]")
 	}
 	switch args[0] {
 	case "import":
 		return a.catalogImport(args[1:], jsonOut)
 	case "update":
 		return a.catalogUpdate(args[1:], jsonOut)
+	case "enrich":
+		return a.catalogEnrich(args[1:], jsonOut)
 	case "install":
 		return a.catalogInstall(args[1:], jsonOut)
 	case "overview":
@@ -1240,6 +1242,94 @@ func (a app) catalogUpdate(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func (a app) catalogEnrich(args []string, jsonOut bool) int {
+	if len(args) == 0 || args[0] != "link-details" {
+		return a.fail(exitUsage, "usage: datapan catalog enrich link-details [--registry PATH] [--output PATH|-] [--limit N] [--json]")
+	}
+	args = args[1:]
+	registryPath, args, err := consumeString(args, "--registry", defaultRegistryPath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	output, args, err := consumeString(args, "--output", registryPath)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	limit, args, err := consumeInt(args, "--limit", 0)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan catalog enrich link-details [--registry PATH] [--output PATH|-] [--limit N] [--json]")
+	}
+	if jsonOut && output == "-" {
+		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the registry JSON to stdout")
+	}
+	reg, err := datago.LoadRegistry(registryPath)
+	if err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "request_failed",
+				"message": err.Error(),
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
+		return a.fail(exitRequest, "%v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), catalogImportTimeout(true, limit))
+	defer cancel()
+	enriched, result, err := datago.EnrichRegistryLinkDetailOperations(ctx, a.http, reg, datago.LinkDetailEnrichmentOptions{Limit: limit})
+	if err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "request_failed",
+				"message": err.Error(),
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
+		return a.fail(exitRequest, "%v", err)
+	}
+	specs := enriched.Specs()
+	if err := writeRegistryOutput(output, specs, a.stdout); err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok":      false,
+				"error":   "request_failed",
+				"message": err.Error(),
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
+		return a.fail(exitRequest, "%v", err)
+	}
+	payload := map[string]any{
+		"ok":                     true,
+		"provider":               "data.go.kr",
+		"registry":               registryPath,
+		"output":                 output,
+		"registry_format":        "datapan.specs.v1",
+		"specs_written":          len(specs),
+		"operations":             countRegistryOperations(specs),
+		"link_detail_enrichment": result,
+	}
+	if jsonOut {
+		return a.writeJSON(payload)
+	}
+	if output == "-" {
+		return exitOK
+	}
+	fmt.Fprintf(a.stdout, "Enriched %d data.go.kr LINK detail pages into %d operations.\n", result.DetailsFetched, result.OperationsAdded)
+	fmt.Fprintf(a.stdout, "Registry: %s\n", output)
+	return exitOK
+}
+
 func (a app) catalogUpdateWriteFailure(jsonOut bool, err error) int {
 	if jsonOut {
 		if code := a.writeJSON(map[string]any{
@@ -1252,6 +1342,14 @@ func (a app) catalogUpdateWriteFailure(jsonOut bool, err error) int {
 		return exitRequest
 	}
 	return a.fail(exitRequest, "%v", err)
+}
+
+func countRegistryOperations(specs []datago.Spec) int {
+	total := 0
+	for _, spec := range specs {
+		total += len(spec.Operations)
+	}
+	return total
 }
 
 func catalogImportTimeout(enrichLinkDetails bool, enrichLimit int) time.Duration {
@@ -9104,6 +9202,7 @@ Usage:
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--enrich-link-details] [--enrich-limit N] [--json]
+  datapan catalog enrich link-details [--registry PATH] [--output PATH|-] [--limit N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
   datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]
   datapan catalog coverage [--registry PATH] [--verification REPORT] [--route-disposition REPORT] [--limit N] [--output PATH|-] [--json]
@@ -9327,6 +9426,13 @@ lack operation metadata and materialize external 활용 links as operations.`, t
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--enrich-link-details] [--enrich-limit N] [--json]
 
 Compare or apply a fresh data.go.kr catalog update against an existing registry.`, true
+	case "catalog enrich":
+		return `Usage:
+  datapan catalog enrich link-details [--registry PATH] [--output PATH|-] [--limit N] [--json]
+
+Enrich an existing data.go.kr registry snapshot by fetching public data.go.kr
+detail pages for LINK rows without operations and materializing external 활용
+links as operations.`, true
 	case "catalog install":
 		return `Usage:
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]

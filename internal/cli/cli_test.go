@@ -2163,6 +2163,64 @@ func TestCatalogImportTimeoutExpandsForLinkDetailEnrichment(t *testing.T) {
 	}
 }
 
+func TestCatalogEnrichLinkDetailsUpdatesExistingRegistry(t *testing.T) {
+	dir := t.TempDir()
+	input := dir + "/registry.json"
+	output := dir + "/enriched.json"
+	registry := `[{
+		"id": "15005231",
+		"title": "경기도 정기간행물 현황",
+		"provider": "data.go.kr",
+		"organization": "경기도",
+		"priority": "P2",
+		"operations": [],
+		"source": {
+			"system": "data.go.kr",
+			"raw": {
+				"api_type": "LINK",
+				"list_id": "15005231",
+				"list_title": "경기도 정기간행물 현황",
+				"title": "정기간행물 현황",
+				"operation_nm": "",
+				"operation_url": "",
+				"end_point_url": ""
+			}
+		}
+	}]`
+	if err := osWriteFile(input, []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://www.data.go.kr/data/15005231/openapi.do" {
+			t.Fatalf("unexpected request %s", req.URL)
+		}
+		body := `<a href="https://data.gg.go.kr/portal/data/service/selectServicePage.do?page=1&amp;infId=ABC&amp;infSeq=3" onclick="fn_LinkApiRequest('uddi:test')">link</a>`
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "enrich", "link-details", "--registry", input, "--output", output, "--json"},
+		nil,
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"operations_added": 1`) {
+		t.Fatalf("expected enrichment summary: %s", stdout)
+	}
+	data, err := osReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"endpoint": "https://data.gg.go.kr/portal/data/service/selectServicePage.do?page=1&infId=ABC&infSeq=3"`) {
+		t.Fatalf("expected enriched endpoint: %s", data)
+	}
+}
+
 func TestCatalogImportAllStopsAtMaxPages(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
