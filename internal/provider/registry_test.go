@@ -77,6 +77,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	for host, name := range map[string]string{
 		"openapi.airport.co.kr":    "airport",
 		"www.andong.go.kr":         "andong",
+		"www.culture.go.kr":        "culture",
 		"data.gg.go.kr":            "data-gg",
 		"www.emuseum.go.kr":        "emuseum",
 		"openapi.q-net.or.kr":      "q-net",
@@ -86,6 +87,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.gblib.or.kr":      "gblib",
 		"data.geoje.go.kr":         "geoje",
 		"data.gwanak.go.kr":        "gwanak",
+		"www.happysd.or.kr":        "happysd",
 		"data.humetro.busan.kr":    "humetro",
 		"data.sisul.or.kr":         "sisul",
 		"data.uiryeong.go.kr":      "uiryeong",
@@ -120,13 +122,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 34 || report.HostCount != 39 {
+	if report.AdapterCount != 36 || report.HostCount != 41 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 34 || report.SplitReadiness.VerificationCapableAdapters != 34 || report.SplitReadiness.CallCapableAdapters != 22 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 36 || report.SplitReadiness.VerificationCapableAdapters != 36 || report.SplitReadiness.CallCapableAdapters != 22 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -139,6 +141,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 	}{
 		{"airport", "openapi.airport.co.kr", "verification"},
 		{"andong", "www.andong.go.kr", "call,verification"},
+		{"culture", "www.culture.go.kr", "verification"},
 		{"data-gg", "data.gg.go.kr", "verification"},
 		{"ekape", "data.ekape.or.kr", "verification"},
 		{"emuseum", "www.emuseum.go.kr", "call,verification"},
@@ -149,6 +152,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"gblib", "openapi.gblib.or.kr", "call,verification"},
 		{"geoje", "data.geoje.go.kr", "call,verification"},
 		{"gwanak", "data.gwanak.go.kr", "verification"},
+		{"happysd", "www.happysd.or.kr", "verification"},
 		{"humetro", "data.humetro.busan.kr", "call,verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},
 		{"jeju", "data.jeju.go.kr", "call,verification"},
