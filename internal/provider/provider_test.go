@@ -637,6 +637,122 @@ func TestHappySDAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestNCPMSAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewNCPMSAdapter()
+	if !adapter.MatchHost("ncpms.rda.go.kr") {
+		t.Fatal("expected ncpms adapter to match ncpms.rda.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("ncpms adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected ncpms capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "ncpms.rda.go.kr" {
+			t.Fatalf("expected ncpms.rda.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" || strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("ncpms should not synthesize or leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>국가농작물병해충도감정보</title></head><body>Open API 정보</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15002034", Title: "농촌진흥청_국가농작물병해충도감정보", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "농촌진흥청_국가농작물병해충도감정보_20240222 외부 링크 1", Endpoint: "http://ncpms.rda.go.kr/npms/OpenApiInfo.np"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "ncpms" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected ncpms verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected ncpms URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestNCPMSAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewNCPMSAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15002034", Title: "농촌진흥청_국가농작물병해충도감정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "농촌진흥청_국가농작물병해충도감정보_20240222 외부 링크 1", Endpoint: "http://ncpms.rda.go.kr/npms/OpenApiInfo.np"},
+		HTTP:      client,
+	})
+	if result.Provider != "ncpms" || result.Status != "failed" || result.Reason != "ncpms_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected ncpms failure result: %#v", result)
+	}
+}
+
+func TestI815AdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewI815Adapter()
+	if !adapter.MatchHost("search.i815.or.kr") {
+		t.Fatal("expected i815 adapter to match search.i815.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("i815 adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected i815 capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "search.i815.or.kr" {
+			t.Fatalf("expected search.i815.or.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" || strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("i815 should not synthesize or leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>한국독립운동사 소장자료 정보 DB</title></head><body>openApi</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15006273", Title: "독립기념관_한국독립운동사 소장자료 정보 DB", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "독립기념관_한국독립운동사 소장자료 정보 DB_20200703", Endpoint: "https://search.i815.or.kr/openApi.do"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "i815" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected i815 verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected i815 URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestI815AdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewI815Adapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15006273", Title: "독립기념관_한국독립운동사 소장자료 정보 DB", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "독립기념관_한국독립운동사 소장자료 정보 DB_20200703", Endpoint: "https://search.i815.or.kr/openApi.do"},
+		HTTP:      client,
+	})
+	if result.Provider != "i815" || result.Status != "failed" || result.Reason != "i815_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected i815 failure result: %#v", result)
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {

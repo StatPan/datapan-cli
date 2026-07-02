@@ -338,7 +338,7 @@ func (a QNetAdapter) Call(ctx context.Context, req CallRequest) (datago.Response
 }
 
 func DefaultRegistry() (Registry, error) {
-	return NewRegistry(NewAirportAdapter(), NewAndongAdapter(), NewCultureAdapter(), NewDataGGAdapter(), NewEKAPEAdapter(), NewEMuseumAdapter(), NewEPostAdapter(), NewFolkAdapter(), NewForestAdapter(), NewGarakAdapter(), NewGBLibAdapter(), NewGeojeAdapter(), NewGwanakAdapter(), NewHappySDAdapter(), NewHumetroAdapter(), NewItfindAdapter(), NewJejuAdapter(), NewJeonjuAdapter(), NewKoradAdapter(), NewKPXAdapter(), NewLHEBidAdapter(), NewMAFRAAdapter(), NewMyHomeAdapter(), NewNAQSAdapter(), NewNFQSAdapter(), NewNongsaroAdapter(), NewOneclickLawAdapter(), NewPQISAdapter(), NewQNetAdapter(), NewSeoulBusAdapter(), NewSeoulOpenDataAdapter(), NewSisulAdapter(), NewTourAdapter(), NewUiryeongAdapter(), NewUlsanAdapter(), NewWork24Adapter())
+	return NewRegistry(NewAirportAdapter(), NewAndongAdapter(), NewCultureAdapter(), NewDataGGAdapter(), NewEKAPEAdapter(), NewEMuseumAdapter(), NewEPostAdapter(), NewFolkAdapter(), NewForestAdapter(), NewGarakAdapter(), NewGBLibAdapter(), NewGeojeAdapter(), NewGwanakAdapter(), NewHappySDAdapter(), NewHumetroAdapter(), NewI815Adapter(), NewItfindAdapter(), NewJejuAdapter(), NewJeonjuAdapter(), NewKoradAdapter(), NewKPXAdapter(), NewLHEBidAdapter(), NewMAFRAAdapter(), NewMyHomeAdapter(), NewNAQSAdapter(), NewNCPMSAdapter(), NewNFQSAdapter(), NewNongsaroAdapter(), NewOneclickLawAdapter(), NewPQISAdapter(), NewQNetAdapter(), NewSeoulBusAdapter(), NewSeoulOpenDataAdapter(), NewSisulAdapter(), NewTourAdapter(), NewUiryeongAdapter(), NewUlsanAdapter(), NewWork24Adapter())
 }
 
 func endpointHost(raw string) string {
