@@ -51,10 +51,11 @@ type VerificationGroup struct {
 }
 
 type VerificationReportFilters struct {
-	Status   string `json:"status,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	Host     string `json:"host,omitempty"`
-	Kind     string `json:"kind,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Organization string `json:"organization,omitempty"`
+	Host         string `json:"host,omitempty"`
+	Kind         string `json:"kind,omitempty"`
 }
 
 type VerificationSummary struct {
@@ -95,8 +96,9 @@ type VerificationCandidate struct {
 }
 
 type VerificationCandidateFilters struct {
-	Hosts []string
-	Kind  string
+	Hosts        []string
+	Kind         string
+	Organization string
 }
 
 func VerificationCandidates(reg Registry, ref string, operation string, limit int) ([]VerificationCandidate, bool, error) {
@@ -119,7 +121,11 @@ func VerificationCandidatesWithFilters(reg Registry, ref string, operation strin
 	truncated := false
 	hostSet := verificationHostSet(filters.Hosts)
 	kind := strings.TrimSpace(filters.Kind)
+	organization := strings.TrimSpace(filters.Organization)
 	for _, spec := range specs {
+		if organization != "" && !containsFold(spec.Organization, organization) {
+			continue
+		}
 		for _, op := range spec.Operations {
 			if operation != "" && op.Name != operation {
 				continue
@@ -399,6 +405,8 @@ func safeVerificationDefault(name string) (string, bool) {
 		return "1", true
 	case "type", "_type", "datatype", "data_type", "returntype", "return_type", "resulttype", "result_type":
 		return "json", true
+	case "acyear", "ac_year", "year", "yyyy", "stdyear", "std_year":
+		return "2024", true
 	default:
 		return "", false
 	}

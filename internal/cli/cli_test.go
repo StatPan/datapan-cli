@@ -3542,6 +3542,63 @@ func TestCatalogVerifyCallsEligibleSmokeCandidate(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyFiltersOrganizationBeforeLimit(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	if err := osWriteFile(tmp, []byte(`[
+		{
+			"id":"100",
+			"title":"행정안전부 API",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"organization":"행정안전부",
+			"operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]}]
+		},
+		{
+			"id":"200",
+			"title":"다른 기관 API",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"organization":"다른기관",
+			"operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/200/list","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.Path, "/100/list") {
+			t.Fatalf("expected 행정안전부 operation request, got %s", req.URL.String())
+		}
+		header := make(http.Header)
+		header.Set("Content-Type", "application/json")
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"00","resultMsg":"OK"},"body":{"items":{"item":[{"name":"alpha"}]}}}}`)),
+			Header:     header,
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "--registry", tmp, "--org", "행정안전부", "--limit", "1", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"organization": "행정안전부"`,
+		`"filtered_count": 1`,
+		`"verified": 1`,
+		`"dataset_id": "100"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"dataset_id": "200"`) {
+		t.Fatalf("organization filter included other institution candidate: %s", stdout)
+	}
+}
+
 func TestCatalogVerifyExcludeInputSkipsSeenOperations(t *testing.T) {
 	dir := t.TempDir()
 	registryPath := filepath.Join(dir, "registry.json")
