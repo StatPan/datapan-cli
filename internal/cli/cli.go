@@ -973,7 +973,7 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		}
 		return a.fail(exitAuth, "missing data.go.kr API key; set one of: %s", strings.Join(datago.KeyEnvNames, ", "))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), catalogImportTimeout(enrichLinkDetails, enrichLimit))
 	defer cancel()
 	rows, result, err := datago.FetchDataGoKrOpenDataList(ctx, a.http, datago.ImportOptions{
 		ServiceKey: key,
@@ -1126,7 +1126,7 @@ func (a app) catalogUpdate(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.catalogDiffFailure(jsonOut, "existing", registryPath, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), catalogImportTimeout(enrichLinkDetails, enrichLimit))
 	defer cancel()
 	rows, result, err := datago.FetchDataGoKrOpenDataList(ctx, a.http, datago.ImportOptions{
 		ServiceKey: key,
@@ -1252,6 +1252,16 @@ func (a app) catalogUpdateWriteFailure(jsonOut bool, err error) int {
 		return exitRequest
 	}
 	return a.fail(exitRequest, "%v", err)
+}
+
+func catalogImportTimeout(enrichLinkDetails bool, enrichLimit int) time.Duration {
+	if !enrichLinkDetails {
+		return 2 * time.Minute
+	}
+	if enrichLimit > 0 && enrichLimit <= 100 {
+		return 5 * time.Minute
+	}
+	return 30 * time.Minute
 }
 
 func (a app) catalogInstall(args []string, jsonOut bool) int {
