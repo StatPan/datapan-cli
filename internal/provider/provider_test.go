@@ -695,6 +695,64 @@ func TestEShareAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestLofin365AdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewLofin365Adapter()
+	if !adapter.MatchHost("www.lofin365.go.kr") {
+		t.Fatal("expected lofin365 adapter to match www.lofin365.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("lofin365 adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected lofin365 capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.lofin365.go.kr" {
+			t.Fatalf("expected www.lofin365.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" || strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("lofin365 should not synthesize or leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>lofin365</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15138865", Title: "행정안전부_지방재정365_지방의회경비 절감률"},
+		Operation:  datago.Operation{Name: "행정안전부_지방재정365_지방의회경비 절감률", Endpoint: "https://www.lofin365.go.kr/portal/openapi/service.do?svcNo=15138865"},
+		Params:     map[string]string{"serviceKey": "secret", "page": "1"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-02T00:00:00Z",
+	})
+	if result.Provider != "lofin365" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected lofin365 verification result: %#v", result)
+	}
+	if result.URL != "https://www.lofin365.go.kr/portal/openapi/service.do?page=1&svcNo=15138865" || result.HTTPStatus != 200 {
+		t.Fatalf("unexpected lofin365 URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestLofin365AdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewLofin365Adapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<html><body>missing</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15138864", Title: "행정안전부_지방재정365_지방의회 관련경비"},
+		Operation: datago.Operation{Name: "행정안전부_지방재정365_지방의회 관련경비", Endpoint: "https://www.lofin365.go.kr/portal/openapi/missing.do"},
+		HTTP:      client,
+	})
+	if result.Provider != "lofin365" || result.Status != "failed" || result.Reason != "lofin365_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected lofin365 failure result: %#v", result)
+	}
+}
+
 func TestHappySDAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
 	adapter := NewHappySDAdapter()
 	if !adapter.MatchHost("www.happysd.or.kr") {
