@@ -89,13 +89,20 @@ datapan search "실거래" --org 국토교통부 --json
 command when callers only want to download and write the released registry.
 When it installs to a file rather than `--registry -`, it also preserves key
 release evidence artifacts under `.datapan/release` for follow-up coverage
-commands.
+commands and writes `.datapan/registry-install.json` as local provenance. The
+provenance record should include installed time, registry path, registry SHA256,
+release tag, release API URL, asset URL, pin mode, source mode, release manifest
+path, and preserved evidence paths.
 `datapan status --json` and `datapan doctor --json` report the active registry source, default registry
 path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, installed release evidence status, and next-step hints. The
 `release_evidence` object should expose the release directory, present files,
 verification totals, route-disposition counts, coverage headline metrics, and a
-coverage command that reuses installed evidence. It should not print credential values.
+coverage command that reuses installed evidence. The `registry_release` object
+should expose provenance presence, the installed registry release, active
+registry match status, latest release metadata when fetchable, `stale`/`current`
+booleans when comparable, fetch errors when offline, and non-destructive next
+steps. It should not print credential values.
 
 `datapan search --json`, `datapan list --json`, and `datapan ls --json` must
 include per-result `examples` for immediate next steps: `show`, `use`, `kit`,
