@@ -89,6 +89,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.gwanak.go.kr":        "gwanak",
 		"www.happysd.or.kr":        "happysd",
 		"data.humetro.busan.kr":    "humetro",
+		"search.i815.or.kr":        "i815",
 		"data.sisul.or.kr":         "sisul",
 		"data.uiryeong.go.kr":      "uiryeong",
 		"folkency.nfm.go.kr":       "folk",
@@ -102,6 +103,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.mafra.go.kr":         "mafra",
 		"data.myhome.go.kr:443":    "myhome",
 		"data.naqs.go.kr":          "naqs",
+		"ncpms.rda.go.kr":          "ncpms",
 		"www.nfqs.go.kr":           "nfqs",
 		"www.nongsaro.go.kr":       "nongsaro",
 		"oneclick.law.go.kr":       "oneclick-law",
@@ -122,13 +124,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 36 || report.HostCount != 41 {
+	if report.AdapterCount != 38 || report.HostCount != 43 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 36 || report.SplitReadiness.VerificationCapableAdapters != 36 || report.SplitReadiness.CallCapableAdapters != 22 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 38 || report.SplitReadiness.VerificationCapableAdapters != 38 || report.SplitReadiness.CallCapableAdapters != 22 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -154,6 +156,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"gwanak", "data.gwanak.go.kr", "verification"},
 		{"happysd", "www.happysd.or.kr", "verification"},
 		{"humetro", "data.humetro.busan.kr", "call,verification"},
+		{"i815", "search.i815.or.kr", "verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},
 		{"jeju", "data.jeju.go.kr", "call,verification"},
 		{"jeonju", "openapi.jeonju.go.kr", "verification"},
@@ -163,6 +166,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"mafra", "data.mafra.go.kr", "verification"},
 		{"myhome", "data.myhome.go.kr:443", "call,verification"},
 		{"naqs", "data.naqs.go.kr", "call,verification"},
+		{"ncpms", "ncpms.rda.go.kr", "verification"},
 		{"nfqs", "www.nfqs.go.kr", "verification"},
 		{"nongsaro", "www.nongsaro.go.kr", "verification"},
 		{"oneclick-law", "oneclick.law.go.kr,oneclick.law.go.kr:80", "call,verification"},
