@@ -405,6 +405,64 @@ func TestMAFRAAdapterFailsNonOKDetailPage(t *testing.T) {
 	}
 }
 
+func TestGarakAdapterVerifiesHTMLPublicDataPageWithoutAuth(t *testing.T) {
+	adapter := NewGarakAdapter()
+	if !adapter.MatchHost("www.garak.co.kr") {
+		t.Fatal("expected garak adapter to match www.garak.co.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("garak adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected garak capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.garak.co.kr" {
+			t.Fatalf("expected www.garak.co.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("garak should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>(공공데이터 신청) - 서울시농수산식품공사</title></head><body>주요 품목 가격</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15004517", Title: "서울특별시농수산식품공사_주요 품목 가격", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "서울특별시농수산식품공사_주요 품목 가격_20210113 외부 링크 1", Endpoint: "https://www.garak.co.kr/homepage/M0000258/publicdata/selectPageListPublicData.do?publicDataRealmSn=30"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "garak" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected garak verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected garak URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestGarakAdapterFailsNonOKPublicDataPage(t *testing.T) {
+	adapter := NewGarakAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15004517", Title: "서울특별시농수산식품공사_주요 품목 가격", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "서울특별시농수산식품공사_주요 품목 가격_20210113 외부 링크 1", Endpoint: "https://www.garak.co.kr/homepage/M0000258/publicdata/selectPageListPublicData.do?publicDataRealmSn=missing"},
+		HTTP:      client,
+	})
+	if result.Provider != "garak" || result.Status != "failed" || result.Reason != "garak_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected garak failure result: %#v", result)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
