@@ -463,6 +463,64 @@ func TestGarakAdapterFailsNonOKPublicDataPage(t *testing.T) {
 	}
 }
 
+func TestWork24AdapterVerifiesHTMLOpenAPIPageWithoutAuth(t *testing.T) {
+	adapter := NewWork24Adapter()
+	if !adapter.MatchHost("www.work24.go.kr") {
+		t.Fatal("expected work24 adapter to match www.work24.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("work24 adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected work24 capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.work24.go.kr" {
+			t.Fatalf("expected www.work24.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("work24 should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>서비스 소개 | OPEN-API | 고객센터</title></head><body>학과정보</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15003549", Title: "한국고용정보원_워크넷_학과정보_학과목록 및 일반학과 상세, 이색학과 상세", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "한국고용정보원_워크넷_학과정보_학과목록 및 일반학과 상세, 이색학과 상세_20210520 외부 링크 1", Endpoint: "https://www.work24.go.kr/cm/e/a/0110/selectOpenApiSvcInfo.do?apiSvcId=&upprApiSvcId=&fullApiSvcId=000000000000000000000000000034"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "work24" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected work24 verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected work24 URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestWork24AdapterFailsNonOKOpenAPIPage(t *testing.T) {
+	adapter := NewWork24Adapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15003549", Title: "한국고용정보원_워크넷_학과정보_학과목록 및 일반학과 상세, 이색학과 상세", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "한국고용정보원_워크넷_학과정보_학과목록 및 일반학과 상세, 이색학과 상세_20210520 외부 링크 1", Endpoint: "https://www.work24.go.kr/cm/e/a/0110/selectOpenApiSvcInfo.do?fullApiSvcId=missing"},
+		HTTP:      client,
+	})
+	if result.Provider != "work24" || result.Status != "failed" || result.Reason != "work24_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected work24 failure result: %#v", result)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
