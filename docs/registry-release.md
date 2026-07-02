@@ -493,6 +493,7 @@ A local draft can be prepared under `.datapan/release/` before publishing to
 `datapan-registry`:
 
 ```bash
+datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --enrich-link-details --backup --apply --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --output-dir .datapan/release --provider-limit 0 --json
 datapan catalog diff --old .datapan/previous.registry.json --new .datapan/release/data/data-go-kr.registry.json --limit 0 --output .datapan/release/reports/catalog-diff.json --json
 datapan catalog audit --registry .datapan/release/data/data-go-kr.registry.json --json

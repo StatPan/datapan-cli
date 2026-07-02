@@ -194,6 +194,12 @@ combined with `--json`, because `--json` reserves stdout for one summary object.
 `--all` fetches pages until the upstream `totalCount` has been reached. `--pages
 N` remains available for bounded samples and CI smoke tests. `--all` uses a
 default `--max-pages 1000` guard so a bad upstream counter cannot loop forever.
+`--enrich-link-details` may fetch data.go.kr detail pages for LINK rows whose
+list API metadata has no operation name, operation URL, or endpoint URL. It
+must only materialize external 활용 links tied to data.go.kr's
+`fn_LinkApiRequest` handler, deduplicate repeated desktop/mobile anchors, and
+report enrichment counts in the JSON command envelope. `--enrich-limit N`
+bounds the number of detail pages fetched for coverage batches.
 
 The normalized registry format is a JSON array of `Spec` objects. Canonical
 source fields include `id`, `title`, `provider`, `organization`,
@@ -554,6 +560,8 @@ registry before replacement. Long catalog fetches should retry bounded provider
 or transport failures and report retry counts and the failed page when the
 import still cannot complete. Diff detail output should be bounded by default;
 `--diff-limit 0` may be used when a caller explicitly wants all diff entries.
+`--enrich-link-details` applies the same LINK detail-page operation enrichment
+used by import, with `--enrich-limit N` available for bounded dry runs.
 
 ## Dataset Refs
 
