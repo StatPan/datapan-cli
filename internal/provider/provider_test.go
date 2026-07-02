@@ -637,6 +637,64 @@ func TestSafeMapAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestEShareAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewEShareAdapter()
+	if !adapter.MatchHost("www.eshare.go.kr") {
+		t.Fatal("expected eshare adapter to match www.eshare.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("eshare adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected eshare capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.eshare.go.kr" {
+			t.Fatalf("expected www.eshare.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" || strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("eshare should not synthesize or leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>eshare</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15077525", Title: "행정안전부_공공개방자원 교육강좌 정보"},
+		Operation:  datago.Operation{Name: "행정안전부_공공개방자원 교육강좌 정보", Endpoint: "https://www.eshare.go.kr/UserPortal/Upm/UpmOprnReq/openApiInfo.do?menuNo=200009"},
+		Params:     map[string]string{"serviceKey": "secret", "page": "1"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-02T00:00:00Z",
+	})
+	if result.Provider != "eshare" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected eshare verification result: %#v", result)
+	}
+	if result.URL != "https://www.eshare.go.kr/UserPortal/Upm/UpmOprnReq/openApiInfo.do?menuNo=200009&page=1" || result.HTTPStatus != 200 {
+		t.Fatalf("unexpected eshare URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestEShareAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewEShareAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<html><body>missing</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15077524", Title: "행정안전부_공공개방자원 연구실험장비 목록"},
+		Operation: datago.Operation{Name: "행정안전부_공공개방자원 연구실험장비 목록", Endpoint: "https://www.eshare.go.kr/UserPortal/Upm/UpmOprnReq/missing.do"},
+		HTTP:      client,
+	})
+	if result.Provider != "eshare" || result.Status != "failed" || result.Reason != "eshare_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected eshare failure result: %#v", result)
+	}
+}
+
 func TestHappySDAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
 	adapter := NewHappySDAdapter()
 	if !adapter.MatchHost("www.happysd.or.kr") {
