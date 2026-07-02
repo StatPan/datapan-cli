@@ -289,6 +289,64 @@ func TestNongsaroAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestGwanakAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewGwanakAdapter()
+	if !adapter.MatchHost("data.gwanak.go.kr") {
+		t.Fatal("expected gwanak adapter to match data.gwanak.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("gwanak adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected gwanak capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.gwanak.go.kr" {
+			t.Fatalf("expected data.gwanak.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("gwanak should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>Dataset 목록|Dataset|관악구 열린 데이터 광장</title></head><body>공중위생업소</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15007009", Title: "서울특별시 관악구_공중위생업소 현황", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "서울특별시 관악구_공중위생업소 현황_20220624 외부 링크 1", Endpoint: "https://data.gwanak.go.kr/openinf/sheetview.jsp?infId=OA-11496"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "gwanak" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected gwanak verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected gwanak URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestGwanakAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewGwanakAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15007009", Title: "서울특별시 관악구_공중위생업소 현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "서울특별시 관악구_공중위생업소 현황_20220624 외부 링크 1", Endpoint: "https://data.gwanak.go.kr/openinf/sheetview.jsp?infId=missing"},
+		HTTP:      client,
+	})
+	if result.Provider != "gwanak" || result.Status != "failed" || result.Reason != "gwanak_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected gwanak failure result: %#v", result)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
