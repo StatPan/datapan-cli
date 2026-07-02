@@ -299,6 +299,8 @@ func providerNameForHost(host string) string {
 		return "airport"
 	case strings.Contains(host, "q-net.or.kr"):
 		return "q-net"
+	case strings.Contains(host, "safetydata.go.kr"):
+		return "safetydata"
 	case strings.Contains(host, "ws.bus.go.kr"):
 		return "seoul-bus"
 	case strings.Contains(host, "sisul.or.kr"):
