@@ -695,6 +695,90 @@ func TestNCPMSAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestSafetyDataAdapterRequiresAuthAndClassifiesServiceKeyError(t *testing.T) {
+	adapter := NewSafetyDataAdapter()
+	if !adapter.MatchHost("www.safetydata.go.kr") {
+		t.Fatal("expected safetydata adapter to match www.safetydata.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("safetydata adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "call,verification" {
+		t.Fatalf("unexpected safetydata capabilities: %#v", adapterCapabilities(adapter))
+	}
+	operation := datago.Operation{
+		Name:     "국외검사기관인정현황",
+		Endpoint: "https://www.safetydata.go.kr/V2/api/DSSP-IF-20141",
+	}
+	missingAuth := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15154049", Title: "행정안전부_국외검사기관인정현황", Provider: "data.go.kr"},
+		Operation: operation,
+	})
+	if missingAuth.Status != "skipped" || missingAuth.Reason != "missing_auth" {
+		t.Fatalf("unexpected missing auth result: %#v", missingAuth)
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.safetydata.go.kr" {
+			t.Fatalf("expected www.safetydata.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey to be sent, got %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("returnType") != "json" || req.URL.Query().Get("numOfRows") != "1" || req.URL.Query().Get("pageNo") != "1" {
+			t.Fatalf("expected safe defaults, got %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"header":{"resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR","resultCode":"30","errorMsg":"등록되지 않은 서비스키"},"body":null}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:          datago.Spec{ID: "15154049", Title: "행정안전부_국외검사기관인정현황", Provider: "data.go.kr"},
+		Operation:     operation,
+		MissingParams: []string{"returnType", "numOfRows", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+		VerifiedAt:    "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "safetydata" || result.Status != "failed" || result.Reason != "safetydata_service_key_not_registered" || result.BodyShape != "json_envelope" {
+		t.Fatalf("unexpected safetydata verification result: %#v", result)
+	}
+	if strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted safetydata URL, got %s", result.URL)
+	}
+}
+
+func TestSafetyDataAdapterCallExecutesProviderRequest(t *testing.T) {
+	adapter := NewSafetyDataAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret" {
+			t.Fatalf("expected serviceKey to be sent, got %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"header":{"resultMsg":"NORMAL SERVICE","resultCode":"00"},"body":{"items":[{"A":"B"}]}}`)),
+		}, nil
+	})
+	response, err := adapter.Call(context.Background(), CallRequest{
+		Spec:          datago.Spec{ID: "15154052", Title: "행정안전부_국외전염병발생현황", Provider: "data.go.kr"},
+		Operation:     datago.Operation{Name: "국외전염병발생현황", Endpoint: "https://www.safetydata.go.kr/V2/api/DSSP-IF-20564"},
+		MissingParams: []string{"returnType", "numOfRows", "pageNo"},
+		Credential:    Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:          client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || response.Provider != "safetydata" || response.SemanticStatus != "provider_ok" {
+		t.Fatalf("unexpected safetydata call response: %#v", response)
+	}
+	if strings.Contains(response.URL, "secret") || !strings.Contains(response.URL, "serviceKey=REDACTED") {
+		t.Fatalf("expected redacted safetydata URL, got %s", response.URL)
+	}
+}
+
 func TestI815AdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
 	adapter := NewI815Adapter()
 	if !adapter.MatchHost("search.i815.or.kr") {
