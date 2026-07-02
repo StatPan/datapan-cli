@@ -753,6 +753,64 @@ func TestLofin365AdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestJusoAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewJusoAdapter()
+	if !adapter.MatchHost("www.juso.go.kr") {
+		t.Fatal("expected juso adapter to match www.juso.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("juso adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected juso capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.juso.go.kr" {
+			t.Fatalf("expected www.juso.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" || strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("juso should not synthesize or leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>juso</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15057017", Title: "행정안전부_실시간 주소정보 조회(검색API)"},
+		Operation:  datago.Operation{Name: "행정안전부_실시간 주소정보 조회(검색API)", Endpoint: "https://www.juso.go.kr/addrlink/addrLinkApi.do"},
+		Params:     map[string]string{"serviceKey": "secret", "page": "1"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-02T00:00:00Z",
+	})
+	if result.Provider != "juso" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected juso verification result: %#v", result)
+	}
+	if result.URL != "https://www.juso.go.kr/addrlink/addrLinkApi.do?page=1" || result.HTTPStatus != 200 {
+		t.Fatalf("unexpected juso URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestJusoAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewJusoAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<html><body>missing</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15056663", Title: "행정안전부_실시간 주소별 좌표정보 조회(검색API)"},
+		Operation: datago.Operation{Name: "행정안전부_실시간 주소별 좌표정보 조회(검색API)", Endpoint: "https://www.juso.go.kr/addrlink/missing.do"},
+		HTTP:      client,
+	})
+	if result.Provider != "juso" || result.Status != "failed" || result.Reason != "juso_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected juso failure result: %#v", result)
+	}
+}
+
 func TestHappySDAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
 	adapter := NewHappySDAdapter()
 	if !adapter.MatchHost("www.happysd.or.kr") {
