@@ -347,6 +347,64 @@ func TestGwanakAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestMAFRAAdapterVerifiesHTMLDetailPageWithoutAuth(t *testing.T) {
+	adapter := NewMAFRAAdapter()
+	if !adapter.MatchHost("data.mafra.go.kr") {
+		t.Fatal("expected mafra adapter to match data.mafra.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("mafra adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected mafra capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.mafra.go.kr" {
+			t.Fatalf("expected data.mafra.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("mafra should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>데이터 상세 &lt; 통합 검색 &lt; 데이터 검색 &lt; 농림축산식품 공공데이터 포털</title></head><body>유기농업자재</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15002220", Title: "농림축산식품부_유기농업자재 현황", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "유기농업자재 현황_20210402 외부 링크 1", Endpoint: "https://data.mafra.go.kr/opendata/data/indexOpenDataDetail.do?data_id=20200929000000001392&filter_ty=O"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "mafra" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected mafra verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected mafra URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestMAFRAAdapterFailsNonOKDetailPage(t *testing.T) {
+	adapter := NewMAFRAAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15002220", Title: "농림축산식품부_유기농업자재 현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "유기농업자재 현황_20210402 외부 링크 1", Endpoint: "https://data.mafra.go.kr/opendata/data/indexOpenDataDetail.do?data_id=missing"},
+		HTTP:      client,
+	})
+	if result.Provider != "mafra" || result.Status != "failed" || result.Reason != "mafra_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected mafra failure result: %#v", result)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
