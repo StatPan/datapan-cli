@@ -811,6 +811,119 @@ func TestJusoAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider string
+		host     string
+		endpoint string
+		adapter  Adapter
+	}{
+		{
+			name:     "foodsafetykorea",
+			provider: "foodsafetykorea",
+			host:     "www.foodsafetykorea.go.kr",
+			endpoint: "https://www.foodsafetykorea.go.kr/api/example",
+			adapter:  NewFoodSafetyKoreaAdapter(),
+		},
+		{
+			name:     "ins24",
+			provider: "ins24",
+			host:     "www.ins24.go.kr",
+			endpoint: "https://www.ins24.go.kr/api/example",
+			adapter:  NewIns24Adapter(),
+		},
+		{
+			name:     "jejudatahub",
+			provider: "jejudatahub",
+			host:     "www.jejudatahub.net",
+			endpoint: "https://www.jejudatahub.net/api/example",
+			adapter:  NewJejuDataHubAdapter(),
+		},
+		{
+			name:     "vworld",
+			provider: "vworld",
+			host:     "www.vworld.kr",
+			endpoint: "https://www.vworld.kr/api/example",
+			adapter:  NewVWorldAdapter(),
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if !tc.adapter.MatchHost(tc.host) {
+				t.Fatalf("expected %s adapter to match %s", tc.name, tc.host)
+			}
+			if tc.adapter.MatchHost("apis.data.go.kr") {
+				t.Fatalf("%s adapter should not match data.go.kr gateway", tc.name)
+			}
+			if strings.Join(adapterCapabilities(tc.adapter), ",") != "verification" {
+				t.Fatalf("unexpected %s capabilities: %#v", tc.name, adapterCapabilities(tc.adapter))
+			}
+			client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Host != tc.host {
+					t.Fatalf("expected %s host, got %s", tc.host, req.URL.Host)
+				}
+				if req.URL.Query().Get("serviceKey") != "" || strings.Contains(req.URL.RawQuery, "secret") {
+					t.Fatalf("%s should not synthesize or leak serviceKey: %s", tc.name, req.URL.RawQuery)
+				}
+				return &http.Response{
+					StatusCode: 200,
+					Header:     http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+					Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>ok</body></html>`)),
+				}, nil
+			})
+			result := tc.adapter.Verify(context.Background(), VerificationRequest{
+				Spec:       datago.Spec{ID: "15100000", Title: "행정안전부_잔여 링크상세 API"},
+				Operation:  datago.Operation{Name: "행정안전부_잔여 링크상세 API", Endpoint: tc.endpoint},
+				Params:     map[string]string{"serviceKey": "secret", "page": "1"},
+				HTTP:       client,
+				VerifiedAt: "2026-07-02T00:00:00Z",
+			})
+			if result.Provider != tc.provider || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+				t.Fatalf("unexpected %s verification result: %#v", tc.name, result)
+			}
+			if result.URL != tc.endpoint+"?page=1" || result.HTTPStatus != 200 {
+				t.Fatalf("unexpected %s URL/status: url=%s status=%d", tc.name, result.URL, result.HTTPStatus)
+			}
+		})
+	}
+}
+
+func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider string
+		endpoint string
+		adapter  Adapter
+	}{
+		{name: "foodsafetykorea", provider: "foodsafetykorea", endpoint: "https://www.foodsafetykorea.go.kr/api/missing", adapter: NewFoodSafetyKoreaAdapter()},
+		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
+		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
+		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: 404,
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Body:       io.NopCloser(strings.NewReader(`<html><body>missing</body></html>`)),
+				}, nil
+			})
+			result := tc.adapter.Verify(context.Background(), VerificationRequest{
+				Spec:      datago.Spec{ID: "15100000", Title: "행정안전부_잔여 링크상세 API"},
+				Operation: datago.Operation{Name: "행정안전부_잔여 링크상세 API", Endpoint: tc.endpoint},
+				HTTP:      client,
+			})
+			if result.Provider != tc.provider || result.Status != "failed" || result.Reason != tc.provider+"_http_404" || result.BodyShape != "html" {
+				t.Fatalf("unexpected %s failure result: %#v", tc.name, result)
+			}
+		})
+	}
+}
+
 func TestHappySDAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
 	adapter := NewHappySDAdapter()
 	if !adapter.MatchHost("www.happysd.or.kr") {

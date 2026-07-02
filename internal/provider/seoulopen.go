@@ -23,6 +23,7 @@ func NewSeoulOpenDataAdapter() SeoulOpenDataAdapter {
 func SeoulOpenDataHosts() []string {
 	return []string{
 		"data.seoul.go.kr",
+		"openapi.seoul.go.kr",
 		"openapi.seoul.go.kr:8088",
 	}
 }
