@@ -3698,6 +3698,61 @@ func TestCatalogVerifyPlanBuildsNextBatches(t *testing.T) {
 	}
 }
 
+func TestCatalogVerifyPlanFiltersOrganization(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{
+			"id":"100",
+			"title":"행정안전부 관문",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"organization":"행정안전부",
+			"operations":[{"name":"관문","endpoint":"https://apis.data.go.kr/100/list","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]}]
+		},
+		{
+			"id":"200",
+			"title":"다른 기관 관문",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"organization":"다른기관",
+			"operations":[{"name":"관문","endpoint":"https://apis.data.go.kr/200/list","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]}]
+		},
+		{
+			"id":"300",
+			"title":"다른 기관 QNet",
+			"provider":"data.go.kr",
+			"priority":"P2",
+			"organization":"다른기관",
+			"operations":[{"name":"QNet","endpoint":"http://openapi.q-net.or.kr/api/service/rest/InquiryStatSVC/getGradSiPassList","request_params":[{"name":"serviceKey"},{"name":"baseYY"}]}]
+		}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "verify", "plan", "--registry", registryPath, "--org", "행정안전부", "--batch-size", "5", "--json"},
+		nil,
+		nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"organization": "행정안전부"`,
+		`"uncovered_gateway_candidates": 1`,
+		`"uncovered_adapter_candidates": 0`,
+		`"planned_operations": 1`,
+		`--org 행정안전부`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in plan output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"label": "q-net"`) {
+		t.Fatalf("organization filter included other institution adapter batch: %s", stdout)
+	}
+}
+
 func TestCatalogVerifyGatewayUsesTimeout(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[

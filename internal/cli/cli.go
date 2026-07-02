@@ -2081,17 +2081,18 @@ type catalogCoverageGaps struct {
 }
 
 type catalogVerificationPlanReport struct {
-	GeneratedAt  string                         `json:"generated_at"`
-	Provider     string                         `json:"provider"`
-	Registry     string                         `json:"registry,omitempty"`
-	Source       string                         `json:"source,omitempty"`
-	Verification string                         `json:"verification,omitempty"`
-	BatchSize    int                            `json:"batch_size"`
-	Timeout      string                         `json:"timeout"`
-	Summary      catalogVerificationPlanSummary `json:"summary"`
-	Batches      []catalogVerificationBatch     `json:"batches"`
-	Gaps         catalogVerificationPlanGaps    `json:"gaps"`
-	Next         []catalogOverviewNextStep      `json:"next"`
+	GeneratedAt  string                            `json:"generated_at"`
+	Provider     string                            `json:"provider"`
+	Registry     string                            `json:"registry,omitempty"`
+	Source       string                            `json:"source,omitempty"`
+	Verification string                            `json:"verification,omitempty"`
+	Filters      *datago.VerificationReportFilters `json:"filters,omitempty"`
+	BatchSize    int                               `json:"batch_size"`
+	Timeout      string                            `json:"timeout"`
+	Summary      catalogVerificationPlanSummary    `json:"summary"`
+	Batches      []catalogVerificationBatch        `json:"batches"`
+	Gaps         catalogVerificationPlanGaps       `json:"gaps"`
+	Next         []catalogOverviewNextStep         `json:"next"`
 }
 
 type catalogVerificationPlanSummary struct {
@@ -2107,6 +2108,7 @@ type catalogVerificationPlanSummary struct {
 type catalogVerificationBatch struct {
 	Label               string `json:"label"`
 	Provider            string `json:"provider,omitempty"`
+	Organization        string `json:"organization,omitempty"`
 	Kind                string `json:"kind"`
 	Candidates          int    `json:"candidates"`
 	UncoveredCandidates int    `json:"uncovered_candidates"`
@@ -4111,7 +4113,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--org NAME] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
@@ -4336,6 +4338,16 @@ func (a app) catalogVerifyPlan(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	organizationFilter, args, err := consumeString(args, "--org", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if organizationFilter == "" {
+		organizationFilter, args, err = consumeString(args, "--organization", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
 	batchSize, args, err := consumeInt(args, "--batch-size", 10)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -4353,7 +4365,7 @@ func (a app) catalogVerifyPlan(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify plan [--registry PATH] [--verification REPORT] [--org NAME] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]")
 	}
 	if batchSize <= 0 {
 		return a.fail(exitUsage, "--batch-size requires a positive integer")
@@ -4381,7 +4393,7 @@ func (a app) catalogVerifyPlan(args []string, jsonOut bool) int {
 		}
 		verification = &report
 	}
-	report, err := a.buildVerificationPlan(reg, registryPath, source, verificationPath, verification, batchSize, limit, timeout)
+	report, err := a.buildVerificationPlan(reg, registryPath, source, verificationPath, verification, organizationFilter, batchSize, limit, timeout)
 	if err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
@@ -4422,6 +4434,9 @@ func (a app) catalogVerifyPlan(args []string, jsonOut bool) int {
 	if verificationPath != "" {
 		fmt.Fprintf(a.stdout, "  exclude evidence: %s\n", verificationPath)
 	}
+	if strings.TrimSpace(organizationFilter) != "" {
+		fmt.Fprintf(a.stdout, "  organization: %s\n", strings.TrimSpace(organizationFilter))
+	}
 	fmt.Fprintf(a.stdout, "  operations: %d\n", report.Summary.Operations)
 	fmt.Fprintf(a.stdout, "  existing evidence: %d\n", report.Summary.EvidenceTotal)
 	fmt.Fprintf(a.stdout, "  uncovered gateway candidates: %d\n", report.Summary.UncoveredGatewayCandidates)
@@ -4433,7 +4448,8 @@ func (a app) catalogVerifyPlan(args []string, jsonOut bool) int {
 	return exitOK
 }
 
-func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, verificationPath string, verification *datago.VerificationReport, batchSize, limit int, timeout time.Duration) (catalogVerificationPlanReport, error) {
+func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, verificationPath string, verification *datago.VerificationReport, organization string, batchSize, limit int, timeout time.Duration) (catalogVerificationPlanReport, error) {
+	organization = strings.TrimSpace(organization)
 	seen := map[string]bool{}
 	evidenceTotal := 0
 	if verification != nil {
@@ -4446,14 +4462,14 @@ func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, ve
 	plannedOps := 0
 	uncoveredGateway := 0
 	uncoveredAdapters := 0
-	gatewayCandidates, _, err := datago.VerificationCandidatesWithFilters(reg, "", "", 0, datago.VerificationCandidateFilters{Kind: "data_go_kr_gateway"})
+	gatewayCandidates, _, err := datago.VerificationCandidatesWithFilters(reg, "", "", 0, datago.VerificationCandidateFilters{Kind: "data_go_kr_gateway", Organization: organization})
 	if err != nil {
 		return catalogVerificationPlanReport{}, err
 	}
 	gatewayUnseen, _ := filterUnseenVerificationCandidates(gatewayCandidates, seen, 0)
 	uncoveredGateway = len(gatewayUnseen)
 	if len(gatewayUnseen) > 0 {
-		batch := verificationPlanBatch("gateway", "", "data_go_kr_gateway", len(gatewayCandidates), len(gatewayUnseen), batchSize, registryPath, verificationPath, timeout)
+		batch := verificationPlanBatch("gateway", "", organization, "data_go_kr_gateway", len(gatewayCandidates), len(gatewayUnseen), batchSize, registryPath, verificationPath, timeout)
 		batches = append(batches, batch)
 		plannedOps += batch.PlannedOperations
 	}
@@ -4462,7 +4478,7 @@ func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, ve
 		return catalogVerificationPlanReport{}, err
 	}
 	for _, adapter := range providerRegistry.Adapters() {
-		filters := datago.VerificationCandidateFilters{Hosts: adapter.Hosts(), Kind: "external_endpoint"}
+		filters := datago.VerificationCandidateFilters{Hosts: adapter.Hosts(), Kind: "external_endpoint", Organization: organization}
 		candidates, _, err := datago.VerificationCandidatesWithFilters(reg, "", "", 0, filters)
 		if err != nil {
 			return catalogVerificationPlanReport{}, err
@@ -4472,7 +4488,7 @@ func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, ve
 		if len(unseen) == 0 {
 			continue
 		}
-		batch := verificationPlanBatch(adapter.Name(), adapter.Name(), "external_endpoint", len(candidates), len(unseen), batchSize, registryPath, verificationPath, timeout)
+		batch := verificationPlanBatch(adapter.Name(), adapter.Name(), organization, "external_endpoint", len(candidates), len(unseen), batchSize, registryPath, verificationPath, timeout)
 		batches = append(batches, batch)
 		plannedOps += batch.PlannedOperations
 		if limit > 0 && len(batches) >= limit {
@@ -4492,6 +4508,7 @@ func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, ve
 		Registry:     registryPath,
 		Source:       source,
 		Verification: verificationPath,
+		Filters:      verificationPlanFilters(organization),
 		BatchSize:    batchSize,
 		Timeout:      timeout.String(),
 		Summary: catalogVerificationPlanSummary{
@@ -4511,7 +4528,7 @@ func (a app) buildVerificationPlan(reg datago.Registry, registryPath, source, ve
 	}, nil
 }
 
-func verificationPlanBatch(label, providerName, kind string, candidates, uncovered, batchSize int, registryPath, verificationPath string, timeout time.Duration) catalogVerificationBatch {
+func verificationPlanBatch(label, providerName, organization, kind string, candidates, uncovered, batchSize int, registryPath, verificationPath string, timeout time.Duration) catalogVerificationBatch {
 	planned := batchSize
 	if uncovered < planned {
 		planned = uncovered
@@ -4524,15 +4541,20 @@ func verificationPlanBatch(label, providerName, kind string, candidates, uncover
 	if strings.TrimSpace(providerName) != "" {
 		providerArg = " --provider " + quoteShellArg(providerName)
 	}
+	organizationArg := ""
+	if strings.TrimSpace(organization) != "" {
+		organizationArg = " --org " + quoteShellArg(organization)
+	}
 	excludeArg := ""
 	if strings.TrimSpace(verificationPath) != "" {
 		excludeArg = " --exclude-input " + quoteShellArg(verificationPath)
 	}
 	output := ".datapan/verification/" + label + "-next.json"
-	command := "datapan catalog verify" + registryArg + providerArg + " --kind " + quoteShellArg(kind) + excludeArg + " --limit " + strconv.Itoa(batchSize) + " --timeout " + quoteShellArg(timeout.String()) + " --output " + quoteShellArg(output) + " --json"
+	command := "datapan catalog verify" + registryArg + providerArg + organizationArg + " --kind " + quoteShellArg(kind) + excludeArg + " --limit " + strconv.Itoa(batchSize) + " --timeout " + quoteShellArg(timeout.String()) + " --output " + quoteShellArg(output) + " --json"
 	return catalogVerificationBatch{
 		Label:               label,
 		Provider:            providerName,
+		Organization:        organization,
 		Kind:                kind,
 		Candidates:          candidates,
 		UncoveredCandidates: uncovered,
@@ -4540,6 +4562,14 @@ func verificationPlanBatch(label, providerName, kind string, candidates, uncover
 		Command:             command,
 		Output:              output,
 	}
+}
+
+func verificationPlanFilters(organization string) *datago.VerificationReportFilters {
+	organization = strings.TrimSpace(organization)
+	if organization == "" {
+		return nil
+	}
+	return &datago.VerificationReportFilters{Organization: organization}
 }
 
 func verificationPlanNext(registryPath, verificationPath string) []catalogOverviewNextStep {
@@ -4902,7 +4932,7 @@ func (a app) writeReleaseDraft(reg datago.Registry, registryPath, previousRegist
 	if err := writeJSONFile(paths.CoveragePath, coverageReport); err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
-	verificationPlan, err := a.buildVerificationPlan(reg, paths.RegistryPath, "release", emptyIfFalse(paths.VerificationPath, verificationCopied), verificationReport, 10, 20, 10*time.Second)
+	verificationPlan, err := a.buildVerificationPlan(reg, paths.RegistryPath, "release", emptyIfFalse(paths.VerificationPath, verificationCopied), verificationReport, "", 10, 20, 10*time.Second)
 	if err != nil {
 		return a.releaseFailure(jsonOut, err)
 	}
@@ -9229,7 +9259,7 @@ Usage:
   datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
-  datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify plan [--registry PATH] [--verification REPORT] [--org NAME] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog verify merge --input REPORT --input REPORT [--input REPORT ...] --output PATH|- [--json]
   datapan catalog release draft --registry PATH [--previous-registry PATH] [--output-dir DIR] [--verification PATH] [--provider-limit N] [--json]
@@ -9501,7 +9531,7 @@ Generate static Studio data files and viewer HTML from the registry.`, true
 		return `Usage:
   datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
-  datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify plan [--registry PATH] [--verification REPORT] [--org NAME] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
   datapan catalog verify merge --input REPORT --input REPORT [--input REPORT ...] --output PATH|- [--json]
 
