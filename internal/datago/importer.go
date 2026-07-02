@@ -216,6 +216,65 @@ func EnrichLinkDetailOperations(ctx context.Context, client HTTPClient, rows []O
 	return out, result, nil
 }
 
+func EnrichRegistryLinkDetailOperations(ctx context.Context, client HTTPClient, reg Registry, opts LinkDetailEnrichmentOptions) (Registry, LinkDetailEnrichmentResult, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	specs := reg.Specs()
+	result := LinkDetailEnrichmentResult{}
+	for idx, spec := range specs {
+		if !needsRegistryLinkDetailOperation(spec) {
+			continue
+		}
+		result.Candidates++
+		if opts.Limit > 0 && result.DetailsFetched >= opts.Limit {
+			result.Skipped++
+			continue
+		}
+		row := linkDetailRowFromSpec(spec)
+		links, err := fetchLinkDetailOperationURLs(ctx, client, row)
+		if err != nil {
+			return NewRegistry(specs), result, err
+		}
+		result.DetailsFetched++
+		if len(links) == 0 {
+			result.Skipped++
+			continue
+		}
+		raw := map[string]any{}
+		if spec.Source != nil {
+			for key, value := range spec.Source.Raw {
+				raw[key] = value
+			}
+		}
+		ops := make([]Operation, 0, len(links))
+		for linkIdx, link := range links {
+			opRaw := map[string]any{}
+			for key, value := range raw {
+				opRaw[key] = value
+			}
+			opName := linkDetailOperationName(row, linkIdx, len(links))
+			opRaw["operation_nm"] = opName
+			opRaw["operation_url"] = link
+			ops = append(ops, Operation{
+				Name:     opName,
+				Endpoint: link,
+				Source: &Source{
+					System: "data.go.kr",
+					URL:    firstNonEmpty(rawString(raw, "meta_url"), dataGoKrApplicationURL(spec.ID)),
+					Raw:    opRaw,
+				},
+			})
+			result.OperationsAdded++
+		}
+		specs[idx].Operations = ops
+		if len(links) > 1 {
+			result.RowsAdded += len(links) - 1
+		}
+	}
+	return NewRegistry(specs), result, nil
+}
+
 func fetchOpenDataListPageWithRetry(ctx context.Context, client HTTPClient, opts ImportOptions, page int) (OpenDataListResponse, int, error) {
 	var lastErr error
 	for attempt := 0; attempt <= opts.Retries; attempt++ {
@@ -464,6 +523,33 @@ func needsLinkDetailOperation(row OpenDataListRow) bool {
 		strings.TrimSpace(row.OperationName) == "" &&
 		strings.TrimSpace(row.OperationURL) == "" &&
 		strings.TrimSpace(row.EndpointURL) == ""
+}
+
+func needsRegistryLinkDetailOperation(spec Spec) bool {
+	if len(spec.Operations) != 0 || strings.TrimSpace(spec.ID) == "" || spec.Source == nil {
+		return false
+	}
+	raw := spec.Source.Raw
+	return strings.EqualFold(strings.TrimSpace(rawString(raw, "api_type")), "LINK") &&
+		strings.TrimSpace(rawString(raw, "operation_nm")) == "" &&
+		strings.TrimSpace(rawString(raw, "operation_url")) == "" &&
+		strings.TrimSpace(rawString(raw, "end_point_url")) == ""
+}
+
+func linkDetailRowFromSpec(spec Spec) OpenDataListRow {
+	raw := map[string]any{}
+	if spec.Source != nil {
+		raw = spec.Source.Raw
+	}
+	return OpenDataListRow{
+		APIType:       rawString(raw, "api_type"),
+		ListID:        firstNonEmpty(rawString(raw, "list_id"), spec.ID),
+		ListTitle:     firstNonEmpty(rawString(raw, "list_title"), spec.Title),
+		Title:         firstNonEmpty(rawString(raw, "title"), spec.Title),
+		OperationName: rawString(raw, "operation_nm"),
+		OperationURL:  rawString(raw, "operation_url"),
+		EndpointURL:   rawString(raw, "end_point_url"),
+	}
 }
 
 func linkDetailOperationName(row OpenDataListRow, index, total int) string {

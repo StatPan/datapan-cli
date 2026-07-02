@@ -201,6 +201,14 @@ must only materialize external 활용 links tied to data.go.kr's
 report enrichment counts in the JSON command envelope. `--enrich-limit N`
 bounds the number of detail pages fetched for coverage batches.
 
+`datapan catalog enrich link-details --registry PATH --output PATH --json`
+applies the same LINK detail-page operation enrichment to an existing registry
+snapshot without re-importing the upstream list API. This command is intended
+for registry coverage expansion when the checked-in snapshot is current enough
+but a local data.go.kr list API key is unavailable. `--limit N` bounds detail
+page fetches for reviewable batches, and `--output -` writes the enriched
+registry JSON array without a JSON command envelope.
+
 The normalized registry format is a JSON array of `Spec` objects. Canonical
 source fields include `id`, `title`, `provider`, `organization`,
 `source_category`, `source_keywords`, `operations`, and `source.raw`.

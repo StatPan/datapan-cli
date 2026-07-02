@@ -390,6 +390,10 @@ Add `--enrich-link-details` when refreshing LINK-style rows that have no
 operation metadata in the list API. The importer then fetches the corresponding
 data.go.kr detail pages and materializes external 활용 links as operations;
 use `--enrich-limit N` for bounded batches while expanding coverage.
+When a current registry snapshot already exists and a data.go.kr list API key is
+not available, use `datapan catalog enrich link-details --registry PATH
+--output PATH --json` to apply the same detail-page operation enrichment without
+re-importing the upstream list API.
 
 Commands that operate on one dataset accept a `<ref>`. A ref can be a
 data.go.kr list ID, a data.go.kr detail URL, an exact title, or a search query.
