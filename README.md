@@ -301,12 +301,17 @@ Use `datapan catalog install datapan-registry --json` when you want only the
 registry download/install step. It also preserves key release evidence files
 under `.datapan/release` when installing to a file, so follow-up coverage
 commands can reuse the published verification and route-disposition evidence.
+It also writes `.datapan/registry-install.json` with the installed registry
+path, release tag, release API URL, asset URL, registry digest, pin mode, and
+preserved evidence paths.
 Use `datapan status --json` or `datapan doctor --json` when you want to
 recheck which registry is active, how many specs and operations it contains,
 whether a data.go.kr API key is present, and which external provider adapters
 are registered. After `datapan init`, status also reports the installed
 release evidence files and the key verification, route-disposition, and
-coverage numbers they contain.
+coverage numbers they contain. When provenance is present, status performs a
+non-destructive latest-release metadata check and reports whether the installed
+registry is current or stale.
 Use `datapan providers --adapters --json` when you want to see external hosts
 already owned by registered provider adapters, and `datapan providers --gaps
 --json` when you want the missing external endpoint host backlog without

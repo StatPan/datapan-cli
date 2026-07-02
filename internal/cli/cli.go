@@ -42,6 +42,7 @@ var version = "0.1.0-dev"
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
+const defaultRegistryInstallProvenancePath = ".datapan/registry-install.json"
 const defaultReleaseDir = ".datapan/release"
 const defaultReleaseManifestPath = ".datapan/release/manifest.json"
 const defaultReleaseNotesPath = ".datapan/release/RELEASE_NOTES.md"
@@ -1264,11 +1265,15 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 type datapanRegistryInstall struct {
 	RegistryPath string
 	AssetURL     string
+	ReleaseURL   string
+	ReleaseTag   string
+	PinMode      string
 	RegistryData []byte
 	Specs        []datago.Spec
 	Release      datapanRegistryInstallRelease
 	ReleaseDir   string
 	ReleaseFiles []string
+	Provenance   *registryInstallProvenance
 }
 
 type datapanRegistryInstallRelease struct {
@@ -1310,16 +1315,32 @@ func (i datapanRegistryInstall) Payload() map[string]any {
 	if len(i.ReleaseFiles) > 0 {
 		payload["release_files"] = i.ReleaseFiles
 	}
+	if i.ReleaseTag != "" {
+		payload["release_tag"] = i.ReleaseTag
+	}
+	if i.ReleaseURL != "" {
+		payload["release_url"] = i.ReleaseURL
+	}
+	if i.PinMode != "" {
+		payload["pin_mode"] = i.PinMode
+	}
+	if i.Provenance != nil {
+		payload["provenance"] = defaultRegistryInstallProvenancePath
+	}
 	return payload
 }
 
 func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (datapanRegistryInstall, error) {
+	requestedAssetURL := strings.TrimSpace(assetURL)
+	normalizedReleaseURL := normalizeGitHubReleaseURL(releaseURL)
+	releaseTag := ""
 	if assetURL == "" {
 		release, err := a.fetchDatapanRegistryRelease(releaseURL)
 		if err != nil {
 			return datapanRegistryInstall{}, err
 		}
 		assetURL = release.ZipAssetURL
+		releaseTag = release.TagName
 		if assetURL == "" {
 			return datapanRegistryInstall{}, fmt.Errorf("release has no %s asset", datapanRegistryZipAssetSuffix)
 		}
@@ -1349,15 +1370,78 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 			return datapanRegistryInstall{}, err
 		}
 	}
-	return datapanRegistryInstall{
+	install := datapanRegistryInstall{
 		RegistryPath: registryPath,
 		AssetURL:     assetURL,
+		ReleaseURL:   normalizedReleaseURL,
+		ReleaseTag:   releaseTag,
+		PinMode:      registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
 		RegistryData: snapshot.RegistryData,
 		Specs:        specs,
 		Release:      snapshot.Release,
 		ReleaseDir:   releaseDir,
 		ReleaseFiles: releaseFiles,
-	}, nil
+	}
+	if registryPath != "-" {
+		provenance := newRegistryInstallProvenance(install)
+		if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+			return datapanRegistryInstall{}, err
+		}
+		install.Provenance = &provenance
+	}
+	return install, nil
+}
+
+type registryInstallProvenance struct {
+	SchemaVersion       string   `json:"schema_version"`
+	InstalledAt         string   `json:"installed_at"`
+	Provider            string   `json:"provider"`
+	RegistryPath        string   `json:"registry_path"`
+	RegistrySHA256      string   `json:"registry_sha256"`
+	ReleaseTag          string   `json:"release_tag,omitempty"`
+	ReleaseAPIURL       string   `json:"release_api_url,omitempty"`
+	AssetURL            string   `json:"asset_url"`
+	PinMode             string   `json:"pin_mode"`
+	SourceMode          string   `json:"source_mode"`
+	ReleaseDir          string   `json:"release_dir,omitempty"`
+	ReleaseManifestPath string   `json:"release_manifest,omitempty"`
+	ReleaseFiles        []string `json:"release_files,omitempty"`
+}
+
+func newRegistryInstallProvenance(install datapanRegistryInstall) registryInstallProvenance {
+	sum := sha256.Sum256(install.RegistryData)
+	sourceMode := "default_installed"
+	if filepath.Clean(install.RegistryPath) != filepath.Clean(defaultRegistryPath) {
+		sourceMode = "explicit_path"
+	}
+	provenance := registryInstallProvenance{
+		SchemaVersion:  "datapan.registry-install.v1",
+		InstalledAt:    time.Now().UTC().Format(time.RFC3339),
+		Provider:       "datapan-registry",
+		RegistryPath:   install.RegistryPath,
+		RegistrySHA256: fmt.Sprintf("%x", sum),
+		ReleaseTag:     install.ReleaseTag,
+		ReleaseAPIURL:  install.ReleaseURL,
+		AssetURL:       install.AssetURL,
+		PinMode:        install.PinMode,
+		SourceMode:     sourceMode,
+		ReleaseDir:     install.ReleaseDir,
+		ReleaseFiles:   append([]string(nil), install.ReleaseFiles...),
+	}
+	if install.Release.ManifestPresent {
+		provenance.ReleaseManifestPath = defaultReleaseManifestPath
+	}
+	return provenance
+}
+
+func registryInstallPinMode(requestedAssetURL, releaseURL string) string {
+	if strings.TrimSpace(requestedAssetURL) != "" {
+		return "direct_url"
+	}
+	if strings.Contains(releaseURL, "/releases/tags/") {
+		return "pinned"
+	}
+	return "latest"
 }
 
 func (a app) init(args []string, jsonOut bool) int {
@@ -6639,6 +6723,7 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		defaultExists = true
 	}
 	releaseEvidence := installedReleaseEvidenceStatus(a.registryPath)
+	registryRelease := a.registryReleaseStatus(a.registrySource, a.registryPath)
 	nextSteps := doctorNextSteps(a.registrySource, keyOK)
 	payload := map[string]any{
 		"ok":               true,
@@ -6662,6 +6747,7 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		},
 		"providers":        providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
 		"release_evidence": releaseEvidence,
+		"registry_release": registryRelease,
 		"next_steps":       nextSteps,
 	}
 	if jsonOut {
@@ -6699,6 +6785,21 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		}
 	} else {
 		fmt.Fprintf(a.stdout, "  release evidence: missing\n")
+	}
+	if registryRelease.ProvenancePresent {
+		fmt.Fprintf(a.stdout, "  registry release: installed %s", emptyDefault(registryRelease.Installed.ReleaseTag, "unknown"))
+		if registryRelease.LatestTag != "" {
+			fmt.Fprintf(a.stdout, ", latest %s", registryRelease.LatestTag)
+		}
+		if registryRelease.Stale != nil && *registryRelease.Stale {
+			fmt.Fprintf(a.stdout, " (stale)")
+		}
+		if registryRelease.Current != nil && *registryRelease.Current {
+			fmt.Fprintf(a.stdout, " (current)")
+		}
+		fmt.Fprintln(a.stdout)
+	} else {
+		fmt.Fprintf(a.stdout, "  registry release: provenance missing\n")
 	}
 	for _, step := range nextSteps {
 		fmt.Fprintf(a.stdout, "  next: %s\n", step)
@@ -6738,6 +6839,106 @@ type releaseEvidenceStatus struct {
 	EvidenceAdjustedAdapterCandidates    int      `json:"evidence_adjusted_adapter_candidates"`
 	CoverageCommand                      string   `json:"coverage_command,omitempty"`
 	Errors                               []string `json:"errors,omitempty"`
+}
+
+type registryReleaseStatus struct {
+	ProvenancePath        string                    `json:"provenance_path"`
+	ProvenancePresent     bool                      `json:"provenance_present"`
+	ActiveSource          string                    `json:"active_source"`
+	ActiveRegistry        string                    `json:"active_registry,omitempty"`
+	ActiveRegistryMatches *bool                     `json:"active_registry_matches,omitempty"`
+	Installed             registryInstallProvenance `json:"installed,omitempty"`
+	LatestTag             string                    `json:"latest_version,omitempty"`
+	LatestAssetURL        string                    `json:"latest_asset_url,omitempty"`
+	Stale                 *bool                     `json:"stale,omitempty"`
+	Current               *bool                     `json:"current,omitempty"`
+	Reason                string                    `json:"reason,omitempty"`
+	LatestFetchError      string                    `json:"latest_fetch_error,omitempty"`
+	NextSteps             []string                  `json:"next_steps,omitempty"`
+}
+
+func (a app) registryReleaseStatus(registrySource, registryPath string) registryReleaseStatus {
+	status := registryReleaseStatus{
+		ProvenancePath: defaultRegistryInstallProvenancePath,
+		ActiveSource:   registrySource,
+		ActiveRegistry: registryPath,
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		status.Reason = "missing_provenance"
+		if !os.IsNotExist(err) {
+			status.Reason = "invalid_provenance"
+			status.LatestFetchError = err.Error()
+		}
+		status.NextSteps = append(status.NextSteps, "datapan init --json")
+		return status
+	}
+	status.ProvenancePresent = true
+	status.Installed = provenance
+	matches := registryPath != "" && filepath.Clean(registryPath) == filepath.Clean(provenance.RegistryPath)
+	status.ActiveRegistryMatches = &matches
+	if !matches {
+		status.Reason = "active_registry_differs_from_provenance"
+		status.NextSteps = append(status.NextSteps, "datapan status --json")
+		return status
+	}
+	if strings.TrimSpace(provenance.ReleaseTag) == "" {
+		status.Reason = "installed_release_tag_missing"
+		status.NextSteps = append(status.NextSteps, "datapan catalog install datapan-registry --json")
+		return status
+	}
+	releaseURL := provenance.ReleaseAPIURL
+	if strings.TrimSpace(releaseURL) == "" {
+		releaseURL = defaultDatapanRegistryReleaseAPI
+	}
+	latest, err := a.fetchDatapanRegistryRelease(releaseURLForLatestCheck(releaseURL))
+	if err != nil {
+		status.Reason = "latest_fetch_failed"
+		status.LatestFetchError = err.Error()
+		status.NextSteps = append(status.NextSteps, "retry datapan status --json when GitHub is reachable")
+		return status
+	}
+	status.LatestTag = latest.TagName
+	status.LatestAssetURL = latest.ZipAssetURL
+	stale := latest.TagName != "" && provenance.ReleaseTag != latest.TagName
+	current := latest.TagName != "" && provenance.ReleaseTag == latest.TagName
+	status.Stale = &stale
+	status.Current = &current
+	if stale {
+		status.NextSteps = append(status.NextSteps,
+			"datapan catalog install datapan-registry --json",
+			"datapan catalog diff --old "+quoteShellArg(provenance.RegistryPath)+" --new .datapan/release/data/data-go-kr.registry.json --json",
+		)
+	}
+	return status
+}
+
+func readRegistryInstallProvenance(path string) (registryInstallProvenance, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return registryInstallProvenance{}, err
+	}
+	var provenance registryInstallProvenance
+	if err := json.Unmarshal(data, &provenance); err != nil {
+		return registryInstallProvenance{}, err
+	}
+	return provenance, nil
+}
+
+func releaseURLForLatestCheck(releaseURL string) string {
+	releaseURL = normalizeGitHubReleaseURL(releaseURL)
+	if strings.Contains(releaseURL, "/releases/tags/") {
+		return defaultDatapanRegistryReleaseAPI
+	}
+	return releaseURL
+}
+
+func emptyDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func installedReleaseEvidenceStatus(registryPath string) releaseEvidenceStatus {

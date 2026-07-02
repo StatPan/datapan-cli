@@ -268,6 +268,201 @@ func TestStatusJSONReportsInstalledReleaseEvidence(t *testing.T) {
 	}
 }
 
+func TestStatusJSONReportsCurrentRegistryRelease(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryInstallProvenancePath, []byte(`{
+		"schema_version": "datapan.registry-install.v1",
+		"installed_at": "2026-06-30T00:00:00Z",
+		"provider": "datapan-registry",
+		"registry_path": ".datapan/data-go-kr.registry.json",
+		"registry_sha256": "abc",
+		"release_tag": "v1",
+		"release_api_url": "https://api.github.com/repos/StatPan/datapan-registry/releases/latest",
+		"asset_url": "https://example.test/v1.zip",
+		"pin_mode": "latest",
+		"source_mode": "default_installed"
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	var urls []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(`{
+				"tag_name": "v1",
+				"assets": [
+					{"name": "datapan-registry-v1.zip", "browser_download_url": "https://example.test/v1.zip"}
+				]
+			}`)),
+			Header: make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if len(urls) != 1 || urls[0] != defaultDatapanRegistryReleaseAPI {
+		t.Fatalf("unexpected release metadata URLs: %#v", urls)
+	}
+	for _, want := range []string{
+		`"registry_release":`,
+		`"provenance_present": true`,
+		`"active_registry_matches": true`,
+		`"release_tag": "v1"`,
+		`"latest_version": "v1"`,
+		`"stale": false`,
+		`"current": true`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in status output: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONReportsStaleRegistryRelease(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryInstallProvenancePath, []byte(`{
+		"schema_version": "datapan.registry-install.v1",
+		"installed_at": "2026-06-30T00:00:00Z",
+		"provider": "datapan-registry",
+		"registry_path": ".datapan/data-go-kr.registry.json",
+		"registry_sha256": "abc",
+		"release_tag": "v1",
+		"release_api_url": "https://api.github.com/repos/StatPan/datapan-registry/releases/latest",
+		"asset_url": "https://example.test/v1.zip",
+		"pin_mode": "latest",
+		"source_mode": "default_installed"
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(strings.NewReader(`{
+				"tag_name": "v2",
+				"assets": [
+					{"name": "datapan-registry-v2.zip", "browser_download_url": "https://example.test/v2.zip"}
+				]
+			}`)),
+			Header: make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"latest_version": "v2"`,
+		`"latest_asset_url": "https://example.test/v2.zip"`,
+		`"stale": true`,
+		`"current": false`,
+		`datapan catalog install datapan-registry --json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in stale status output: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONReportsRegistryReleaseFetchFailure(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryInstallProvenancePath, []byte(`{
+		"schema_version": "datapan.registry-install.v1",
+		"installed_at": "2026-06-30T00:00:00Z",
+		"provider": "datapan-registry",
+		"registry_path": ".datapan/data-go-kr.registry.json",
+		"registry_sha256": "abc",
+		"release_tag": "v1",
+		"release_api_url": "https://api.github.com/repos/StatPan/datapan-registry/releases/latest",
+		"asset_url": "https://example.test/v1.zip",
+		"pin_mode": "latest",
+		"source_mode": "default_installed"
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("network unavailable")
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"reason": "latest_fetch_failed"`,
+		`"latest_fetch_error": "network unavailable"`,
+		`retry datapan status --json when GitHub is reachable`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in fetch failure status output: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONDistinguishesEnvRegistryFromInstalledProvenance(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"default","title":"기본 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	envRegistry := filepath.Join(t.TempDir(), "env-registry.json")
+	if err := osWriteFile(envRegistry, []byte(`[{"id":"env","title":"환경 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryInstallProvenancePath, []byte(`{
+		"schema_version": "datapan.registry-install.v1",
+		"installed_at": "2026-06-30T00:00:00Z",
+		"provider": "datapan-registry",
+		"registry_path": ".datapan/data-go-kr.registry.json",
+		"registry_sha256": "abc",
+		"release_tag": "v1",
+		"release_api_url": "https://api.github.com/repos/StatPan/datapan-registry/releases/latest",
+		"asset_url": "https://example.test/v1.zip",
+		"pin_mode": "latest",
+		"source_mode": "default_installed"
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("status should not fetch latest release when env registry differs from provenance: %s", req.URL.String())
+		return nil, nil
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": envRegistry}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"source": "env"`,
+		`"active_source": "env"`,
+		`"active_registry_matches": false`,
+		`"reason": "active_registry_differs_from_provenance"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in env registry status output: %s", want, stdout)
+		}
+	}
+}
+
 func TestStatusHumanTitle(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"status"}, nil, nil)
 	if code != exitOK {
@@ -2399,6 +2594,15 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	if payload["release_dir"] != ".datapan/release" {
 		t.Fatalf("unexpected release dir: %#v", payload)
 	}
+	for _, want := range []string{
+		`"release_tag": "vtest"`,
+		`"pin_mode": "latest"`,
+		`"provenance": ".datapan/registry-install.json"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in install output: %s", want, stdout)
+		}
+	}
 	release := payload["release"].(map[string]any)
 	for _, want := range []string{
 		`"manifest_present": true`,
@@ -2437,6 +2641,24 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	} {
 		if _, err := os.ReadFile(path); err != nil {
 			t.Fatalf("expected release evidence file %s: %v", path, err)
+		}
+	}
+	provenanceData, err := os.ReadFile(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatalf("expected registry provenance file: %v", err)
+	}
+	for _, want := range []string{
+		`"schema_version": "datapan.registry-install.v1"`,
+		`"registry_path": "` + jsonEscaped(output) + `"`,
+		`"release_tag": "vtest"`,
+		`"release_api_url": "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"`,
+		`"asset_url": "https://example.test/registry.zip"`,
+		`"pin_mode": "latest"`,
+		`"source_mode": "explicit_path"`,
+		`"release_manifest": ".datapan/release/manifest.json"`,
+	} {
+		if !strings.Contains(string(provenanceData), want) {
+			t.Fatalf("expected %q in provenance: %s", want, provenanceData)
 		}
 	}
 }
