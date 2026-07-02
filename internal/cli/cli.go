@@ -4079,6 +4079,16 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	organizationFilter, args, err := consumeString(args, "--org", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if organizationFilter == "" {
+		organizationFilter, args, err = consumeString(args, "--organization", "")
+		if err != nil {
+			return a.fail(exitUsage, "%v", err)
+		}
+	}
 	hostFilter, args, err := consumeString(args, "--host", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -4101,7 +4111,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the verification report JSON to stdout")
@@ -4110,8 +4120,8 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "--status must be one of: verified, failed, skipped, unknown")
 	}
 	if input != "" {
-		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || hostFilter != "" || kindFilter != "" || excludeInput != "" || probeUnadapted || timeoutProvided {
-			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --host, --kind, --exclude-input, --probe-unadapted, or --timeout")
+		if registryPath != "" || ref != "" || operation != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || excludeInput != "" || probeUnadapted || timeoutProvided {
+			return a.fail(exitUsage, "--input cannot be combined with --registry, --ref, positional ref, --operation, --provider, --org, --host, --kind, --exclude-input, --probe-unadapted, or --timeout")
 		}
 		return a.catalogVerifyInput(input, output, statusFilter, limit, jsonOut)
 	}
@@ -4123,7 +4133,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		}
 		excludeSeen = verificationSeenSet(report)
 	}
-	candidateFilters, reportFilters, err := a.verificationFilters(providerFilter, hostFilter, kindFilter)
+	candidateFilters, reportFilters, err := a.verificationFilters(providerFilter, organizationFilter, hostFilter, kindFilter)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
@@ -4294,6 +4304,9 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	}
 	if ref != "" {
 		fmt.Fprintf(a.stdout, "  ref: %s\n", ref)
+	}
+	if organizationFilter != "" {
+		fmt.Fprintf(a.stdout, "  organization: %s\n", organizationFilter)
 	}
 	if output != "" {
 		fmt.Fprintf(a.stdout, "  output: %s\n", output)
@@ -6503,14 +6516,15 @@ func validVerificationStatus(status string) bool {
 	}
 }
 
-func (a app) verificationFilters(providerName, host, kind string) (datago.VerificationCandidateFilters, *datago.VerificationReportFilters, error) {
+func (a app) verificationFilters(providerName, organization, host, kind string) (datago.VerificationCandidateFilters, *datago.VerificationReportFilters, error) {
 	providerName = strings.TrimSpace(providerName)
+	organization = strings.TrimSpace(organization)
 	host = strings.ToLower(strings.TrimSpace(host))
 	kind = strings.TrimSpace(kind)
 	if kind != "" && !validVerificationKind(kind) {
 		return datago.VerificationCandidateFilters{}, nil, fmt.Errorf("--kind must be one of: data_go_kr_gateway, external_endpoint, service_root, no_endpoint, malformed_endpoint, soap, wms")
 	}
-	if providerName == "" && host == "" && kind == "" {
+	if providerName == "" && organization == "" && host == "" && kind == "" {
 		return datago.VerificationCandidateFilters{}, nil, nil
 	}
 	var hosts []string
@@ -6538,8 +6552,8 @@ func (a app) verificationFilters(providerName, host, kind string) (datago.Verifi
 		}
 		hosts = []string{host}
 	}
-	reportFilters := &datago.VerificationReportFilters{Provider: providerName, Host: host, Kind: kind}
-	return datago.VerificationCandidateFilters{Hosts: hosts, Kind: kind}, reportFilters, nil
+	reportFilters := &datago.VerificationReportFilters{Provider: providerName, Organization: organization, Host: host, Kind: kind}
+	return datago.VerificationCandidateFilters{Hosts: hosts, Kind: kind, Organization: organization}, reportFilters, nil
 }
 
 func validVerificationKind(kind string) bool {
@@ -9197,7 +9211,7 @@ Usage:
   datapan providers [--adapters|--gaps] [--limit N] [--sample N] [--provider NAME] [--json]
   datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]
-  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
@@ -9213,7 +9227,7 @@ Usage:
   datapan catalog providers [--registry PATH] [--limit N] [--sample N] [--status STATUS] [--kind KIND] [--provider NAME] [--output PATH|-] [--json]
   datapan catalog dependencies [--registry PATH] [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--output PATH|-] [--json]
   datapan catalog adapter-targets [--registry PATH] [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--output PATH|-] [--json]
-  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]
@@ -9368,7 +9382,7 @@ List adapter targets for external provider hosts that still need coverage.`, tru
 List registry operations with dependency and adapter status filters.`, true
 	case "verify":
 		return `Usage:
-  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+  datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
 
 Run bounded runtime verification against selected registry operations.`, true
 	case "show":
@@ -9485,7 +9499,7 @@ Write the prioritized queue of external provider hosts needing adapters.`, true
 Generate static Studio data files and viewer HTML from the registry.`, true
 	case "catalog verify":
 		return `Usage:
-  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
+  datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify --input REPORT [--status verified|failed|skipped|unknown] [--limit N] [--output PATH|-] [--json]
   datapan catalog verify plan [--registry PATH] [--verification REPORT] [--batch-size N] [--limit N] [--timeout DURATION] [--output PATH|-] [--json]
   datapan catalog verify summary --input REPORT [--limit N] [--output PATH|-] [--json]

@@ -126,6 +126,29 @@ func TestVerificationParamsUsesSmokeParams(t *testing.T) {
 	}
 }
 
+func TestVerificationParamsUsesSafeYearDefaults(t *testing.T) {
+	op := Operation{
+		Name:     "목록",
+		Endpoint: "https://apis.data.go.kr/100/list",
+		RequestParams: []Param{
+			{Name: "serviceKey"},
+			{Name: "ac_year"},
+			{Name: "yyyy"},
+			{Name: "numOfRows"},
+		},
+	}
+	params, missing := VerificationParams(Spec{ID: "100", Provider: "data.go.kr"}, op)
+	if len(missing) != 0 {
+		t.Fatalf("missing=%#v", missing)
+	}
+	if params["ac_year"] != "2024" || params["yyyy"] != "2024" || params["numOfRows"] != "1" {
+		t.Fatalf("params=%#v", params)
+	}
+	if _, ok := params["serviceKey"]; ok {
+		t.Fatalf("auth params should not be materialized: %#v", params)
+	}
+}
+
 func TestVerificationCandidatesFilterBeforeLimit(t *testing.T) {
 	reg := NewRegistry([]Spec{
 		{
