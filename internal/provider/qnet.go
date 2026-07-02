@@ -338,7 +338,7 @@ func (a QNetAdapter) Call(ctx context.Context, req CallRequest) (datago.Response
 }
 
 func DefaultRegistry() (Registry, error) {
-	return NewRegistry(NewAirportAdapter(), NewAndongAdapter(), NewDataGGAdapter(), NewEKAPEAdapter(), NewEMuseumAdapter(), NewEPostAdapter(), NewFolkAdapter(), NewForestAdapter(), NewGarakAdapter(), NewGBLibAdapter(), NewGeojeAdapter(), NewGwanakAdapter(), NewHumetroAdapter(), NewItfindAdapter(), NewJejuAdapter(), NewJeonjuAdapter(), NewKoradAdapter(), NewKPXAdapter(), NewLHEBidAdapter(), NewMAFRAAdapter(), NewMyHomeAdapter(), NewNAQSAdapter(), NewNFQSAdapter(), NewNongsaroAdapter(), NewOneclickLawAdapter(), NewPQISAdapter(), NewQNetAdapter(), NewSeoulBusAdapter(), NewSisulAdapter(), NewTourAdapter(), NewUiryeongAdapter(), NewUlsanAdapter())
+	return NewRegistry(NewAirportAdapter(), NewAndongAdapter(), NewDataGGAdapter(), NewEKAPEAdapter(), NewEMuseumAdapter(), NewEPostAdapter(), NewFolkAdapter(), NewForestAdapter(), NewGarakAdapter(), NewGBLibAdapter(), NewGeojeAdapter(), NewGwanakAdapter(), NewHumetroAdapter(), NewItfindAdapter(), NewJejuAdapter(), NewJeonjuAdapter(), NewKoradAdapter(), NewKPXAdapter(), NewLHEBidAdapter(), NewMAFRAAdapter(), NewMyHomeAdapter(), NewNAQSAdapter(), NewNFQSAdapter(), NewNongsaroAdapter(), NewOneclickLawAdapter(), NewPQISAdapter(), NewQNetAdapter(), NewSeoulBusAdapter(), NewSisulAdapter(), NewTourAdapter(), NewUiryeongAdapter(), NewUlsanAdapter(), NewWork24Adapter())
 }
 
 func endpointHost(raw string) string {
