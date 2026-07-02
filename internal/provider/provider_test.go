@@ -115,6 +115,64 @@ func TestAdapterContractUsesDatapanTypes(t *testing.T) {
 	}
 }
 
+func TestDataGGAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewDataGGAdapter()
+	if !adapter.MatchHost("data.gg.go.kr") {
+		t.Fatal("expected data-gg adapter to match data.gg.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("data-gg adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected data-gg capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "data.gg.go.kr" {
+			t.Fatalf("expected data.gg.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("data-gg should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>경기데이터드림</title></head><body>경기도 정기간행물 현황</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15005231", Title: "경기도 정기간행물 현황", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "정기간행물 현황 외부 링크 1", Endpoint: "https://data.gg.go.kr/portal/data/service/selectServicePage.do?infId=PCG359G8UAD471M0GE9K15277158&infSeq=3"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "data-gg" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected data-gg verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected data-gg URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestDataGGAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewDataGGAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15005231", Title: "경기도 정기간행물 현황", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "정기간행물 현황 외부 링크 1", Endpoint: "https://data.gg.go.kr/portal/data/service/selectServicePage.do?infId=missing"},
+		HTTP:      client,
+	})
+	if result.Provider != "data-gg" || result.Status != "failed" || result.Reason != "data_gg_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected data-gg failure result: %#v", result)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
