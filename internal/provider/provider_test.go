@@ -231,6 +231,64 @@ func TestNFQSAdapterFailsNonOKDetailPage(t *testing.T) {
 	}
 }
 
+func TestNongsaroAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewNongsaroAdapter()
+	if !adapter.MatchHost("www.nongsaro.go.kr") {
+		t.Fatal("expected nongsaro adapter to match www.nongsaro.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("nongsaro adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected nongsaro capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.nongsaro.go.kr" {
+			t.Fatalf("expected www.nongsaro.go.kr host, got %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("serviceKey") != "" {
+			t.Fatalf("nongsaro should not synthesize serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>공공데이터신청 | 농사로</title></head><body>농촌교육농장</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15005257", Title: "농촌진흥청_농촌교육농장 정보", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "농촌진흥청_농촌교육농장 정보_20171211 외부 링크 1", Endpoint: "https://www.nongsaro.go.kr/portal/ps/psn/psnj/openApiLst.ps?menuId=PS65428&pageIndex=1&pageSize=&sText=%EB%86%8D%EC%B4%8C%EA%B5%90%EC%9C%A1%EB%86%8D%EC%9E%A5"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "nongsaro" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected nongsaro verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected nongsaro URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestNongsaroAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewNongsaroAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15005257", Title: "농촌진흥청_농촌교육농장 정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "농촌진흥청_농촌교육농장 정보_20171211 외부 링크 1", Endpoint: "https://www.nongsaro.go.kr/portal/ps/psn/psnj/openApiLst.ps?menuId=PS65428&sText=missing"},
+		HTTP:      client,
+	})
+	if result.Provider != "nongsaro" || result.Status != "failed" || result.Reason != "nongsaro_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected nongsaro failure result: %#v", result)
+	}
+}
+
 func TestQNetAdapterOwnsKnownHostsConservatively(t *testing.T) {
 	adapter := NewQNetAdapter()
 	for _, host := range []string{"openapi.q-net.or.kr", "c.q-net.or.kr", "open.api.q-net.or.kr"} {
