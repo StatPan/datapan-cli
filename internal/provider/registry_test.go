@@ -171,6 +171,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.seoul.go.kr:8088":        "seoul-open-data",
 		"t-data.seoul.go.kr":              "seoul-tdata",
 		"ws.bus.go.kr":                    "seoul-bus",
+		"smartfarmkorea.net":              "smartfarm-korea",
 		"www.smartfarmkorea.net":          "smartfarm-korea",
 		"stcis.go.kr":                     "stcis",
 		"openapi.its.ulsan.kr":            "ulsan",
@@ -190,7 +191,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 96 || report.HostCount != 114 {
+	if report.AdapterCount != 96 || report.HostCount != 115 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -293,7 +294,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"sexoffender", "api.sexoffender.go.kr", "verification"},
 		{"sisul", "data.sisul.or.kr", "call,verification"},
 		{"sisul-www", "www.sisul.or.kr", "verification"},
-		{"smartfarm-korea", "www.smartfarmkorea.net", "verification"},
+		{"smartfarm-korea", "smartfarmkorea.net,www.smartfarmkorea.net", "verification"},
 		{"stcis", "stcis.go.kr", "verification"},
 		{"tour", "openapi.tour.go.kr", "call,verification"},
 		{"uiryeong", "data.uiryeong.go.kr", "call,verification"},
