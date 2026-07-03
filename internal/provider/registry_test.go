@@ -78,6 +78,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.airport.co.kr":     "airport",
 		"www.andong.go.kr":          "andong",
 		"www.calspia.go.kr":         "calspia",
+		"car.go.kr":                 "car",
 		"www.car365.go.kr":          "car365",
 		"www.codil.or.kr":           "codil",
 		"www.culture.go.kr":         "culture",
@@ -102,6 +103,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"search.i815.or.kr":         "i815",
 		"www.icheon.go.kr":          "icheon",
 		"www.ins24.go.kr":           "ins24",
+		"www.its.go.kr":             "its",
 		"data.sisul.or.kr":          "sisul",
 		"www.sisul.or.kr":           "sisul-www",
 		"data.uiryeong.go.kr":       "uiryeong",
@@ -111,9 +113,11 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"air.jeju.go.kr":            "jeju-air",
 		"data.jeju.go.kr":           "jeju",
 		"www.jejudatahub.net":       "jejudatahub",
+		"www.jeju.go.kr":            "jeju-www",
 		"openapi.jeonju.go.kr":      "jeonju",
 		"www.juso.go.kr":            "juso",
 		"www.kistep.re.kr":          "kistep",
+		"www.kofpi.or.kr":           "kofpi",
 		"www.korad.or.kr":           "korad",
 		"openapi.kpx.or.kr":         "kpx",
 		"openapi.ebid.lh.or.kr":     "lh-ebid",
@@ -151,13 +155,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 63 || report.HostCount != 70 {
+	if report.AdapterCount != 67 || report.HostCount != 74 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 63 || report.SplitReadiness.VerificationCapableAdapters != 63 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 67 || report.SplitReadiness.VerificationCapableAdapters != 67 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -171,6 +175,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"airport", "openapi.airport.co.kr", "verification"},
 		{"andong", "www.andong.go.kr", "call,verification"},
 		{"calspia", "www.calspia.go.kr", "verification"},
+		{"car", "car.go.kr", "verification"},
 		{"car365", "www.car365.go.kr", "verification"},
 		{"codil", "www.codil.or.kr", "verification"},
 		{"culture", "www.culture.go.kr", "verification"},
@@ -197,12 +202,15 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"icheon", "www.icheon.go.kr", "verification"},
 		{"ins24", "www.ins24.go.kr", "verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},
+		{"its", "www.its.go.kr", "verification"},
 		{"jeju", "data.jeju.go.kr", "call,verification"},
 		{"jeju-air", "air.jeju.go.kr", "verification"},
+		{"jeju-www", "www.jeju.go.kr", "verification"},
 		{"jejudatahub", "www.jejudatahub.net", "verification"},
 		{"jeonju", "openapi.jeonju.go.kr", "verification"},
 		{"juso", "www.juso.go.kr", "verification"},
 		{"kistep", "www.kistep.re.kr", "verification"},
+		{"kofpi", "www.kofpi.or.kr", "verification"},
 		{"korad", "www.korad.or.kr", "call,verification"},
 		{"kpx", "openapi.kpx.or.kr", "call,verification"},
 		{"lh-ebid", "openapi.ebid.lh.or.kr", "call,verification"},
