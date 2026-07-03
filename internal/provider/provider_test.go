@@ -879,6 +879,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewMNDOpenDataAdapter(),
 		},
 		{
+			name:     "nabic",
+			provider: "nabic",
+			host:     "nabic.rda.go.kr",
+			endpoint: "https://nabic.rda.go.kr/api/example",
+			adapter:  NewNABICAdapter(),
+		},
+		{
 			name:     "psis",
 			provider: "psis",
 			host:     "psis.rda.go.kr",
@@ -978,6 +985,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
+		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
 		{name: "psis", provider: "psis", endpoint: "https://psis.rda.go.kr/api/missing", adapter: NewPSISAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
 		{name: "seogwipo", provider: "seogwipo", endpoint: "https://www.seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},

@@ -130,6 +130,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.mafra.go.kr":          "mafra",
 		"opendata.mnd.go.kr":        "mnd-open-data",
 		"data.myhome.go.kr:443":     "myhome",
+		"nabic.rda.go.kr":           "nabic",
 		"data.naqs.go.kr":           "naqs",
 		"ncpms.rda.go.kr":           "ncpms",
 		"www.nfqs.go.kr":            "nfqs",
@@ -168,13 +169,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 81 || report.HostCount != 92 {
+	if report.AdapterCount != 82 || report.HostCount != 93 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 81 || report.SplitReadiness.VerificationCapableAdapters != 81 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 82 || report.SplitReadiness.VerificationCapableAdapters != 82 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -238,6 +239,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"mafra", "data.mafra.go.kr", "verification"},
 		{"mnd-open-data", "opendata.mnd.go.kr", "verification"},
 		{"myhome", "data.myhome.go.kr:443", "call,verification"},
+		{"nabic", "nabic.rda.go.kr", "verification"},
 		{"naqs", "data.naqs.go.kr", "call,verification"},
 		{"ncpms", "ncpms.rda.go.kr", "verification"},
 		{"nfqs", "www.nfqs.go.kr", "verification"},
