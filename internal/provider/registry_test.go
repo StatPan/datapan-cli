@@ -89,6 +89,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.garak.co.kr":           "garak",
 		"openapi.gblib.or.kr":       "gblib",
 		"data.geoje.go.kr":          "geoje",
+		"www.gimhae.go.kr":          "gimhae",
 		"data.gwanak.go.kr":         "gwanak",
 		"data.gm.go.kr":             "gwangmyeong",
 		"www.happysd.or.kr":         "happysd",
@@ -100,6 +101,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"folkency.nfm.go.kr":        "folk",
 		"api.forest.go.kr":          "forest",
 		"open.itfind.or.kr":         "itfind",
+		"air.jeju.go.kr":            "jeju-air",
 		"data.jeju.go.kr":           "jeju",
 		"www.jejudatahub.net":       "jejudatahub",
 		"openapi.jeonju.go.kr":      "jeonju",
@@ -115,6 +117,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.nfqs.go.kr":            "nfqs",
 		"www.nongsaro.go.kr":        "nongsaro",
 		"oneclick.law.go.kr":        "oneclick-law",
+		"open.law.go.kr":            "open-law",
 		"openapi.pqis.go.kr":        "pqis",
 		"www.safetydata.go.kr":      "safetydata",
 		"www.safemap.go.kr":         "safemap",
@@ -139,13 +142,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 51 || report.HostCount != 58 {
+	if report.AdapterCount != 54 || report.HostCount != 61 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 51 || report.SplitReadiness.VerificationCapableAdapters != 51 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 54 || report.SplitReadiness.VerificationCapableAdapters != 54 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -171,6 +174,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"garak", "www.garak.co.kr", "verification"},
 		{"gblib", "openapi.gblib.or.kr", "call,verification"},
 		{"geoje", "data.geoje.go.kr", "call,verification"},
+		{"gimhae", "www.gimhae.go.kr", "verification"},
 		{"gwanak", "data.gwanak.go.kr", "verification"},
 		{"gwangmyeong", "data.gm.go.kr", "verification"},
 		{"happysd", "www.happysd.or.kr", "verification"},
@@ -179,6 +183,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"ins24", "www.ins24.go.kr", "verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},
 		{"jeju", "data.jeju.go.kr", "call,verification"},
+		{"jeju-air", "air.jeju.go.kr", "verification"},
 		{"jejudatahub", "www.jejudatahub.net", "verification"},
 		{"jeonju", "openapi.jeonju.go.kr", "verification"},
 		{"juso", "www.juso.go.kr", "verification"},
@@ -193,6 +198,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"nfqs", "www.nfqs.go.kr", "verification"},
 		{"nongsaro", "www.nongsaro.go.kr", "verification"},
 		{"oneclick-law", "oneclick.law.go.kr,oneclick.law.go.kr:80", "call,verification"},
+		{"open-law", "open.law.go.kr", "verification"},
 		{"pqis", "openapi.pqis.go.kr", "call,verification"},
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
 		{"safemap", "www.safemap.go.kr", "verification"},
