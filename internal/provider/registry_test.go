@@ -99,6 +99,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.gicoms.go.kr":          "gicoms",
 		"www.gimhae.go.kr":          "gimhae",
 		"data.gwanak.go.kr":         "gwanak",
+		"www.gwangjin.go.kr":        "gwangjin",
 		"data.gm.go.kr":             "gwangmyeong",
 		"www.happysd.or.kr":         "happysd",
 		"data.humetro.busan.kr":     "humetro",
@@ -116,6 +117,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"air.jeju.go.kr":            "jeju-air",
 		"data.jeju.go.kr":           "jeju",
 		"www.jejudatahub.net":       "jejudatahub",
+		"www.jejuits.go.kr":         "jejuits",
 		"www.jeju.go.kr":            "jeju-www",
 		"openapi.jeonju.go.kr":      "jeonju",
 		"www.juso.go.kr":            "juso",
@@ -126,6 +128,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.ebid.lh.or.kr":     "lh-ebid",
 		"www.lofin365.go.kr":        "lofin365",
 		"data.mafra.go.kr":          "mafra",
+		"opendata.mnd.go.kr":        "mnd-open-data",
 		"data.myhome.go.kr:443":     "myhome",
 		"data.naqs.go.kr":           "naqs",
 		"ncpms.rda.go.kr":           "ncpms",
@@ -140,6 +143,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.safemap.go.kr":         "safemap",
 		"openapi.tour.go.kr":        "tour",
 		"seogu.go.kr":               "seogu",
+		"www.seogwipo.go.kr":        "seogwipo",
 		"data.seoul.go.kr":          "seoul-open-data",
 		"openapi.seoul.go.kr":       "seoul-open-data",
 		"openapi.seoul.go.kr:8088":  "seoul-open-data",
@@ -162,13 +166,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 76 || report.HostCount != 86 {
+	if report.AdapterCount != 80 || report.HostCount != 90 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 76 || report.SplitReadiness.VerificationCapableAdapters != 76 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 80 || report.SplitReadiness.VerificationCapableAdapters != 80 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -207,6 +211,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"gicoms", "www.gicoms.go.kr", "verification"},
 		{"gimhae", "www.gimhae.go.kr", "verification"},
 		{"gwanak", "data.gwanak.go.kr", "verification"},
+		{"gwangjin", "www.gwangjin.go.kr", "verification"},
 		{"gwangmyeong", "data.gm.go.kr", "verification"},
 		{"happysd", "www.happysd.or.kr", "verification"},
 		{"humetro", "data.humetro.busan.kr", "call,verification"},
@@ -219,6 +224,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"jeju-air", "air.jeju.go.kr", "verification"},
 		{"jeju-www", "www.jeju.go.kr", "verification"},
 		{"jejudatahub", "www.jejudatahub.net", "verification"},
+		{"jejuits", "www.jejuits.go.kr", "verification"},
 		{"jeonju", "openapi.jeonju.go.kr", "verification"},
 		{"juso", "www.juso.go.kr", "verification"},
 		{"kistep", "www.kistep.re.kr", "verification"},
@@ -228,6 +234,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"lh-ebid", "openapi.ebid.lh.or.kr", "call,verification"},
 		{"lofin365", "www.lofin365.go.kr", "verification"},
 		{"mafra", "data.mafra.go.kr", "verification"},
+		{"mnd-open-data", "opendata.mnd.go.kr", "verification"},
 		{"myhome", "data.myhome.go.kr:443", "call,verification"},
 		{"naqs", "data.naqs.go.kr", "call,verification"},
 		{"ncpms", "ncpms.rda.go.kr", "verification"},
@@ -241,6 +248,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"safemap", "www.safemap.go.kr", "verification"},
 		{"safetydata", "www.safetydata.go.kr", "call,verification"},
 		{"seogu", "seogu.go.kr", "verification"},
+		{"seogwipo", "www.seogwipo.go.kr", "verification"},
 		{"seoul-bus", "ws.bus.go.kr", "call,verification"},
 		{"seoul-open-data", "data.seoul.go.kr,openapi.seoul.go.kr,openapi.seoul.go.kr:8088", "call,verification"},
 		{"sexoffender", "api.sexoffender.go.kr", "verification"},

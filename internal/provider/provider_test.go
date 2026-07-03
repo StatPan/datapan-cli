@@ -841,6 +841,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewGwangmyeongAdapter(),
 		},
 		{
+			name:     "gwangjin",
+			provider: "gwangjin",
+			host:     "www.gwangjin.go.kr",
+			endpoint: "https://www.gwangjin.go.kr/api/example",
+			adapter:  NewGwangjinAdapter(),
+		},
+		{
 			name:     "ins24",
 			provider: "ins24",
 			host:     "www.ins24.go.kr",
@@ -855,11 +862,32 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewJejuDataHubAdapter(),
 		},
 		{
+			name:     "jejuits",
+			provider: "jejuits",
+			host:     "www.jejuits.go.kr",
+			endpoint: "https://www.jejuits.go.kr/api/example",
+			adapter:  NewJejuITSAdapter(),
+		},
+		{
+			name:     "mnd-open-data",
+			provider: "mnd-open-data",
+			host:     "opendata.mnd.go.kr",
+			endpoint: "https://opendata.mnd.go.kr/api/example",
+			adapter:  NewMNDOpenDataAdapter(),
+		},
+		{
 			name:     "seogu",
 			provider: "seogu",
 			host:     "seogu.go.kr",
 			endpoint: "https://seogu.go.kr/api/example",
 			adapter:  NewSeoguAdapter(),
+		},
+		{
+			name:     "seogwipo",
+			provider: "seogwipo",
+			host:     "www.seogwipo.go.kr",
+			endpoint: "https://www.seogwipo.go.kr/api/example",
+			adapter:  NewSeogwipoAdapter(),
 		},
 		{
 			name:     "wamis",
@@ -934,10 +962,14 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 	}{
 		{name: "dgfca", provider: "dgfca", endpoint: "https://dgfca.or.kr/api/missing", adapter: NewDGFCAAdapter()},
 		{name: "foodsafetykorea", provider: "foodsafetykorea", endpoint: "https://www.foodsafetykorea.go.kr/api/missing", adapter: NewFoodSafetyKoreaAdapter()},
+		{name: "gwangjin", provider: "gwangjin", endpoint: "https://www.gwangjin.go.kr/api/missing", adapter: NewGwangjinAdapter()},
 		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
 		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
+		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
+		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
+		{name: "seogwipo", provider: "seogwipo", endpoint: "https://www.seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},
 		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
 	}

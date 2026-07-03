@@ -341,6 +341,8 @@ func providerNameForHost(host string) string {
 		return "gicoms"
 	case strings.Contains(host, "gimhae.go.kr"):
 		return "gimhae"
+	case strings.Contains(host, "gwangjin.go.kr"):
+		return "gwangjin"
 	case strings.Contains(host, "humetro.busan.kr"):
 		return "humetro"
 	case strings.Contains(host, "icheon.go.kr"):
@@ -355,6 +357,8 @@ func providerNameForHost(host string) string {
 		return "jeju"
 	case strings.Contains(host, "www.jeju.go.kr"):
 		return "jeju-www"
+	case strings.Contains(host, "jejuits.go.kr"):
+		return "jejuits"
 	case strings.Contains(host, "jeonju.go.kr"):
 		return "jeonju"
 	case strings.Contains(host, "kistep.re.kr"):
@@ -377,6 +381,8 @@ func providerNameForHost(host string) string {
 		return "kpx"
 	case strings.Contains(host, "ebid.lh.or.kr"):
 		return "lh-ebid"
+	case strings.Contains(host, "opendata.mnd.go.kr"):
+		return "mnd-open-data"
 	case strings.Contains(host, "data.myhome.go.kr"):
 		return "myhome"
 	case strings.Contains(host, "naqs.go.kr"):
@@ -401,6 +407,8 @@ func providerNameForHost(host string) string {
 		return "visitkorea"
 	case strings.Contains(host, "assembly.go.kr"):
 		return "open-assembly"
+	case strings.Contains(host, "seogwipo.go.kr"):
+		return "seogwipo"
 	case strings.Contains(host, "sexoffender.go.kr"):
 		return "sexoffender"
 	default:
