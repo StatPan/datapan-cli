@@ -364,6 +364,7 @@ func DefaultRegistry() (Registry, error) {
 		NewGarakAdapter(),
 		NewGBLibAdapter(),
 		NewGeojeAdapter(),
+		NewGICOMSAdapter(),
 		NewGimhaeAdapter(),
 		NewGwanakAdapter(),
 		NewGwangmyeongAdapter(),
