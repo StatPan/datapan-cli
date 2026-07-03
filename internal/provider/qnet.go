@@ -350,6 +350,7 @@ func DefaultRegistry() (Registry, error) {
 		NewCodilAdapter(),
 		NewConsumerAdapter(),
 		NewCultureAdapter(),
+		NewDaejeonAdapter(),
 		NewDataGGAdapter(),
 		NewDGFCAAdapter(),
 		NewDongjakAdapter(),
