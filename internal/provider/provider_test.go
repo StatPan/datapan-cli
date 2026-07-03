@@ -921,6 +921,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewMNDOpenDataAdapter(),
 		},
 		{
+			name:     "gims",
+			provider: "gims",
+			host:     "www.gims.go.kr",
+			endpoint: "https://www.gims.go.kr/openapi/service/rest/ObservatoryInfoService/getObsrvInfoList",
+			adapter:  NewGIMSAdapter(),
+		},
+		{
 			name:     "mafra-legacy",
 			provider: "mafra-legacy",
 			host:     "211.237.50.150:7080",
@@ -1061,6 +1068,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "jeonnam-redtable", provider: "jeonnam-redtable", endpoint: "https://jeonnam.openapi.redtable.global/api/missing", adapter: NewJeonnamRedtableAdapter()},
 		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
+		{name: "gims", provider: "gims", endpoint: "https://www.gims.go.kr/api/missing", adapter: NewGIMSAdapter()},
 		{name: "mafra-legacy", provider: "mafra-legacy", endpoint: "http://211.237.50.150:7080/openapi/sample/xml/missing/1/5", adapter: NewMAFRALegacyAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "much", provider: "much", endpoint: "https://www.much.go.kr/cop/bbs/missing.do", adapter: NewMUCHAdapter()},

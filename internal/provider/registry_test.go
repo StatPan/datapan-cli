@@ -102,6 +102,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.geoje.go.kr":                "geoje",
 		"www.gicoms.go.kr":                "gicoms",
 		"www.gimhae.go.kr":                "gimhae",
+		"www.gims.go.kr":                  "gims",
 		"data.gwanak.go.kr":               "gwanak",
 		"www.gwangjin.go.kr":              "gwangjin",
 		"data.gm.go.kr":                   "gwangmyeong",
@@ -181,13 +182,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 89 || report.HostCount != 105 {
+	if report.AdapterCount != 90 || report.HostCount != 106 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 89 || report.SplitReadiness.VerificationCapableAdapters != 89 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 90 || report.SplitReadiness.VerificationCapableAdapters != 90 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -226,6 +227,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"geoje", "data.geoje.go.kr", "call,verification"},
 		{"gicoms", "www.gicoms.go.kr", "verification"},
 		{"gimhae", "www.gimhae.go.kr", "verification"},
+		{"gims", "www.gims.go.kr", "verification"},
 		{"gwanak", "data.gwanak.go.kr", "verification"},
 		{"gwangjin", "www.gwangjin.go.kr", "verification"},
 		{"gwangmyeong", "data.gm.go.kr", "verification"},
