@@ -138,8 +138,10 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"211.237.50.150:7080":             "mafra-legacy",
 		"data.mafra.go.kr":                "mafra",
 		"opendata.mnd.go.kr":              "mnd-open-data",
+		"www.much.go.kr":                  "much",
 		"data.myhome.go.kr:443":           "myhome",
 		"nabic.rda.go.kr":                 "nabic",
+		"www.naa.go.kr":                   "naa",
 		"data.naqs.go.kr":                 "naqs",
 		"ncpms.rda.go.kr":                 "ncpms",
 		"www.nfqs.go.kr":                  "nfqs",
@@ -179,13 +181,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 87 || report.HostCount != 103 {
+	if report.AdapterCount != 89 || report.HostCount != 105 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 87 || report.SplitReadiness.VerificationCapableAdapters != 87 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 89 || report.SplitReadiness.VerificationCapableAdapters != 89 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -252,7 +254,9 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"mafra", "data.mafra.go.kr", "verification"},
 		{"mafra-legacy", "211.237.50.150,211.237.50.150:7080", "verification"},
 		{"mnd-open-data", "opendata.mnd.go.kr", "verification"},
+		{"much", "www.much.go.kr", "verification"},
 		{"myhome", "data.myhome.go.kr:443", "call,verification"},
+		{"naa", "www.naa.go.kr", "verification"},
 		{"nabic", "nabic.rda.go.kr", "verification"},
 		{"naqs", "data.naqs.go.kr", "call,verification"},
 		{"ncpms", "ncpms.rda.go.kr", "verification"},
