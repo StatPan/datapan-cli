@@ -1422,6 +1422,64 @@ func TestFTCLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestWorldJobAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewWorldJobAdapter()
+	if !adapter.MatchHost("www.worldjob.or.kr") {
+		t.Fatal("expected worldjob adapter to match www.worldjob.or.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("worldjob adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected worldjob capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.worldjob.or.kr" {
+			t.Fatalf("expected www.worldjob.or.kr host, got %s", req.URL.Host)
+		}
+		if strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("worldjob should not leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>월드잡플러스</title></head><body>open api</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "3045136", Title: "[산업인력] 해외취업 통계정보", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "[산업인력] 해외취업 통계정보", Endpoint: "https://www.worldjob.or.kr/openapi/example"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-04T00:00:00Z",
+	})
+	if result.Provider != "worldjob" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected worldjob verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected worldjob URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestWorldJobAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewWorldJobAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "3045136", Title: "[산업인력] 해외취업 통계정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "[산업인력] 해외취업 통계정보", Endpoint: "https://www.worldjob.or.kr/openapi/example"},
+		HTTP:      client,
+	})
+	if result.Provider != "worldjob" || result.Status != "failed" || result.Reason != "worldjob_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected worldjob failure result: %#v", result)
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {
