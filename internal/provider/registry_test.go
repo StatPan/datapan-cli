@@ -157,13 +157,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 70 || report.HostCount != 78 {
+	if report.AdapterCount != 73 || report.HostCount != 81 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 70 || report.SplitReadiness.VerificationCapableAdapters != 70 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 73 || report.SplitReadiness.VerificationCapableAdapters != 73 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -180,6 +180,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"car", "car.go.kr", "verification"},
 		{"car365", "www.car365.go.kr", "verification"},
 		{"codil", "www.codil.or.kr", "verification"},
+		{"consumer", "www.consumer.go.kr", "verification"},
 		{"culture", "www.culture.go.kr", "verification"},
 		{"data-gg", "data.gg.go.kr", "verification"},
 		{"dgfca", "dgfca.or.kr", "verification"},
@@ -189,9 +190,11 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"epost", "openapi.epost.go.kr,openapi.epost.go.kr:80", "call,verification"},
 		{"eshare", "www.eshare.go.kr", "verification"},
 		{"ex", "data.ex.co.kr", "verification"},
+		{"fairdata", "www.fairdata.go.kr", "verification"},
 		{"folk", "folkency.nfm.go.kr", "verification"},
 		{"foodsafetykorea", "www.foodsafetykorea.go.kr", "verification"},
 		{"forest", "api.forest.go.kr", "call,verification"},
+		{"franchise-ftc", "franchise.ftc.go.kr", "verification"},
 		{"garak", "www.garak.co.kr", "verification"},
 		{"gblib", "openapi.gblib.or.kr", "call,verification"},
 		{"geoje", "data.geoje.go.kr", "call,verification"},

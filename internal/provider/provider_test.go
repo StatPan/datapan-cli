@@ -1337,6 +1337,91 @@ func TestSexOffenderAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestFTCLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		host     string
+		endpoint string
+		adapter  Adapter
+	}{
+		{name: "consumer", provider: "consumer", host: "www.consumer.go.kr", endpoint: "https://www.consumer.go.kr/openapi/example", adapter: NewConsumerAdapter()},
+		{name: "fairdata", provider: "fairdata", host: "www.fairdata.go.kr", endpoint: "https://www.fairdata.go.kr/openapi/example", adapter: NewFairDataAdapter()},
+		{name: "franchise-ftc", provider: "franchise-ftc", host: "franchise.ftc.go.kr", endpoint: "https://franchise.ftc.go.kr/openapi/example", adapter: NewFranchiseFTCAdapter()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if !tc.adapter.MatchHost(tc.host) {
+				t.Fatalf("expected %s adapter to match %s", tc.name, tc.host)
+			}
+			if tc.adapter.MatchHost("apis.data.go.kr") {
+				t.Fatalf("%s adapter should not match data.go.kr gateway", tc.name)
+			}
+			if strings.Join(adapterCapabilities(tc.adapter), ",") != "verification" {
+				t.Fatalf("unexpected %s capabilities: %#v", tc.name, adapterCapabilities(tc.adapter))
+			}
+			client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Host != tc.host {
+					t.Fatalf("expected %s host, got %s", tc.host, req.URL.Host)
+				}
+				if strings.Contains(req.URL.RawQuery, "secret") {
+					t.Fatalf("%s should not leak serviceKey: %s", tc.name, req.URL.RawQuery)
+				}
+				return &http.Response{
+					StatusCode: 200,
+					Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+					Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>공정거래위원회</title></head><body>open api</body></html>`)),
+				}, nil
+			})
+			result := tc.adapter.Verify(context.Background(), VerificationRequest{
+				Spec:       datago.Spec{ID: "15144425", Title: "공정거래위원회 API", Provider: "data.go.kr"},
+				Operation:  datago.Operation{Name: "공정거래위원회 API", Endpoint: tc.endpoint},
+				Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+				HTTP:       client,
+				VerifiedAt: "2026-07-04T00:00:00Z",
+			})
+			if result.Provider != tc.provider || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+				t.Fatalf("unexpected %s verification result: %#v", tc.name, result)
+			}
+			if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+				t.Fatalf("unexpected %s URL/status: url=%s status=%d", tc.name, result.URL, result.HTTPStatus)
+			}
+		})
+	}
+}
+
+func TestFTCLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		endpoint string
+		adapter  Adapter
+	}{
+		{name: "consumer", provider: "consumer", endpoint: "https://www.consumer.go.kr/openapi/example", adapter: NewConsumerAdapter()},
+		{name: "fairdata", provider: "fairdata", endpoint: "https://www.fairdata.go.kr/openapi/example", adapter: NewFairDataAdapter()},
+		{name: "franchise-ftc", provider: "franchise-ftc", endpoint: "https://franchise.ftc.go.kr/openapi/example", adapter: NewFranchiseFTCAdapter()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: 404,
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+				}, nil
+			})
+			result := tc.adapter.Verify(context.Background(), VerificationRequest{
+				Spec:      datago.Spec{ID: "15144425", Title: "공정거래위원회 API", Provider: "data.go.kr"},
+				Operation: datago.Operation{Name: "공정거래위원회 API", Endpoint: tc.endpoint},
+				HTTP:      client,
+			})
+			if result.Provider != tc.provider || result.Status != "failed" || result.Reason != tc.provider+"_http_404" || result.BodyShape != "html" {
+				t.Fatalf("unexpected %s failure result: %#v", tc.name, result)
+			}
+		})
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {
