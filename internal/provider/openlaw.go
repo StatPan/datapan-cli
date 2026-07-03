@@ -16,7 +16,11 @@ func NewOpenLawAdapter() OpenLawAdapter {
 }
 
 func OpenLawHosts() []string {
-	return []string{"open.law.go.kr"}
+	return []string{
+		"open.law.go.kr",
+		"www.law.go.kr",
+		"www.lawmaking.go.kr",
+	}
 }
 
 func (a OpenLawAdapter) Name() string { return "open-law" }

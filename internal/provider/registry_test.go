@@ -132,6 +132,8 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.nongsaro.go.kr":        "nongsaro",
 		"oneclick.law.go.kr":        "oneclick-law",
 		"open.law.go.kr":            "open-law",
+		"www.law.go.kr":             "open-law",
+		"www.lawmaking.go.kr":       "open-law",
 		"openapi.pqis.go.kr":        "pqis",
 		"www.safetydata.go.kr":      "safetydata",
 		"www.safemap.go.kr":         "safemap",
@@ -159,7 +161,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 75 || report.HostCount != 83 {
+	if report.AdapterCount != 75 || report.HostCount != 85 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -231,7 +233,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"nongsaro", "www.nongsaro.go.kr", "verification"},
 		{"oneclick-law", "oneclick.law.go.kr,oneclick.law.go.kr:80", "call,verification"},
 		{"open-assembly", "open.assembly.go.kr", "verification"},
-		{"open-law", "open.law.go.kr", "verification"},
+		{"open-law", "open.law.go.kr,www.law.go.kr,www.lawmaking.go.kr", "verification"},
 		{"pqis", "openapi.pqis.go.kr", "call,verification"},
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
 		{"safemap", "www.safemap.go.kr", "verification"},
