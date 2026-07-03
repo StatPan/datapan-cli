@@ -87,6 +87,8 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.xn--6-6v7en42by2es7i6jc.com": "chungnam",
 		"www.codil.or.kr":                 "codil",
 		"www.culture.go.kr":               "culture",
+		"bigdata.daejeon.go.kr":           "daejeon",
+		"gis.daejeon.go.kr":               "daejeon",
 		"data.gg.go.kr":                   "data-gg",
 		"dgfca.or.kr":                     "dgfca",
 		"data.dongjak.go.kr":              "dongjak",
@@ -183,13 +185,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 91 || report.HostCount != 107 {
+	if report.AdapterCount != 92 || report.HostCount != 109 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 91 || report.SplitReadiness.VerificationCapableAdapters != 91 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 92 || report.SplitReadiness.VerificationCapableAdapters != 92 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -210,6 +212,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"codil", "www.codil.or.kr", "verification"},
 		{"consumer", "www.consumer.go.kr", "verification"},
 		{"culture", "www.culture.go.kr", "verification"},
+		{"daejeon", "bigdata.daejeon.go.kr,gis.daejeon.go.kr", "verification"},
 		{"data-gg", "data.gg.go.kr", "verification"},
 		{"dgfca", "dgfca.or.kr", "verification"},
 		{"dongjak", "data.dongjak.go.kr", "verification"},
