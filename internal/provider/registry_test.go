@@ -115,6 +115,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.icheon.go.kr":                "icheon",
 		"www.ins24.go.kr":                 "ins24",
 		"api.ip-navi.or.kr":               "ip-navi",
+		"api.ip-navi.or.kr:8000":          "ip-navi",
 		"its.go.kr":                       "its",
 		"www.its.go.kr":                   "its",
 		"data.sisul.or.kr":                "sisul",
@@ -193,7 +194,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 98 || report.HostCount != 117 {
+	if report.AdapterCount != 98 || report.HostCount != 118 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -248,7 +249,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"i815", "search.i815.or.kr", "verification"},
 		{"icheon", "www.icheon.go.kr", "verification"},
 		{"ins24", "www.ins24.go.kr", "verification"},
-		{"ip-navi", "api.ip-navi.or.kr", "verification"},
+		{"ip-navi", "api.ip-navi.or.kr,api.ip-navi.or.kr:8000", "verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},
 		{"its", "its.go.kr,www.its.go.kr", "verification"},
 		{"jeju", "data.jeju.go.kr", "call,verification"},

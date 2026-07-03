@@ -16,7 +16,7 @@ func NewIPNaviAdapter() IPNaviAdapter {
 }
 
 func IPNaviHosts() []string {
-	return []string{"api.ip-navi.or.kr"}
+	return []string{"api.ip-navi.or.kr", "api.ip-navi.or.kr:8000"}
 }
 
 func (a IPNaviAdapter) Name() string { return "ip-navi" }
