@@ -1221,6 +1221,64 @@ func TestI815AdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestOpenAssemblyAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewOpenAssemblyAdapter()
+	if !adapter.MatchHost("open.assembly.go.kr") {
+		t.Fatal("expected open-assembly adapter to match open.assembly.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("open-assembly adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected open-assembly capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "open.assembly.go.kr" {
+			t.Fatalf("expected open.assembly.go.kr host, got %s", req.URL.Host)
+		}
+		if strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("open-assembly should not leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>열린국회정보</title></head><body>국회 국회사무처</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15152558", Title: "국회 국회사무처_법률안 제안이유 및 주요내용", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "법률안 제안이유 및 주요내용", Endpoint: "https://open.assembly.go.kr/portal/data/service/selectAPIServicePage.do/OJ24"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "open-assembly" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected open-assembly verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected open-assembly URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestOpenAssemblyAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewOpenAssemblyAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15152558", Title: "국회 국회사무처_법률안 제안이유 및 주요내용", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "법률안 제안이유 및 주요내용", Endpoint: "https://open.assembly.go.kr/portal/data/service/selectAPIServicePage.do/OJ24"},
+		HTTP:      client,
+	})
+	if result.Provider != "open-assembly" || result.Status != "failed" || result.Reason != "open-assembly_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected open-assembly failure result: %#v", result)
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {

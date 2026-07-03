@@ -389,6 +389,7 @@ func DefaultRegistry() (Registry, error) {
 		NewNFQSAdapter(),
 		NewNongsaroAdapter(),
 		NewOneclickLawAdapter(),
+		NewOpenAssemblyAdapter(),
 		NewOpenLawAdapter(),
 		NewPQISAdapter(),
 		NewQNetAdapter(),
