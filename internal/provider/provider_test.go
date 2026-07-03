@@ -820,6 +820,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 		adapter  Adapter
 	}{
 		{
+			name:     "dgfca",
+			provider: "dgfca",
+			host:     "dgfca.or.kr",
+			endpoint: "https://dgfca.or.kr/api/example",
+			adapter:  NewDGFCAAdapter(),
+		},
+		{
 			name:     "foodsafetykorea",
 			provider: "foodsafetykorea",
 			host:     "www.foodsafetykorea.go.kr",
@@ -911,6 +918,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		endpoint string
 		adapter  Adapter
 	}{
+		{name: "dgfca", provider: "dgfca", endpoint: "https://dgfca.or.kr/api/missing", adapter: NewDGFCAAdapter()},
 		{name: "foodsafetykorea", provider: "foodsafetykorea", endpoint: "https://www.foodsafetykorea.go.kr/api/missing", adapter: NewFoodSafetyKoreaAdapter()},
 		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
 		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
