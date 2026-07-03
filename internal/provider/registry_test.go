@@ -134,6 +134,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.jongno.go.kr":            "jongno",
 		"openapi.jongno.go.kr:8088":       "jongno",
 		"www.juso.go.kr":                  "juso",
+		"www.khoa.go.kr":                  "khoa",
 		"plus.kipris.or.kr":               "kipris-plus",
 		"www.kistep.re.kr":                "kistep",
 		"apihub.kma.go.kr":                "kma-apihub",
@@ -194,13 +195,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 98 || report.HostCount != 118 {
+	if report.AdapterCount != 99 || report.HostCount != 119 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 98 || report.SplitReadiness.VerificationCapableAdapters != 98 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 99 || report.SplitReadiness.VerificationCapableAdapters != 99 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -261,6 +262,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"jeonnam-redtable", "jeonnam.openapi.redtable.global", "verification"},
 		{"jongno", "openapi.jongno.go.kr,openapi.jongno.go.kr:8088", "verification"},
 		{"juso", "www.juso.go.kr", "verification"},
+		{"khoa", "www.khoa.go.kr", "verification"},
 		{"kipris-plus", "plus.kipris.or.kr", "verification"},
 		{"kistep", "www.kistep.re.kr", "verification"},
 		{"kma-apihub", "apihub.kma.go.kr", "verification"},
