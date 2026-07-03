@@ -1538,6 +1538,64 @@ func TestCancerAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestGICOMSAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewGICOMSAdapter()
+	if !adapter.MatchHost("www.gicoms.go.kr") {
+		t.Fatal("expected gicoms adapter to match www.gicoms.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("gicoms adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected gicoms capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "www.gicoms.go.kr" {
+			t.Fatalf("expected www.gicoms.go.kr host, got %s", req.URL.Host)
+		}
+		if strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("gicoms should not leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>GICOMS</title></head><body>ship location</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15084033", Title: "해양수산부_선박위치정보(연안AIS) 통계정보", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "선박위치정보 통계", Endpoint: "https://www.gicoms.go.kr/openapi/example"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-04T00:00:00Z",
+	})
+	if result.Provider != "gicoms" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected gicoms verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected gicoms URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestGICOMSAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewGICOMSAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15084033", Title: "해양수산부_선박위치정보(연안AIS) 통계정보", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "선박위치정보 통계", Endpoint: "https://www.gicoms.go.kr/openapi/example"},
+		HTTP:      client,
+	})
+	if result.Provider != "gicoms" || result.Status != "failed" || result.Reason != "gicoms_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected gicoms failure result: %#v", result)
+	}
+}
+
 func TestOpenLawAdapterVerifiesExpandedHTMLLandingHostsWithoutAuth(t *testing.T) {
 	adapter := NewOpenLawAdapter()
 	tests := []struct {
