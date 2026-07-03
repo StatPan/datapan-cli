@@ -134,6 +134,8 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.kpx.or.kr":               "kpx",
 		"openapi.ebid.lh.or.kr":           "lh-ebid",
 		"www.lofin365.go.kr":              "lofin365",
+		"211.237.50.150":                  "mafra-legacy",
+		"211.237.50.150:7080":             "mafra-legacy",
 		"data.mafra.go.kr":                "mafra",
 		"opendata.mnd.go.kr":              "mnd-open-data",
 		"data.myhome.go.kr:443":           "myhome",
@@ -158,6 +160,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.seoul.go.kr":             "seoul-open-data",
 		"openapi.seoul.go.kr:8088":        "seoul-open-data",
 		"ws.bus.go.kr":                    "seoul-bus",
+		"www.smartfarmkorea.net":          "smartfarm-korea",
 		"stcis.go.kr":                     "stcis",
 		"openapi.its.ulsan.kr":            "ulsan",
 		"www.vworld.kr":                   "vworld",
@@ -176,13 +179,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 85 || report.HostCount != 100 {
+	if report.AdapterCount != 87 || report.HostCount != 103 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 85 || report.SplitReadiness.VerificationCapableAdapters != 85 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 87 || report.SplitReadiness.VerificationCapableAdapters != 87 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -247,6 +250,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"lh-ebid", "openapi.ebid.lh.or.kr", "call,verification"},
 		{"lofin365", "www.lofin365.go.kr", "verification"},
 		{"mafra", "data.mafra.go.kr", "verification"},
+		{"mafra-legacy", "211.237.50.150,211.237.50.150:7080", "verification"},
 		{"mnd-open-data", "opendata.mnd.go.kr", "verification"},
 		{"myhome", "data.myhome.go.kr:443", "call,verification"},
 		{"nabic", "nabic.rda.go.kr", "verification"},
@@ -269,6 +273,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"sexoffender", "api.sexoffender.go.kr", "verification"},
 		{"sisul", "data.sisul.or.kr", "call,verification"},
 		{"sisul-www", "www.sisul.or.kr", "verification"},
+		{"smartfarm-korea", "www.smartfarmkorea.net", "verification"},
 		{"stcis", "stcis.go.kr", "verification"},
 		{"tour", "openapi.tour.go.kr", "call,verification"},
 		{"uiryeong", "data.uiryeong.go.kr", "call,verification"},
