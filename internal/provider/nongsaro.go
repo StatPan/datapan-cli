@@ -20,7 +20,7 @@ func NewNongsaroAdapter() NongsaroAdapter {
 }
 
 func NongsaroHosts() []string {
-	return []string{"www.nongsaro.go.kr"}
+	return []string{"nongsaro.go.kr", "www.nongsaro.go.kr"}
 }
 
 func (a NongsaroAdapter) Name() string { return "nongsaro" }

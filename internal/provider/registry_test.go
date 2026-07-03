@@ -133,12 +133,14 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.naqs.go.kr":           "naqs",
 		"ncpms.rda.go.kr":           "ncpms",
 		"www.nfqs.go.kr":            "nfqs",
+		"nongsaro.go.kr":            "nongsaro",
 		"www.nongsaro.go.kr":        "nongsaro",
 		"oneclick.law.go.kr":        "oneclick-law",
 		"open.law.go.kr":            "open-law",
 		"www.law.go.kr":             "open-law",
 		"www.lawmaking.go.kr":       "open-law",
 		"openapi.pqis.go.kr":        "pqis",
+		"psis.rda.go.kr":            "psis",
 		"www.safetydata.go.kr":      "safetydata",
 		"www.safemap.go.kr":         "safemap",
 		"openapi.tour.go.kr":        "tour",
@@ -166,13 +168,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 80 || report.HostCount != 90 {
+	if report.AdapterCount != 81 || report.HostCount != 92 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 80 || report.SplitReadiness.VerificationCapableAdapters != 80 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 81 || report.SplitReadiness.VerificationCapableAdapters != 81 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -239,11 +241,12 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"naqs", "data.naqs.go.kr", "call,verification"},
 		{"ncpms", "ncpms.rda.go.kr", "verification"},
 		{"nfqs", "www.nfqs.go.kr", "verification"},
-		{"nongsaro", "www.nongsaro.go.kr", "verification"},
+		{"nongsaro", "nongsaro.go.kr,www.nongsaro.go.kr", "verification"},
 		{"oneclick-law", "oneclick.law.go.kr,oneclick.law.go.kr:80", "call,verification"},
 		{"open-assembly", "open.assembly.go.kr", "verification"},
 		{"open-law", "open.law.go.kr,www.law.go.kr,www.lawmaking.go.kr", "verification"},
 		{"pqis", "openapi.pqis.go.kr", "call,verification"},
+		{"psis", "psis.rda.go.kr", "verification"},
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
 		{"safemap", "www.safemap.go.kr", "verification"},
 		{"safetydata", "www.safetydata.go.kr", "call,verification"},
