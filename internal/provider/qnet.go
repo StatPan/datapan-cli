@@ -412,6 +412,7 @@ func DefaultRegistry() (Registry, error) {
 		NewWAMISAdapter(),
 		NewWorkAdapter(),
 		NewWork24Adapter(),
+		NewWorldJobAdapter(),
 	)
 }
 
