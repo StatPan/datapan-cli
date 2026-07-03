@@ -236,6 +236,9 @@ func TestNongsaroAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
 	if !adapter.MatchHost("www.nongsaro.go.kr") {
 		t.Fatal("expected nongsaro adapter to match www.nongsaro.go.kr")
 	}
+	if !adapter.MatchHost("nongsaro.go.kr") {
+		t.Fatal("expected nongsaro adapter to match nongsaro.go.kr")
+	}
 	if adapter.MatchHost("apis.data.go.kr") {
 		t.Fatal("nongsaro adapter should not match data.go.kr gateway")
 	}
@@ -876,6 +879,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewMNDOpenDataAdapter(),
 		},
 		{
+			name:     "psis",
+			provider: "psis",
+			host:     "psis.rda.go.kr",
+			endpoint: "https://psis.rda.go.kr/api/example",
+			adapter:  NewPSISAdapter(),
+		},
+		{
 			name:     "seogu",
 			provider: "seogu",
 			host:     "seogu.go.kr",
@@ -968,6 +978,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
+		{name: "psis", provider: "psis", endpoint: "https://psis.rda.go.kr/api/missing", adapter: NewPSISAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
 		{name: "seogwipo", provider: "seogwipo", endpoint: "https://www.seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},
 		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},

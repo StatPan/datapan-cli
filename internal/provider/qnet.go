@@ -400,6 +400,7 @@ func DefaultRegistry() (Registry, error) {
 		NewOpenAssemblyAdapter(),
 		NewOpenLawAdapter(),
 		NewPQISAdapter(),
+		NewPSISAdapter(),
 		NewQNetAdapter(),
 		NewSafetyDataAdapter(),
 		NewSafeMapAdapter(),

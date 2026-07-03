@@ -395,6 +395,8 @@ func providerNameForHost(host string) string {
 		return "open-law"
 	case strings.Contains(host, "pqis.go.kr"):
 		return "pqis"
+	case strings.Contains(host, "psis.rda.go.kr"):
+		return "psis"
 	case strings.Contains(host, "openapi.tour.go.kr"):
 		return "tour"
 	case host == "stcis.go.kr":
