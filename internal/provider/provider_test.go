@@ -949,6 +949,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKOSMESAdapter(),
 		},
 		{
+			name:     "recycling-info",
+			provider: "recycling-info",
+			host:     "www.recycling-info.or.kr",
+			endpoint: "https://www.recycling-info.or.kr/api/example",
+			adapter:  NewRecyclingInfoAdapter(),
+		},
+		{
 			name:     "mnd-open-data",
 			provider: "mnd-open-data",
 			host:     "opendata.mnd.go.kr",
@@ -1211,6 +1218,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
 		{name: "naa", provider: "naa", endpoint: "http://www.naa.go.kr/site/main/content/missing", adapter: NewNAAAdapter()},
 		{name: "psis", provider: "psis", endpoint: "https://psis.rda.go.kr/api/missing", adapter: NewPSISAdapter()},
+		{name: "recycling-info", provider: "recycling-info", endpoint: "https://www.recycling-info.or.kr/api/missing", adapter: NewRecyclingInfoAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
 		{name: "seogwipo", provider: "seogwipo", endpoint: "https://www.seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},
 		{name: "seoul-map", provider: "seoul-map", endpoint: "https://map.seoul.go.kr/api/missing", adapter: NewSeoulMapAdapter()},

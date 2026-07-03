@@ -419,6 +419,7 @@ func DefaultRegistry() (Registry, error) {
 		NewPQISAdapter(),
 		NewPSISAdapter(),
 		NewQNetAdapter(),
+		NewRecyclingInfoAdapter(),
 		NewSafetyDataAdapter(),
 		NewSafeMapAdapter(),
 		NewSeoguAdapter(),
