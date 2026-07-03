@@ -869,6 +869,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewWAMISAdapter(),
 		},
 		{
+			name:     "wamis-port",
+			provider: "wamis",
+			host:     "www.wamis.go.kr:8080",
+			endpoint: "http://www.wamis.go.kr:8080/api/example",
+			adapter:  NewWAMISAdapter(),
+		},
+		{
 			name:     "vworld",
 			provider: "vworld",
 			host:     "www.vworld.kr",

@@ -16,7 +16,10 @@ func NewWAMISAdapter() WAMISAdapter {
 }
 
 func WAMISHosts() []string {
-	return []string{"www.wamis.go.kr"}
+	return []string{
+		"www.wamis.go.kr",
+		"www.wamis.go.kr:8080",
+	}
 }
 
 func (a WAMISAdapter) Name() string { return "wamis" }
