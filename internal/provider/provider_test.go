@@ -907,6 +907,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewJejuITSAdapter(),
 		},
 		{
+			name:     "kma-apihub",
+			provider: "kma-apihub",
+			host:     "apihub.kma.go.kr",
+			endpoint: "https://apihub.kma.go.kr/api/typ01/url/kma_sfctm3.php",
+			adapter:  NewKMAAPIHubAdapter(),
+		},
+		{
 			name:     "mnd-open-data",
 			provider: "mnd-open-data",
 			host:     "opendata.mnd.go.kr",
@@ -1025,6 +1032,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "jeonnam-redtable", provider: "jeonnam-redtable", endpoint: "https://jeonnam.openapi.redtable.global/api/missing", adapter: NewJeonnamRedtableAdapter()},
+		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
 		{name: "psis", provider: "psis", endpoint: "https://psis.rda.go.kr/api/missing", adapter: NewPSISAdapter()},
