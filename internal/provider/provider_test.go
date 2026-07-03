@@ -862,6 +862,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewSeoguAdapter(),
 		},
 		{
+			name:     "wamis",
+			provider: "wamis",
+			host:     "www.wamis.go.kr",
+			endpoint: "https://www.wamis.go.kr/api/example",
+			adapter:  NewWAMISAdapter(),
+		},
+		{
 			name:     "vworld",
 			provider: "vworld",
 			host:     "www.vworld.kr",
@@ -924,6 +931,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
+		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
 	}
 	for _, tc := range cases {

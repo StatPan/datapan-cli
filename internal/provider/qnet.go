@@ -388,6 +388,7 @@ func DefaultRegistry() (Registry, error) {
 		NewUiryeongAdapter(),
 		NewUlsanAdapter(),
 		NewVWorldAdapter(),
+		NewWAMISAdapter(),
 		NewWork24Adapter(),
 	)
 }
