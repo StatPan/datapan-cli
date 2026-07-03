@@ -949,6 +949,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKOSMESAdapter(),
 		},
 		{
+			name:     "chungbuk-tour",
+			provider: "chungbuk-tour",
+			host:     "tour.chungbuk.go.kr",
+			endpoint: "https://tour.chungbuk.go.kr/api/example",
+			adapter:  NewChungbukTourAdapter(),
+		},
+		{
 			name:     "ecvam",
 			provider: "ecvam",
 			host:     "ecvam.neins.go.kr",
@@ -1202,6 +1209,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 	}{
 		{name: "dgfca", provider: "dgfca", endpoint: "https://dgfca.or.kr/api/missing", adapter: NewDGFCAAdapter()},
 		{name: "chungnam", provider: "chungnam", endpoint: "https://www.chungnam.go.kr/api/missing", adapter: NewChungnamAdapter()},
+		{name: "chungbuk-tour", provider: "chungbuk-tour", endpoint: "https://tour.chungbuk.go.kr/api/missing", adapter: NewChungbukTourAdapter()},
 		{name: "foodsafetykorea", provider: "foodsafetykorea", endpoint: "https://www.foodsafetykorea.go.kr/api/missing", adapter: NewFoodSafetyKoreaAdapter()},
 		{name: "gwangjin", provider: "gwangjin", endpoint: "https://www.gwangjin.go.kr/api/missing", adapter: NewGwangjinAdapter()},
 		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
