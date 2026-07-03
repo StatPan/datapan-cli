@@ -921,6 +921,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKMAAPIHubAdapter(),
 		},
 		{
+			name:     "kipris-plus",
+			provider: "kipris-plus",
+			host:     "plus.kipris.or.kr",
+			endpoint: "https://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice",
+			adapter:  NewKIPRISPlusAdapter(),
+		},
+		{
 			name:     "kosmes",
 			provider: "kosmes",
 			host:     "kosmes.or.kr",
@@ -1169,6 +1176,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jeonnam-redtable", provider: "jeonnam-redtable", endpoint: "https://jeonnam.openapi.redtable.global/api/missing", adapter: NewJeonnamRedtableAdapter()},
 		{name: "jongno", provider: "jongno", endpoint: "https://openapi.jongno.go.kr/api/missing", adapter: NewJongnoAdapter()},
 		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
+		{name: "kipris-plus", provider: "kipris-plus", endpoint: "https://plus.kipris.or.kr/api/missing", adapter: NewKIPRISPlusAdapter()},
 		{name: "kosmes", provider: "kosmes", endpoint: "https://kosmes.or.kr/api/missing", adapter: NewKOSMESAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "daejeon-gis", provider: "daejeon", endpoint: "https://gis.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
