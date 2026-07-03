@@ -16,7 +16,12 @@ func NewChungnamAdapter() ChungnamAdapter {
 }
 
 func ChungnamHosts() []string {
-	return []string{"www.chungnam.go.kr"}
+	return []string{
+		"alldam.chungnam.go.kr",
+		"localfood.chungnam.go.kr",
+		"www.chungnam.go.kr",
+		"www.xn--6-6v7en42by2es7i6jc.com",
+	}
 }
 
 func (a ChungnamAdapter) Name() string { return "chungnam" }
