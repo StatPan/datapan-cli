@@ -1046,6 +1046,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			endpoint: "https://www.smartfarmkorea.net/openApi/openApiList.do?menuId=M1104030101",
 			adapter:  NewSmartFarmKoreaAdapter(),
 		},
+		{
+			name:     "smartfarm-korea-bare",
+			provider: "smartfarm-korea",
+			host:     "smartfarmkorea.net",
+			endpoint: "https://smartfarmkorea.net/openApi/openApiList.do?menuId=M1104030101",
+			adapter:  NewSmartFarmKoreaAdapter(),
+		},
 	}
 	for _, tc := range cases {
 		tc := tc

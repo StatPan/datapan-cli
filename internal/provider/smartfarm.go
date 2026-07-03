@@ -16,7 +16,10 @@ func NewSmartFarmKoreaAdapter() SmartFarmKoreaAdapter {
 }
 
 func SmartFarmKoreaHosts() []string {
-	return []string{"www.smartfarmkorea.net"}
+	return []string{
+		"smartfarmkorea.net",
+		"www.smartfarmkorea.net",
+	}
 }
 
 func (a SmartFarmKoreaAdapter) Name() string { return "smartfarm-korea" }
