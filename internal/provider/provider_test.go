@@ -949,6 +949,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKOSMESAdapter(),
 		},
 		{
+			name:     "ecvam",
+			provider: "ecvam",
+			host:     "ecvam.neins.go.kr",
+			endpoint: "https://ecvam.neins.go.kr/api/example",
+			adapter:  NewECVAMAdapter(),
+		},
+		{
 			name:     "recycling-info",
 			provider: "recycling-info",
 			host:     "www.recycling-info.or.kr",
@@ -1208,6 +1215,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
 		{name: "kipris-plus", provider: "kipris-plus", endpoint: "https://plus.kipris.or.kr/api/missing", adapter: NewKIPRISPlusAdapter()},
 		{name: "kosmes", provider: "kosmes", endpoint: "https://kosmes.or.kr/api/missing", adapter: NewKOSMESAdapter()},
+		{name: "ecvam", provider: "ecvam", endpoint: "https://ecvam.neins.go.kr/api/missing", adapter: NewECVAMAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "daejeon-gis", provider: "daejeon", endpoint: "https://gis.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "gims", provider: "gims", endpoint: "https://www.gims.go.kr/api/missing", adapter: NewGIMSAdapter()},

@@ -354,6 +354,7 @@ func DefaultRegistry() (Registry, error) {
 		NewDataGGAdapter(),
 		NewDGFCAAdapter(),
 		NewDongjakAdapter(),
+		NewECVAMAdapter(),
 		NewEKAPEAdapter(),
 		NewEMuseumAdapter(),
 		NewEPostAdapter(),
