@@ -103,6 +103,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"search.i815.or.kr":         "i815",
 		"www.icheon.go.kr":          "icheon",
 		"www.ins24.go.kr":           "ins24",
+		"its.go.kr":                 "its",
 		"www.its.go.kr":             "its",
 		"data.sisul.or.kr":          "sisul",
 		"www.sisul.or.kr":           "sisul-www",
@@ -139,6 +140,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.seoul.go.kr":       "seoul-open-data",
 		"openapi.seoul.go.kr:8088":  "seoul-open-data",
 		"ws.bus.go.kr":              "seoul-bus",
+		"stcis.go.kr":               "stcis",
 		"openapi.its.ulsan.kr":      "ulsan",
 		"www.vworld.kr":             "vworld",
 		"www.wamis.go.kr":           "wamis",
@@ -155,13 +157,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 67 || report.HostCount != 74 {
+	if report.AdapterCount != 68 || report.HostCount != 76 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 67 || report.SplitReadiness.VerificationCapableAdapters != 67 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 68 || report.SplitReadiness.VerificationCapableAdapters != 68 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -202,7 +204,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"icheon", "www.icheon.go.kr", "verification"},
 		{"ins24", "www.ins24.go.kr", "verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},
-		{"its", "www.its.go.kr", "verification"},
+		{"its", "its.go.kr,www.its.go.kr", "verification"},
 		{"jeju", "data.jeju.go.kr", "call,verification"},
 		{"jeju-air", "air.jeju.go.kr", "verification"},
 		{"jeju-www", "www.jeju.go.kr", "verification"},
@@ -232,6 +234,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"seoul-open-data", "data.seoul.go.kr,openapi.seoul.go.kr,openapi.seoul.go.kr:8088", "call,verification"},
 		{"sisul", "data.sisul.or.kr", "call,verification"},
 		{"sisul-www", "www.sisul.or.kr", "verification"},
+		{"stcis", "stcis.go.kr", "verification"},
 		{"tour", "openapi.tour.go.kr", "call,verification"},
 		{"uiryeong", "data.uiryeong.go.kr", "call,verification"},
 		{"ulsan", "openapi.its.ulsan.kr", "call,verification"},

@@ -16,7 +16,10 @@ func NewITSAdapter() ITSAdapter {
 }
 
 func ITSHosts() []string {
-	return []string{"www.its.go.kr"}
+	return []string{
+		"its.go.kr",
+		"www.its.go.kr",
+	}
 }
 
 func (a ITSAdapter) Name() string { return "its" }

@@ -399,6 +399,7 @@ func DefaultRegistry() (Registry, error) {
 		NewSeoulOpenDataAdapter(),
 		NewSisulAdapter(),
 		NewSisulWWWAdapter(),
+		NewSTCISAdapter(),
 		NewTourAdapter(),
 		NewUiryeongAdapter(),
 		NewUlsanAdapter(),
