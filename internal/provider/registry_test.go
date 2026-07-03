@@ -149,6 +149,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"nongsaro.go.kr":                  "nongsaro",
 		"www.nongsaro.go.kr":              "nongsaro",
 		"oneclick.law.go.kr":              "oneclick-law",
+		"opendart.fss.or.kr":              "opendart",
 		"open.law.go.kr":                  "open-law",
 		"www.law.go.kr":                   "open-law",
 		"www.lawmaking.go.kr":             "open-law",
@@ -182,13 +183,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 90 || report.HostCount != 106 {
+	if report.AdapterCount != 91 || report.HostCount != 107 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 90 || report.SplitReadiness.VerificationCapableAdapters != 90 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 91 || report.SplitReadiness.VerificationCapableAdapters != 91 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -267,6 +268,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"oneclick-law", "oneclick.law.go.kr,oneclick.law.go.kr:80", "call,verification"},
 		{"open-assembly", "open.assembly.go.kr", "verification"},
 		{"open-law", "open.law.go.kr,www.law.go.kr,www.lawmaking.go.kr", "verification"},
+		{"opendart", "opendart.fss.or.kr", "verification"},
 		{"pqis", "openapi.pqis.go.kr", "call,verification"},
 		{"psis", "psis.rda.go.kr", "verification"},
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
