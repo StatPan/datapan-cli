@@ -130,6 +130,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.jeju.go.kr":                  "jeju-www",
 		"openapi.jeonju.go.kr":            "jeonju",
 		"openapi.jongno.go.kr":            "jongno",
+		"openapi.jongno.go.kr:8088":       "jongno",
 		"www.juso.go.kr":                  "juso",
 		"www.kistep.re.kr":                "kistep",
 		"apihub.kma.go.kr":                "kma-apihub",
@@ -189,7 +190,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 96 || report.HostCount != 113 {
+	if report.AdapterCount != 96 || report.HostCount != 114 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -253,7 +254,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"jejuits", "www.jejuits.go.kr", "verification"},
 		{"jeonju", "openapi.jeonju.go.kr", "verification"},
 		{"jeonnam-redtable", "jeonnam.openapi.redtable.global", "verification"},
-		{"jongno", "openapi.jongno.go.kr", "verification"},
+		{"jongno", "openapi.jongno.go.kr,openapi.jongno.go.kr:8088", "verification"},
 		{"juso", "www.juso.go.kr", "verification"},
 		{"kistep", "www.kistep.re.kr", "verification"},
 		{"kma-apihub", "apihub.kma.go.kr", "verification"},

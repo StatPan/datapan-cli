@@ -72,7 +72,10 @@ func NewJongnoAdapter() JongnoAdapter {
 }
 
 func JongnoHosts() []string {
-	return []string{"openapi.jongno.go.kr"}
+	return []string{
+		"openapi.jongno.go.kr",
+		"openapi.jongno.go.kr:8088",
+	}
 }
 
 func (a JongnoAdapter) Name() string { return "jongno" }
