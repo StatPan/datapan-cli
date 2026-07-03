@@ -1051,6 +1051,57 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 	}
 }
 
+func TestOpenDARTAdapterVerifiesWithCredential(t *testing.T) {
+	adapter := NewOpenDARTAdapter()
+	if !adapter.MatchHost("opendart.fss.or.kr") {
+		t.Fatal("expected opendart adapter to match host")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("opendart adapter should not match data.go.kr gateway")
+	}
+	missingAuth := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15060620", Title: "금융감독원_정기보고서 재무정보_단일회사주요계정"},
+		Operation: datago.Operation{Name: "단일회사주요계정", Endpoint: "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"},
+		Params:    map[string]string{"corp_code": "00126380", "bsns_year": "2024", "reprt_code": "11011"},
+	})
+	if missingAuth.Status != "skipped" || missingAuth.Reason != "missing_auth" {
+		t.Fatalf("unexpected missing auth result: %#v", missingAuth)
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "opendart.fss.or.kr" {
+			t.Fatalf("unexpected host: %s", req.URL.Host)
+		}
+		if req.URL.Query().Get("crtfc_key") != "secret" {
+			t.Fatalf("expected crtfc_key in request: %s", req.URL.RawQuery)
+		}
+		if req.URL.Query().Get("corp_code") != "00126380" || req.URL.Query().Get("bsns_year") != "2024" || req.URL.Query().Get("reprt_code") != "11011" {
+			t.Fatalf("unexpected OpenDART query: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"status":"000","message":"정상","list":[{"account_nm":"자산총계"}]}`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15060620", Title: "금융감독원_정기보고서 재무정보_단일회사주요계정"},
+		Operation:  datago.Operation{Name: "단일회사주요계정", Endpoint: "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"},
+		Params:     map[string]string{"corp_code": "00126380", "bsns_year": "2024", "reprt_code": "11011", "crtfc_key": "must-not-leak"},
+		Credential: Credential{Name: "OPENDART_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "opendart" || result.Status != "verified" || result.HTTPStatus != 200 || result.BodyShape != "json" {
+		t.Fatalf("unexpected OpenDART verification result: %#v", result)
+	}
+	if strings.Contains(result.URL, "secret") || !strings.Contains(result.URL, "crtfc_key=REDACTED") {
+		t.Fatalf("OpenDART URL was not redacted: %s", result.URL)
+	}
+	if result.Params["crtfc_key"] != "" || result.Params["corp_code"] != "00126380" {
+		t.Fatalf("unexpected public params: %#v", result.Params)
+	}
+}
+
 func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 	cases := []struct {
 		name     string

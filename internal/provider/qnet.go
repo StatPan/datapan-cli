@@ -304,7 +304,8 @@ func isAuthParam(name string) bool {
 		normalized == "authapikey" ||
 		normalized == "auth_api_key" ||
 		normalized == "authkey" ||
-		normalized == "auth_key"
+		normalized == "auth_key" ||
+		normalized == "crtfc_key"
 }
 
 func qnetApprovalRequired(spec datago.Spec, op datago.Operation) bool {
@@ -405,6 +406,7 @@ func DefaultRegistry() (Registry, error) {
 		NewNFQSAdapter(),
 		NewNongsaroAdapter(),
 		NewOneclickLawAdapter(),
+		NewOpenDARTAdapter(),
 		NewOpenAssemblyAdapter(),
 		NewOpenLawAdapter(),
 		NewPQISAdapter(),
