@@ -81,6 +81,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"cancer.go.kr":                    "cancer",
 		"car.go.kr":                       "car",
 		"www.car365.go.kr":                "car365",
+		"tour.chungbuk.go.kr":             "chungbuk-tour",
 		"alldam.chungnam.go.kr":           "chungnam",
 		"localfood.chungnam.go.kr":        "chungnam",
 		"www.chungnam.go.kr":              "chungnam",
@@ -198,13 +199,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 102 || report.HostCount != 122 {
+	if report.AdapterCount != 103 || report.HostCount != 123 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 102 || report.SplitReadiness.VerificationCapableAdapters != 102 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 103 || report.SplitReadiness.VerificationCapableAdapters != 103 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -221,6 +222,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"cancer", "cancer.go.kr", "verification"},
 		{"car", "car.go.kr", "verification"},
 		{"car365", "www.car365.go.kr", "verification"},
+		{"chungbuk-tour", "tour.chungbuk.go.kr", "verification"},
 		{"chungnam", "alldam.chungnam.go.kr,localfood.chungnam.go.kr,www.chungnam.go.kr,www.xn--6-6v7en42by2es7i6jc.com", "verification"},
 		{"codil", "www.codil.or.kr", "verification"},
 		{"consumer", "www.consumer.go.kr", "verification"},
