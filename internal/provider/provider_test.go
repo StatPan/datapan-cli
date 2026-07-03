@@ -823,6 +823,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 		adapter  Adapter
 	}{
 		{
+			name:     "chungnam",
+			provider: "chungnam",
+			host:     "www.chungnam.go.kr",
+			endpoint: "https://www.chungnam.go.kr/cnportal/main/contents.do?menuNo=5100181",
+			adapter:  NewChungnamAdapter(),
+		},
+		{
 			name:     "dgfca",
 			provider: "dgfca",
 			host:     "dgfca.or.kr",
@@ -970,7 +977,11 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			if result.Provider != tc.provider || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
 				t.Fatalf("unexpected %s verification result: %#v", tc.name, result)
 			}
-			if result.URL != tc.endpoint+"?page=1" || result.HTTPStatus != 200 {
+			wantURL := tc.endpoint + "?page=1"
+			if strings.Contains(tc.endpoint, "?") {
+				wantURL = tc.endpoint + "&page=1"
+			}
+			if result.URL != wantURL || result.HTTPStatus != 200 {
 				t.Fatalf("unexpected %s URL/status: url=%s status=%d", tc.name, result.URL, result.HTTPStatus)
 			}
 		})
@@ -985,6 +996,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		adapter  Adapter
 	}{
 		{name: "dgfca", provider: "dgfca", endpoint: "https://dgfca.or.kr/api/missing", adapter: NewDGFCAAdapter()},
+		{name: "chungnam", provider: "chungnam", endpoint: "https://www.chungnam.go.kr/api/missing", adapter: NewChungnamAdapter()},
 		{name: "foodsafetykorea", provider: "foodsafetykorea", endpoint: "https://www.foodsafetykorea.go.kr/api/missing", adapter: NewFoodSafetyKoreaAdapter()},
 		{name: "gwangjin", provider: "gwangjin", endpoint: "https://www.gwangjin.go.kr/api/missing", adapter: NewGwangjinAdapter()},
 		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
