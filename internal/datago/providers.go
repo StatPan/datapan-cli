@@ -339,7 +339,7 @@ func providerNameForHost(host string) string {
 		return "humetro"
 	case strings.Contains(host, "icheon.go.kr"):
 		return "icheon"
-	case strings.Contains(host, "www.its.go.kr"):
+	case host == "its.go.kr" || strings.Contains(host, "www.its.go.kr"):
 		return "its"
 	case strings.Contains(host, "itfind.or.kr"):
 		return "itfind"
@@ -377,6 +377,8 @@ func providerNameForHost(host string) string {
 		return "pqis"
 	case strings.Contains(host, "openapi.tour.go.kr"):
 		return "tour"
+	case host == "stcis.go.kr":
+		return "stcis"
 	case strings.Contains(host, "openapi.work.go.kr"):
 		return "work"
 	case strings.Contains(host, "mfds.go.kr"):
