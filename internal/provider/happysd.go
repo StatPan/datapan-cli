@@ -16,7 +16,7 @@ func NewHappySDAdapter() HappySDAdapter {
 }
 
 func HappySDHosts() []string {
-	return []string{"www.happysd.or.kr"}
+	return []string{"parking.happysd.or.kr", "www.happysd.or.kr"}
 }
 
 func (a HappySDAdapter) Name() string { return "happysd" }
