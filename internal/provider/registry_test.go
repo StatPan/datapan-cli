@@ -127,6 +127,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.its.ulsan.kr":      "ulsan",
 		"www.vworld.kr":             "vworld",
 		"www.wamis.go.kr":           "wamis",
+		"www.wamis.go.kr:8080":      "wamis",
 		"www.work24.go.kr":          "work24",
 	} {
 		adapter, ok := registry.MatchHost(host)
@@ -138,7 +139,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 51 || report.HostCount != 57 {
+	if report.AdapterCount != 51 || report.HostCount != 58 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -204,7 +205,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"uiryeong", "data.uiryeong.go.kr", "call,verification"},
 		{"ulsan", "openapi.its.ulsan.kr", "call,verification"},
 		{"vworld", "www.vworld.kr", "verification"},
-		{"wamis", "www.wamis.go.kr", "verification"},
+		{"wamis", "www.wamis.go.kr,www.wamis.go.kr:8080", "verification"},
 		{"work24", "www.work24.go.kr", "verification"},
 	}
 	if len(report.Adapters) != len(expected) {
