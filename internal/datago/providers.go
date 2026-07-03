@@ -357,6 +357,8 @@ func providerNameForHost(host string) string {
 		return "jeju-air"
 	case strings.Contains(host, "data.jeju.go.kr"):
 		return "jeju"
+	case strings.Contains(host, "jeonnam.openapi.redtable.global"):
+		return "jeonnam-redtable"
 	case strings.Contains(host, "www.jeju.go.kr"):
 		return "jeju-www"
 	case strings.Contains(host, "jejuits.go.kr"):

@@ -379,6 +379,7 @@ func DefaultRegistry() (Registry, error) {
 		NewJejuAirAdapter(),
 		NewJejuAdapter(),
 		NewJejuDataHubAdapter(),
+		NewJeonnamRedtableAdapter(),
 		NewJejuITSAdapter(),
 		NewJejuWWWAdapter(),
 		NewJeonjuAdapter(),
