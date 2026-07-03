@@ -935,6 +935,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKIPRISPlusAdapter(),
 		},
 		{
+			name:     "khoa",
+			provider: "khoa",
+			host:     "www.khoa.go.kr",
+			endpoint: "https://www.khoa.go.kr/api/example",
+			adapter:  NewKHOAAdapter(),
+		},
+		{
 			name:     "kosmes",
 			provider: "kosmes",
 			host:     "kosmes.or.kr",
@@ -1183,6 +1190,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "jeonnam-redtable", provider: "jeonnam-redtable", endpoint: "https://jeonnam.openapi.redtable.global/api/missing", adapter: NewJeonnamRedtableAdapter()},
 		{name: "jongno", provider: "jongno", endpoint: "https://openapi.jongno.go.kr/api/missing", adapter: NewJongnoAdapter()},
+		{name: "khoa", provider: "khoa", endpoint: "https://www.khoa.go.kr/api/missing", adapter: NewKHOAAdapter()},
 		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
 		{name: "kipris-plus", provider: "kipris-plus", endpoint: "https://plus.kipris.or.kr/api/missing", adapter: NewKIPRISPlusAdapter()},
 		{name: "kosmes", provider: "kosmes", endpoint: "https://kosmes.or.kr/api/missing", adapter: NewKOSMESAdapter()},
