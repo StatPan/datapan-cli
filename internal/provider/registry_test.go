@@ -157,13 +157,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 69 || report.HostCount != 77 {
+	if report.AdapterCount != 70 || report.HostCount != 78 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 69 || report.SplitReadiness.VerificationCapableAdapters != 69 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 70 || report.SplitReadiness.VerificationCapableAdapters != 70 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -233,6 +233,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"seogu", "seogu.go.kr", "verification"},
 		{"seoul-bus", "ws.bus.go.kr", "call,verification"},
 		{"seoul-open-data", "data.seoul.go.kr,openapi.seoul.go.kr,openapi.seoul.go.kr:8088", "call,verification"},
+		{"sexoffender", "api.sexoffender.go.kr", "verification"},
 		{"sisul", "data.sisul.or.kr", "call,verification"},
 		{"sisul-www", "www.sisul.or.kr", "verification"},
 		{"stcis", "stcis.go.kr", "verification"},
