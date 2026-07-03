@@ -343,6 +343,7 @@ func DefaultRegistry() (Registry, error) {
 		NewAndongAdapter(),
 		NewCultureAdapter(),
 		NewDataGGAdapter(),
+		NewDGFCAAdapter(),
 		NewEKAPEAdapter(),
 		NewEMuseumAdapter(),
 		NewEPostAdapter(),
