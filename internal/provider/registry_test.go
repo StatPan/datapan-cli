@@ -129,11 +129,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.jejuits.go.kr":               "jejuits",
 		"www.jeju.go.kr":                  "jeju-www",
 		"openapi.jeonju.go.kr":            "jeonju",
+		"openapi.jongno.go.kr":            "jongno",
 		"www.juso.go.kr":                  "juso",
 		"www.kistep.re.kr":                "kistep",
 		"apihub.kma.go.kr":                "kma-apihub",
 		"www.kofpi.or.kr":                 "kofpi",
 		"www.korad.or.kr":                 "korad",
+		"kosmes.or.kr":                    "kosmes",
 		"openapi.kpx.or.kr":               "kpx",
 		"openapi.ebid.lh.or.kr":           "lh-ebid",
 		"www.lofin365.go.kr":              "lofin365",
@@ -163,8 +165,10 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"seogu.go.kr":                     "seogu",
 		"www.seogwipo.go.kr":              "seogwipo",
 		"data.seoul.go.kr":                "seoul-open-data",
+		"map.seoul.go.kr":                 "seoul-map",
 		"openapi.seoul.go.kr":             "seoul-open-data",
 		"openapi.seoul.go.kr:8088":        "seoul-open-data",
+		"t-data.seoul.go.kr":              "seoul-tdata",
 		"ws.bus.go.kr":                    "seoul-bus",
 		"www.smartfarmkorea.net":          "smartfarm-korea",
 		"stcis.go.kr":                     "stcis",
@@ -185,13 +189,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 92 || report.HostCount != 109 {
+	if report.AdapterCount != 96 || report.HostCount != 113 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 92 || report.SplitReadiness.VerificationCapableAdapters != 92 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 96 || report.SplitReadiness.VerificationCapableAdapters != 96 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -249,11 +253,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"jejuits", "www.jejuits.go.kr", "verification"},
 		{"jeonju", "openapi.jeonju.go.kr", "verification"},
 		{"jeonnam-redtable", "jeonnam.openapi.redtable.global", "verification"},
+		{"jongno", "openapi.jongno.go.kr", "verification"},
 		{"juso", "www.juso.go.kr", "verification"},
 		{"kistep", "www.kistep.re.kr", "verification"},
 		{"kma-apihub", "apihub.kma.go.kr", "verification"},
 		{"kofpi", "www.kofpi.or.kr", "verification"},
 		{"korad", "www.korad.or.kr", "call,verification"},
+		{"kosmes", "kosmes.or.kr", "verification"},
 		{"kpx", "openapi.kpx.or.kr", "call,verification"},
 		{"lh-ebid", "openapi.ebid.lh.or.kr", "call,verification"},
 		{"lofin365", "www.lofin365.go.kr", "verification"},
@@ -280,7 +286,9 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"seogu", "seogu.go.kr", "verification"},
 		{"seogwipo", "www.seogwipo.go.kr", "verification"},
 		{"seoul-bus", "ws.bus.go.kr", "call,verification"},
+		{"seoul-map", "map.seoul.go.kr", "verification"},
 		{"seoul-open-data", "data.seoul.go.kr,openapi.seoul.go.kr,openapi.seoul.go.kr:8088", "call,verification"},
+		{"seoul-tdata", "t-data.seoul.go.kr", "verification"},
 		{"sexoffender", "api.sexoffender.go.kr", "verification"},
 		{"sisul", "data.sisul.or.kr", "call,verification"},
 		{"sisul-www", "www.sisul.or.kr", "verification"},
