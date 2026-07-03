@@ -970,6 +970,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewRecyclingInfoAdapter(),
 		},
 		{
+			name:     "iwest",
+			provider: "iwest",
+			host:     "www.iwest.co.kr",
+			endpoint: "https://www.iwest.co.kr/api/example",
+			adapter:  NewIWestAdapter(),
+		},
+		{
 			name:     "mnd-open-data",
 			provider: "mnd-open-data",
 			host:     "opendata.mnd.go.kr",
@@ -1215,6 +1222,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
 		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
 		{name: "ip-navi", provider: "ip-navi", endpoint: "https://api.ip-navi.or.kr/api/missing", adapter: NewIPNaviAdapter()},
+		{name: "iwest", provider: "iwest", endpoint: "https://www.iwest.co.kr/api/missing", adapter: NewIWestAdapter()},
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "jeonnam-redtable", provider: "jeonnam-redtable", endpoint: "https://jeonnam.openapi.redtable.global/api/missing", adapter: NewJeonnamRedtableAdapter()},

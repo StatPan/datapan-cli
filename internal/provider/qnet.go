@@ -383,6 +383,7 @@ func DefaultRegistry() (Registry, error) {
 		NewIPNaviAdapter(),
 		NewITSAdapter(),
 		NewItfindAdapter(),
+		NewIWestAdapter(),
 		NewJejuAirAdapter(),
 		NewJejuAdapter(),
 		NewJejuDataHubAdapter(),
