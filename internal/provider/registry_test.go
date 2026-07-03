@@ -81,7 +81,10 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"cancer.go.kr":                    "cancer",
 		"car.go.kr":                       "car",
 		"www.car365.go.kr":                "car365",
+		"alldam.chungnam.go.kr":           "chungnam",
+		"localfood.chungnam.go.kr":        "chungnam",
 		"www.chungnam.go.kr":              "chungnam",
+		"www.xn--6-6v7en42by2es7i6jc.com": "chungnam",
 		"www.codil.or.kr":                 "codil",
 		"www.culture.go.kr":               "culture",
 		"data.gg.go.kr":                   "data-gg",
@@ -172,7 +175,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 84 || report.HostCount != 96 {
+	if report.AdapterCount != 84 || report.HostCount != 99 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -195,7 +198,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"cancer", "cancer.go.kr", "verification"},
 		{"car", "car.go.kr", "verification"},
 		{"car365", "www.car365.go.kr", "verification"},
-		{"chungnam", "www.chungnam.go.kr", "verification"},
+		{"chungnam", "alldam.chungnam.go.kr,localfood.chungnam.go.kr,www.chungnam.go.kr,www.xn--6-6v7en42by2es7i6jc.com", "verification"},
 		{"codil", "www.codil.or.kr", "verification"},
 		{"consumer", "www.consumer.go.kr", "verification"},
 		{"culture", "www.culture.go.kr", "verification"},

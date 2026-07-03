@@ -830,6 +830,27 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewChungnamAdapter(),
 		},
 		{
+			name:     "chungnam-localfood",
+			provider: "chungnam",
+			host:     "localfood.chungnam.go.kr",
+			endpoint: "https://localfood.chungnam.go.kr/api/example",
+			adapter:  NewChungnamAdapter(),
+		},
+		{
+			name:     "chungnam-alldam",
+			provider: "chungnam",
+			host:     "alldam.chungnam.go.kr",
+			endpoint: "https://alldam.chungnam.go.kr/api/example",
+			adapter:  NewChungnamAdapter(),
+		},
+		{
+			name:     "chungnam-six",
+			provider: "chungnam",
+			host:     "www.xn--6-6v7en42by2es7i6jc.com",
+			endpoint: "https://www.xn--6-6v7en42by2es7i6jc.com/api/example",
+			adapter:  NewChungnamAdapter(),
+		},
+		{
 			name:     "dgfca",
 			provider: "dgfca",
 			host:     "dgfca.or.kr",
