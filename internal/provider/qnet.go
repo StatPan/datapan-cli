@@ -411,6 +411,7 @@ func DefaultRegistry() (Registry, error) {
 		NewNCPMSAdapter(),
 		NewNFQSAdapter(),
 		NewNongsaroAdapter(),
+		NewNOSCAdapter(),
 		NewOneclickLawAdapter(),
 		NewOpenDARTAdapter(),
 		NewOpenAssemblyAdapter(),
