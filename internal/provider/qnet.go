@@ -412,6 +412,7 @@ func DefaultRegistry() (Registry, error) {
 		NewNAAAdapter(),
 		NewNAQSAdapter(),
 		NewNCPMSAdapter(),
+		NewNierNescAdapter(),
 		NewNFQSAdapter(),
 		NewNongsaroAdapter(),
 		NewNOSCAdapter(),

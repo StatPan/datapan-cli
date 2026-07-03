@@ -991,6 +991,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewNOSCAdapter(),
 		},
 		{
+			name:     "nier-nesc",
+			provider: "nier-nesc",
+			host:     "nesc.nier.go.kr",
+			endpoint: "https://nesc.nier.go.kr/api/example",
+			adapter:  NewNierNescAdapter(),
+		},
+		{
 			name:     "daejeon",
 			provider: "daejeon",
 			host:     "bigdata.daejeon.go.kr",
@@ -1238,6 +1245,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "mafra-legacy", provider: "mafra-legacy", endpoint: "http://211.237.50.150:7080/openapi/sample/xml/missing/1/5", adapter: NewMAFRALegacyAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "nosc", provider: "nosc", endpoint: "https://nosc.go.kr/api/missing", adapter: NewNOSCAdapter()},
+		{name: "nier-nesc", provider: "nier-nesc", endpoint: "https://nesc.nier.go.kr/api/missing", adapter: NewNierNescAdapter()},
 		{name: "much", provider: "much", endpoint: "https://www.much.go.kr/cop/bbs/missing.do", adapter: NewMUCHAdapter()},
 		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
 		{name: "naa", provider: "naa", endpoint: "http://www.naa.go.kr/site/main/content/missing", adapter: NewNAAAdapter()},
