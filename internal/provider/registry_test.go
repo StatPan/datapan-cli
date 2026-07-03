@@ -157,6 +157,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.nfqs.go.kr":                  "nfqs",
 		"nongsaro.go.kr":                  "nongsaro",
 		"www.nongsaro.go.kr":              "nongsaro",
+		"nosc.go.kr":                      "nosc",
 		"oneclick.law.go.kr":              "oneclick-law",
 		"opendart.fss.or.kr":              "opendart",
 		"open.law.go.kr":                  "open-law",
@@ -195,13 +196,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 99 || report.HostCount != 119 {
+	if report.AdapterCount != 100 || report.HostCount != 120 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 99 || report.SplitReadiness.VerificationCapableAdapters != 99 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 100 || report.SplitReadiness.VerificationCapableAdapters != 100 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -283,6 +284,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"ncpms", "ncpms.rda.go.kr", "verification"},
 		{"nfqs", "www.nfqs.go.kr", "verification"},
 		{"nongsaro", "nongsaro.go.kr,www.nongsaro.go.kr", "verification"},
+		{"nosc", "nosc.go.kr", "verification"},
 		{"oneclick-law", "oneclick.law.go.kr,oneclick.law.go.kr:80", "call,verification"},
 		{"open-assembly", "open.assembly.go.kr", "verification"},
 		{"open-law", "open.law.go.kr,www.law.go.kr,www.lawmaking.go.kr", "verification"},
