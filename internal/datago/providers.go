@@ -385,6 +385,8 @@ func providerNameForHost(host string) string {
 		return "mnd-open-data"
 	case strings.Contains(host, "data.myhome.go.kr"):
 		return "myhome"
+	case strings.Contains(host, "nabic.rda.go.kr"):
+		return "nabic"
 	case strings.Contains(host, "naqs.go.kr"):
 		return "naqs"
 	case strings.Contains(host, "oneclick.law.go.kr"):

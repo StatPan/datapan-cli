@@ -392,6 +392,7 @@ func DefaultRegistry() (Registry, error) {
 		NewMAFRAAdapter(),
 		NewMNDOpenDataAdapter(),
 		NewMyHomeAdapter(),
+		NewNABICAdapter(),
 		NewNAQSAdapter(),
 		NewNCPMSAdapter(),
 		NewNFQSAdapter(),
