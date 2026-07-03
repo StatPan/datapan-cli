@@ -998,6 +998,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewNierNescAdapter(),
 		},
 		{
+			name:     "nie-ecobank",
+			provider: "nie-ecobank",
+			host:     "www.nie-ecobank.kr",
+			endpoint: "https://www.nie-ecobank.kr/api/example",
+			adapter:  NewNIEEcobankAdapter(),
+		},
+		{
 			name:     "daejeon",
 			provider: "daejeon",
 			host:     "bigdata.daejeon.go.kr",
@@ -1246,6 +1253,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "nosc", provider: "nosc", endpoint: "https://nosc.go.kr/api/missing", adapter: NewNOSCAdapter()},
 		{name: "nier-nesc", provider: "nier-nesc", endpoint: "https://nesc.nier.go.kr/api/missing", adapter: NewNierNescAdapter()},
+		{name: "nie-ecobank", provider: "nie-ecobank", endpoint: "https://www.nie-ecobank.kr/api/missing", adapter: NewNIEEcobankAdapter()},
 		{name: "much", provider: "much", endpoint: "https://www.much.go.kr/cop/bbs/missing.do", adapter: NewMUCHAdapter()},
 		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
 		{name: "naa", provider: "naa", endpoint: "http://www.naa.go.kr/site/main/content/missing", adapter: NewNAAAdapter()},
