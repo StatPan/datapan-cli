@@ -1538,6 +1538,55 @@ func TestCancerAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestOpenLawAdapterVerifiesExpandedHTMLLandingHostsWithoutAuth(t *testing.T) {
+	adapter := NewOpenLawAdapter()
+	tests := []struct {
+		name     string
+		endpoint string
+		host     string
+	}{
+		{name: "open", endpoint: "https://open.law.go.kr/example", host: "open.law.go.kr"},
+		{name: "www-law", endpoint: "https://www.law.go.kr/example", host: "www.law.go.kr"},
+		{name: "lawmaking", endpoint: "https://www.lawmaking.go.kr/example", host: "www.lawmaking.go.kr"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if !adapter.MatchHost(tc.host) {
+				t.Fatalf("expected open-law adapter to match %s", tc.host)
+			}
+			if adapter.MatchHost("apis.data.go.kr") {
+				t.Fatal("open-law adapter should not match data.go.kr gateway")
+			}
+			client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Host != tc.host {
+					t.Fatalf("expected %s host, got %s", tc.host, req.URL.Host)
+				}
+				if strings.Contains(req.URL.RawQuery, "secret") {
+					t.Fatalf("open-law should not leak serviceKey: %s", req.URL.RawQuery)
+				}
+				return &http.Response{
+					StatusCode: 200,
+					Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+					Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>법제처</title></head><body>open api</body></html>`)),
+				}, nil
+			})
+			result := adapter.Verify(context.Background(), VerificationRequest{
+				Spec:       datago.Spec{ID: "15056821", Title: "법제처_현행법령 목록 조회", Provider: "data.go.kr"},
+				Operation:  datago.Operation{Name: "법제처 API", Endpoint: tc.endpoint},
+				Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+				HTTP:       client,
+				VerifiedAt: "2026-07-04T00:00:00Z",
+			})
+			if result.Provider != "open-law" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+				t.Fatalf("unexpected open-law verification result: %#v", result)
+			}
+			if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+				t.Fatalf("unexpected open-law URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+			}
+		})
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {
