@@ -1480,6 +1480,64 @@ func TestWorldJobAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestCancerAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewCancerAdapter()
+	if !adapter.MatchHost("cancer.go.kr") {
+		t.Fatal("expected cancer adapter to match cancer.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("cancer adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected cancer capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "cancer.go.kr" {
+			t.Fatalf("expected cancer.go.kr host, got %s", req.URL.Host)
+		}
+		if strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("cancer should not leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>국가암정보센터</title></head><body>open api</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "15122235", Title: "국립암센터_국가암정보센터 내가 알고 싶은 암(100대암)", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "국가암정보센터", Endpoint: "https://cancer.go.kr/openapi/example"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-04T00:00:00Z",
+	})
+	if result.Provider != "cancer" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected cancer verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected cancer URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestCancerAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewCancerAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "15122235", Title: "국립암센터_국가암정보센터 내가 알고 싶은 암(100대암)", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "국가암정보센터", Endpoint: "https://cancer.go.kr/openapi/example"},
+		HTTP:      client,
+	})
+	if result.Provider != "cancer" || result.Status != "failed" || result.Reason != "cancer_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected cancer failure result: %#v", result)
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {
