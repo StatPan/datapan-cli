@@ -101,6 +101,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.gwanak.go.kr":         "gwanak",
 		"www.gwangjin.go.kr":        "gwangjin",
 		"data.gm.go.kr":             "gwangmyeong",
+		"parking.happysd.or.kr":     "happysd",
 		"www.happysd.or.kr":         "happysd",
 		"data.humetro.busan.kr":     "humetro",
 		"search.i815.or.kr":         "i815",
@@ -169,7 +170,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 82 || report.HostCount != 93 {
+	if report.AdapterCount != 82 || report.HostCount != 94 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -216,7 +217,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"gwanak", "data.gwanak.go.kr", "verification"},
 		{"gwangjin", "www.gwangjin.go.kr", "verification"},
 		{"gwangmyeong", "data.gm.go.kr", "verification"},
-		{"happysd", "www.happysd.or.kr", "verification"},
+		{"happysd", "parking.happysd.or.kr,www.happysd.or.kr", "verification"},
 		{"humetro", "data.humetro.busan.kr", "call,verification"},
 		{"i815", "search.i815.or.kr", "verification"},
 		{"icheon", "www.icheon.go.kr", "verification"},
