@@ -126,6 +126,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.uiryeong.go.kr":             "uiryeong",
 		"folkency.nfm.go.kr":              "folk",
 		"api.forest.go.kr":                "forest",
+		"unipass.customs.go.kr":           "unipass",
 		"open.itfind.or.kr":               "itfind",
 		"air.jeju.go.kr":                  "jeju-air",
 		"data.jeju.go.kr":                 "jeju",
@@ -202,13 +203,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 106 || report.HostCount != 126 {
+	if report.AdapterCount != 107 || report.HostCount != 127 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 106 || report.SplitReadiness.VerificationCapableAdapters != 106 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 107 || report.SplitReadiness.VerificationCapableAdapters != 107 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -320,6 +321,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"tour", "openapi.tour.go.kr", "call,verification"},
 		{"uiryeong", "data.uiryeong.go.kr", "call,verification"},
 		{"ulsan", "openapi.its.ulsan.kr", "call,verification"},
+		{"unipass", "unipass.customs.go.kr", "verification"},
 		{"vworld", "www.vworld.kr", "verification"},
 		{"wamis", "www.wamis.go.kr,www.wamis.go.kr:8080", "verification"},
 		{"work", "openapi.work.go.kr", "verification"},
