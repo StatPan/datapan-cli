@@ -335,6 +335,10 @@ func providerNameForHost(host string) string {
 		return "jeju"
 	case strings.Contains(host, "jeonju.go.kr"):
 		return "jeonju"
+	case strings.Contains(host, "data.dongjak.go.kr"):
+		return "dongjak"
+	case strings.Contains(host, "data.ex.co.kr"):
+		return "ex"
 	case strings.Contains(host, "korad.or.kr"):
 		return "korad"
 	case strings.Contains(host, "kpx.or.kr"):
