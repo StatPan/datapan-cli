@@ -387,6 +387,8 @@ func providerNameForHost(host string) string {
 		return "visitkorea"
 	case strings.Contains(host, "assembly.go.kr"):
 		return "open-assembly"
+	case strings.Contains(host, "sexoffender.go.kr"):
+		return "sexoffender"
 	default:
 		return ""
 	}

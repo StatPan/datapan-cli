@@ -398,6 +398,7 @@ func DefaultRegistry() (Registry, error) {
 		NewSeoguAdapter(),
 		NewSeoulBusAdapter(),
 		NewSeoulOpenDataAdapter(),
+		NewSexOffenderAdapter(),
 		NewSisulAdapter(),
 		NewSisulWWWAdapter(),
 		NewSTCISAdapter(),

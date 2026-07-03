@@ -1279,6 +1279,64 @@ func TestOpenAssemblyAdapterFailsNonOKLandingPage(t *testing.T) {
 	}
 }
 
+func TestSexOffenderAdapterVerifiesHTMLLandingPageWithoutAuth(t *testing.T) {
+	adapter := NewSexOffenderAdapter()
+	if !adapter.MatchHost("api.sexoffender.go.kr") {
+		t.Fatal("expected sexoffender adapter to match api.sexoffender.go.kr")
+	}
+	if adapter.MatchHost("apis.data.go.kr") {
+		t.Fatal("sexoffender adapter should not match data.go.kr gateway")
+	}
+	if strings.Join(adapterCapabilities(adapter), ",") != "verification" {
+		t.Fatalf("unexpected sexoffender capabilities: %#v", adapterCapabilities(adapter))
+	}
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.sexoffender.go.kr" {
+			t.Fatalf("expected api.sexoffender.go.kr host, got %s", req.URL.Host)
+		}
+		if strings.Contains(req.URL.RawQuery, "secret") {
+			t.Fatalf("sexoffender should not leak serviceKey: %s", req.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/html; charset=UTF-8"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><head><title>성범죄자 알림e</title></head><body>지역별 통계</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:       datago.Spec{ID: "3072018", Title: "성평등가족부_성범죄자 지역별 통계", Provider: "data.go.kr"},
+		Operation:  datago.Operation{Name: "성범죄자 지역별 통계", Endpoint: "https://api.sexoffender.go.kr/openapi/SOCitysStats/"},
+		Credential: Credential{Name: "DATA_PORTAL_API_KEY", Value: "secret"},
+		HTTP:       client,
+		VerifiedAt: "2026-07-03T00:00:00Z",
+	})
+	if result.Provider != "sexoffender" || result.Status != "verified" || result.SemanticStatus != "html_landing_page" || result.BodyShape != "html" {
+		t.Fatalf("unexpected sexoffender verification result: %#v", result)
+	}
+	if result.HTTPStatus != 200 || result.URL == "" || strings.Contains(result.URL, "secret") {
+		t.Fatalf("unexpected sexoffender URL/status: url=%s status=%d", result.URL, result.HTTPStatus)
+	}
+}
+
+func TestSexOffenderAdapterFailsNonOKLandingPage(t *testing.T) {
+	adapter := NewSexOffenderAdapter()
+	client := providerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 404,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader(`<!doctype html><html><body>not found</body></html>`)),
+		}, nil
+	})
+	result := adapter.Verify(context.Background(), VerificationRequest{
+		Spec:      datago.Spec{ID: "3072018", Title: "성평등가족부_성범죄자 지역별 통계", Provider: "data.go.kr"},
+		Operation: datago.Operation{Name: "성범죄자 지역별 통계", Endpoint: "https://api.sexoffender.go.kr/openapi/SOCitysStats/"},
+		HTTP:      client,
+	})
+	if result.Provider != "sexoffender" || result.Status != "failed" || result.Reason != "sexoffender_http_404" || result.BodyShape != "html" {
+		t.Fatalf("unexpected sexoffender failure result: %#v", result)
+	}
+}
+
 func TestSeoulOpenDataAdapterVerifiesDatasetPageWithoutAuth(t *testing.T) {
 	adapter := NewSeoulOpenDataAdapter()
 	if !adapter.MatchHost("data.seoul.go.kr") {
