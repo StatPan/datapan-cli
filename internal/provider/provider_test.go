@@ -921,6 +921,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewMNDOpenDataAdapter(),
 		},
 		{
+			name:     "mafra-legacy",
+			provider: "mafra-legacy",
+			host:     "211.237.50.150:7080",
+			endpoint: "http://211.237.50.150:7080/openapi/sample/xml/Grid_20151230000000000339_1/1/5",
+			adapter:  NewMAFRALegacyAdapter(),
+		},
+		{
 			name:     "nabic",
 			provider: "nabic",
 			host:     "nabic.rda.go.kr",
@@ -968,6 +975,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			host:     "www.vworld.kr",
 			endpoint: "https://www.vworld.kr/api/example",
 			adapter:  NewVWorldAdapter(),
+		},
+		{
+			name:     "smartfarm-korea",
+			provider: "smartfarm-korea",
+			host:     "www.smartfarmkorea.net",
+			endpoint: "https://www.smartfarmkorea.net/openApi/openApiList.do?menuId=M1104030101",
+			adapter:  NewSmartFarmKoreaAdapter(),
 		},
 	}
 	for _, tc := range cases {
@@ -1033,11 +1047,13 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "jejuits", provider: "jejuits", endpoint: "https://www.jejuits.go.kr/api/missing", adapter: NewJejuITSAdapter()},
 		{name: "jeonnam-redtable", provider: "jeonnam-redtable", endpoint: "https://jeonnam.openapi.redtable.global/api/missing", adapter: NewJeonnamRedtableAdapter()},
 		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
+		{name: "mafra-legacy", provider: "mafra-legacy", endpoint: "http://211.237.50.150:7080/openapi/sample/xml/missing/1/5", adapter: NewMAFRALegacyAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
 		{name: "psis", provider: "psis", endpoint: "https://psis.rda.go.kr/api/missing", adapter: NewPSISAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
 		{name: "seogwipo", provider: "seogwipo", endpoint: "https://www.seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},
+		{name: "smartfarm-korea", provider: "smartfarm-korea", endpoint: "https://www.smartfarmkorea.net/openApi/missing.do", adapter: NewSmartFarmKoreaAdapter()},
 		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
 	}
