@@ -192,6 +192,8 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.lawmaking.go.kr":             "open-law",
 		"openapi.pqis.go.kr":              "pqis",
 		"psis.rda.go.kr":                  "psis",
+		"home.kahis.go.kr":                "qia",
+		"meatwatch.go.kr":                 "qia",
 		"www.recycling-info.or.kr":        "recycling-info",
 		"www.safetydata.go.kr":            "safetydata",
 		"www.safemap.go.kr":               "safemap",
@@ -229,13 +231,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 122 || report.HostCount != 153 {
+	if report.AdapterCount != 123 || report.HostCount != 155 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 122 || report.SplitReadiness.VerificationCapableAdapters != 122 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 123 || report.SplitReadiness.VerificationCapableAdapters != 123 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -341,6 +343,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"pqis", "openapi.pqis.go.kr", "call,verification"},
 		{"psis", "psis.rda.go.kr", "verification"},
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
+		{"qia", "home.kahis.go.kr,meatwatch.go.kr", "verification"},
 		{"recycling-info", "www.recycling-info.or.kr", "verification"},
 		{"safemap", "www.safemap.go.kr", "verification"},
 		{"safetydata", "www.safetydata.go.kr", "call,verification"},
