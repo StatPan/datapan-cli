@@ -89,6 +89,11 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.xn--6-6v7en42by2es7i6jc.com": "chungnam",
 		"www.codil.or.kr":                 "codil",
 		"www.culture.go.kr":               "culture",
+		"air.daegu.go.kr":                 "daegu",
+		"happy.daegu.go.kr":               "daegu",
+		"thegoodnight.daegu.go.kr":        "daegu",
+		"www.daegu.go.kr":                 "daegu",
+		"www.daegufood.go.kr":             "daegu",
 		"bigdata.daejeon.go.kr":           "daejeon",
 		"gis.daejeon.go.kr":               "daejeon",
 		"data.gg.go.kr":                   "data-gg",
@@ -205,13 +210,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 109 || report.HostCount != 129 {
+	if report.AdapterCount != 110 || report.HostCount != 134 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 109 || report.SplitReadiness.VerificationCapableAdapters != 109 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 110 || report.SplitReadiness.VerificationCapableAdapters != 110 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -234,6 +239,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"codil", "www.codil.or.kr", "verification"},
 		{"consumer", "www.consumer.go.kr", "verification"},
 		{"culture", "www.culture.go.kr", "verification"},
+		{"daegu", "air.daegu.go.kr,happy.daegu.go.kr,thegoodnight.daegu.go.kr,www.daegu.go.kr,www.daegufood.go.kr", "verification"},
 		{"daejeon", "bigdata.daejeon.go.kr,gis.daejeon.go.kr", "verification"},
 		{"data-gg", "data.gg.go.kr", "verification"},
 		{"dgfca", "dgfca.or.kr", "verification"},

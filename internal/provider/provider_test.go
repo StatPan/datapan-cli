@@ -900,6 +900,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewJeonnamRedtableAdapter(),
 		},
 		{
+			name:     "daegu",
+			provider: "daegu",
+			host:     "www.daegu.go.kr",
+			endpoint: "https://www.daegu.go.kr/api/example",
+			adapter:  NewDaeguAdapter(),
+		},
+		{
 			name:     "jejudatahub",
 			provider: "jejudatahub",
 			host:     "www.jejudatahub.net",
@@ -1269,6 +1276,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "koreapost", provider: "koreapost", endpoint: "https://koreapost.go.kr/api/missing", adapter: NewKoreaPostAdapter()},
 		{name: "kosmes", provider: "kosmes", endpoint: "https://kosmes.or.kr/api/missing", adapter: NewKOSMESAdapter()},
 		{name: "ecvam", provider: "ecvam", endpoint: "https://ecvam.neins.go.kr/api/missing", adapter: NewECVAMAdapter()},
+		{name: "daegu", provider: "daegu", endpoint: "https://www.daegu.go.kr/api/missing", adapter: NewDaeguAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "daejeon-gis", provider: "daejeon", endpoint: "https://gis.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "gims", provider: "gims", endpoint: "https://www.gims.go.kr/api/missing", adapter: NewGIMSAdapter()},
