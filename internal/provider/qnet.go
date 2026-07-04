@@ -346,6 +346,7 @@ func DefaultRegistry() (Registry, error) {
 		NewCancerAdapter(),
 		NewCarAdapter(),
 		NewCar365Adapter(),
+		NewChildcareInfoAdapter(),
 		NewChungbukTourAdapter(),
 		NewChungnamAdapter(),
 		NewCodilAdapter(),
