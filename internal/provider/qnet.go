@@ -379,6 +379,7 @@ func DefaultRegistry() (Registry, error) {
 		NewGwangjinAdapter(),
 		NewGwangmyeongAdapter(),
 		NewHappySDAdapter(),
+		NewHRFCOAdapter(),
 		NewHumetroAdapter(),
 		NewI815Adapter(),
 		NewIcheonAdapter(),
