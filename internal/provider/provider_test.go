@@ -826,6 +826,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 		adapter  Adapter
 	}{
 		{
+			name:     "anyang",
+			provider: "anyang",
+			host:     "www.anyang.go.kr",
+			endpoint: "https://www.anyang.go.kr/api/example",
+			adapter:  NewAnyangAdapter(),
+		},
+		{
 			name:     "chungnam",
 			provider: "chungnam",
 			host:     "www.chungnam.go.kr",
@@ -1006,6 +1013,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			host:     "opendata.mnd.go.kr",
 			endpoint: "https://opendata.mnd.go.kr/api/example",
 			adapter:  NewMNDOpenDataAdapter(),
+		},
+		{
+			name:     "mpva-egonghun",
+			provider: "mpva-egonghun",
+			host:     "e-gonghun.mpva.go.kr",
+			endpoint: "https://e-gonghun.mpva.go.kr/api/example",
+			adapter:  NewMPVAEgonghunAdapter(),
 		},
 		{
 			name:     "nihc",
@@ -1294,6 +1308,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		endpoint string
 		adapter  Adapter
 	}{
+		{name: "anyang", provider: "anyang", endpoint: "https://www.anyang.go.kr/api/missing", adapter: NewAnyangAdapter()},
 		{name: "dgfca", provider: "dgfca", endpoint: "https://dgfca.or.kr/api/missing", adapter: NewDGFCAAdapter()},
 		{name: "chungnam", provider: "chungnam", endpoint: "https://www.chungnam.go.kr/api/missing", adapter: NewChungnamAdapter()},
 		{name: "childcare-info", provider: "childcare-info", endpoint: "https://info.childcare.go.kr/api/missing", adapter: NewChildcareInfoAdapter()},
@@ -1320,6 +1335,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "gims", provider: "gims", endpoint: "https://www.gims.go.kr/api/missing", adapter: NewGIMSAdapter()},
 		{name: "mafra-legacy", provider: "mafra-legacy", endpoint: "http://211.237.50.150:7080/openapi/sample/xml/missing/1/5", adapter: NewMAFRALegacyAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
+		{name: "mpva-egonghun", provider: "mpva-egonghun", endpoint: "https://e-gonghun.mpva.go.kr/api/missing", adapter: NewMPVAEgonghunAdapter()},
 		{name: "nosc", provider: "nosc", endpoint: "https://nosc.go.kr/api/missing", adapter: NewNOSCAdapter()},
 		{name: "nier-nesc", provider: "nier-nesc", endpoint: "https://nesc.nier.go.kr/api/missing", adapter: NewNierNescAdapter()},
 		{name: "nie-ecobank", provider: "nie-ecobank", endpoint: "https://www.nie-ecobank.kr/api/missing", adapter: NewNIEEcobankAdapter()},

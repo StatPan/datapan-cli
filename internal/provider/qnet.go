@@ -342,6 +342,7 @@ func DefaultRegistry() (Registry, error) {
 	return NewRegistry(
 		NewAirportAdapter(),
 		NewAndongAdapter(),
+		NewAnyangAdapter(),
 		NewCalspiaAdapter(),
 		NewCancerAdapter(),
 		NewCarAdapter(),
@@ -409,6 +410,7 @@ func DefaultRegistry() (Registry, error) {
 		NewMAFRAAdapter(),
 		NewMAFRALegacyAdapter(),
 		NewMNDOpenDataAdapter(),
+		NewMPVAEgonghunAdapter(),
 		NewMUCHAdapter(),
 		NewMyHomeAdapter(),
 		NewNABICAdapter(),
