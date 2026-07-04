@@ -445,6 +445,7 @@ func DefaultRegistry() (Registry, error) {
 		NewTourAdapter(),
 		NewUiryeongAdapter(),
 		NewUlsanAdapter(),
+		NewUlsanWWWAdapter(),
 		NewUniPassAdapter(),
 		NewVWorldAdapter(),
 		NewWAMISAdapter(),
