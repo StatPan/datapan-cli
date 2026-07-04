@@ -16,7 +16,7 @@ func NewSeogwipoAdapter() SeogwipoAdapter {
 }
 
 func SeogwipoHosts() []string {
-	return []string{"www.seogwipo.go.kr"}
+	return []string{"seogwipo.go.kr", "www.seogwipo.go.kr"}
 }
 
 func (a SeogwipoAdapter) Name() string { return "seogwipo" }

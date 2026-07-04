@@ -184,6 +184,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.safemap.go.kr":               "safemap",
 		"openapi.tour.go.kr":              "tour",
 		"seogu.go.kr":                     "seogu",
+		"seogwipo.go.kr":                  "seogwipo",
 		"www.seogwipo.go.kr":              "seogwipo",
 		"data.seoul.go.kr":                "seoul-open-data",
 		"map.seoul.go.kr":                 "seoul-map",
@@ -213,7 +214,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 113 || report.HostCount != 137 {
+	if report.AdapterCount != 113 || report.HostCount != 138 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -322,7 +323,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"safemap", "www.safemap.go.kr", "verification"},
 		{"safetydata", "www.safetydata.go.kr", "call,verification"},
 		{"seogu", "seogu.go.kr", "verification"},
-		{"seogwipo", "www.seogwipo.go.kr", "verification"},
+		{"seogwipo", "seogwipo.go.kr,www.seogwipo.go.kr", "verification"},
 		{"seoul-bus", "ws.bus.go.kr", "call,verification"},
 		{"seoul-map", "map.seoul.go.kr", "verification"},
 		{"seoul-open-data", "data.seoul.go.kr,openapi.seoul.go.kr,openapi.seoul.go.kr:8088", "call,verification"},

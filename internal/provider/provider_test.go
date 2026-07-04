@@ -1124,6 +1124,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewSeogwipoAdapter(),
 		},
 		{
+			name:     "seogwipo-bare",
+			provider: "seogwipo",
+			host:     "seogwipo.go.kr",
+			endpoint: "https://seogwipo.go.kr/api/example",
+			adapter:  NewSeogwipoAdapter(),
+		},
+		{
 			name:     "seoul-map",
 			provider: "seoul-map",
 			host:     "map.seoul.go.kr",
@@ -1315,6 +1322,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "recycling-info", provider: "recycling-info", endpoint: "https://www.recycling-info.or.kr/api/missing", adapter: NewRecyclingInfoAdapter()},
 		{name: "seogu", provider: "seogu", endpoint: "https://seogu.go.kr/api/missing", adapter: NewSeoguAdapter()},
 		{name: "seogwipo", provider: "seogwipo", endpoint: "https://www.seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},
+		{name: "seogwipo-bare", provider: "seogwipo", endpoint: "https://seogwipo.go.kr/api/missing", adapter: NewSeogwipoAdapter()},
 		{name: "seoul-map", provider: "seoul-map", endpoint: "https://map.seoul.go.kr/api/missing", adapter: NewSeoulMapAdapter()},
 		{name: "seoul-tdata", provider: "seoul-tdata", endpoint: "https://t-data.seoul.go.kr/api/missing", adapter: NewSeoulTDataAdapter()},
 		{name: "smartfarm-korea", provider: "smartfarm-korea", endpoint: "https://www.smartfarmkorea.net/openApi/missing.do", adapter: NewSmartFarmKoreaAdapter()},
