@@ -1015,6 +1015,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewChungbukTourAdapter(),
 		},
 		{
+			name:     "ecos",
+			provider: "ecos",
+			host:     "ecos.bok.or.kr",
+			endpoint: "https://ecos.bok.or.kr/api/example",
+			adapter:  NewECOSAdapter(),
+		},
+		{
 			name:     "ecvam",
 			provider: "ecvam",
 			host:     "ecvam.neins.go.kr",
@@ -1399,6 +1406,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "daegu", provider: "daegu", endpoint: "https://www.daegu.go.kr/api/missing", adapter: NewDaeguAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "daejeon-gis", provider: "daejeon", endpoint: "https://gis.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
+		{name: "ecos", provider: "ecos", endpoint: "https://ecos.bok.or.kr/api/missing", adapter: NewECOSAdapter()},
 		{name: "gims", provider: "gims", endpoint: "https://www.gims.go.kr/api/missing", adapter: NewGIMSAdapter()},
 		{name: "mafra-legacy", provider: "mafra-legacy", endpoint: "http://211.237.50.150:7080/openapi/sample/xml/missing/1/5", adapter: NewMAFRALegacyAdapter()},
 		{name: "milipass", provider: "milipass", endpoint: "https://www.milipass.kr/api/missing", adapter: NewMilipassAdapter()},
