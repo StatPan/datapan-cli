@@ -1033,6 +1033,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewUniPassAdapter(),
 		},
 		{
+			name:     "youthcenter",
+			provider: "youthcenter",
+			host:     "www.youthcenter.go.kr",
+			endpoint: "https://www.youthcenter.go.kr/api/example",
+			adapter:  NewYouthCenterAdapter(),
+		},
+		{
 			name:     "daejeon",
 			provider: "daejeon",
 			host:     "bigdata.daejeon.go.kr",
@@ -1298,6 +1305,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "smartfarm-korea", provider: "smartfarm-korea", endpoint: "https://www.smartfarmkorea.net/openApi/missing.do", adapter: NewSmartFarmKoreaAdapter()},
 		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
+		{name: "youthcenter", provider: "youthcenter", endpoint: "https://www.youthcenter.go.kr/api/missing", adapter: NewYouthCenterAdapter()},
 	}
 	for _, tc := range cases {
 		tc := tc
