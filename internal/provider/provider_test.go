@@ -942,6 +942,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKHOAAdapter(),
 		},
 		{
+			name:     "koreapost",
+			provider: "koreapost",
+			host:     "koreapost.go.kr",
+			endpoint: "https://koreapost.go.kr/api/example",
+			adapter:  NewKoreaPostAdapter(),
+		},
+		{
 			name:     "kosmes",
 			provider: "kosmes",
 			host:     "kosmes.or.kr",
@@ -1251,6 +1258,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "khoa", provider: "khoa", endpoint: "https://www.khoa.go.kr/api/missing", adapter: NewKHOAAdapter()},
 		{name: "kma-apihub", provider: "kma-apihub", endpoint: "https://apihub.kma.go.kr/api/missing", adapter: NewKMAAPIHubAdapter()},
 		{name: "kipris-plus", provider: "kipris-plus", endpoint: "https://plus.kipris.or.kr/api/missing", adapter: NewKIPRISPlusAdapter()},
+		{name: "koreapost", provider: "koreapost", endpoint: "https://koreapost.go.kr/api/missing", adapter: NewKoreaPostAdapter()},
 		{name: "kosmes", provider: "kosmes", endpoint: "https://kosmes.or.kr/api/missing", adapter: NewKOSMESAdapter()},
 		{name: "ecvam", provider: "ecvam", endpoint: "https://ecvam.neins.go.kr/api/missing", adapter: NewECVAMAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
