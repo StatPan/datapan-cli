@@ -435,6 +435,7 @@ func DefaultRegistry() (Registry, error) {
 		NewPQISAdapter(),
 		NewPSISAdapter(),
 		NewQNetAdapter(),
+		NewQIAAdapter(),
 		NewRecyclingInfoAdapter(),
 		NewSafetyDataAdapter(),
 		NewSafeMapAdapter(),
