@@ -202,6 +202,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"home.kahis.go.kr":                "qia",
 		"meatwatch.go.kr":                 "qia",
 		"www.recycling-info.or.kr":        "recycling-info",
+		"www.safe182.go.kr":               "safe182",
 		"www.safetydata.go.kr":            "safetydata",
 		"www.safemap.go.kr":               "safemap",
 		"openapi.tour.go.kr":              "tour",
@@ -222,6 +223,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"openapi.its.ulsan.kr":            "ulsan",
 		"www.ulsan.go.kr":                 "ulsan-www",
 		"www.vworld.kr":                   "vworld",
+		"www.utic.go.kr":                  "utic",
 		"www.wamis.go.kr":                 "wamis",
 		"www.wamis.go.kr:8080":            "wamis",
 		"openapi.work.go.kr":              "work",
@@ -239,13 +241,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 130 || report.HostCount != 163 {
+	if report.AdapterCount != 132 || report.HostCount != 165 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 130 || report.SplitReadiness.VerificationCapableAdapters != 130 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 132 || report.SplitReadiness.VerificationCapableAdapters != 132 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -359,6 +361,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"q-net", "c.q-net.or.kr,open.api.q-net.or.kr,openapi.q-net.or.kr", "verification"},
 		{"qia", "home.kahis.go.kr,meatwatch.go.kr", "verification"},
 		{"recycling-info", "www.recycling-info.or.kr", "verification"},
+		{"safe182", "www.safe182.go.kr", "verification"},
 		{"safemap", "www.safemap.go.kr", "verification"},
 		{"safetydata", "www.safetydata.go.kr", "call,verification"},
 		{"seogu", "seogu.go.kr", "verification"},
@@ -379,6 +382,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"ulsan", "openapi.its.ulsan.kr", "call,verification"},
 		{"ulsan-www", "www.ulsan.go.kr", "verification"},
 		{"unipass", "unipass.customs.go.kr", "verification"},
+		{"utic", "www.utic.go.kr", "verification"},
 		{"vworld", "www.vworld.kr", "verification"},
 		{"wamis", "www.wamis.go.kr,www.wamis.go.kr:8080", "verification"},
 		{"work", "openapi.work.go.kr", "verification"},
