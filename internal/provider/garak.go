@@ -20,7 +20,7 @@ func NewGarakAdapter() GarakAdapter {
 }
 
 func GarakHosts() []string {
-	return []string{"www.garak.co.kr"}
+	return []string{"temp.garak.co.kr", "www.garak.co.kr"}
 }
 
 func (a GarakAdapter) Name() string { return "garak" }

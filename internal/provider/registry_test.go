@@ -107,6 +107,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.ekape.or.kr":                "ekape",
 		"www.eshare.go.kr":                "eshare",
 		"www.foodsafetykorea.go.kr":       "foodsafetykorea",
+		"temp.garak.co.kr":                "garak",
 		"www.garak.co.kr":                 "garak",
 		"openapi.gblib.or.kr":             "gblib",
 		"data.geoje.go.kr":                "geoje",
@@ -214,7 +215,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 113 || report.HostCount != 138 {
+	if report.AdapterCount != 113 || report.HostCount != 139 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
@@ -259,7 +260,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"foodsafetykorea", "www.foodsafetykorea.go.kr", "verification"},
 		{"forest", "api.forest.go.kr", "call,verification"},
 		{"franchise-ftc", "franchise.ftc.go.kr", "verification"},
-		{"garak", "www.garak.co.kr", "verification"},
+		{"garak", "temp.garak.co.kr,www.garak.co.kr", "verification"},
 		{"gblib", "openapi.gblib.or.kr", "call,verification"},
 		{"geoje", "data.geoje.go.kr", "call,verification"},
 		{"gicoms", "www.gicoms.go.kr", "verification"},

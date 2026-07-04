@@ -413,6 +413,9 @@ func TestGarakAdapterVerifiesHTMLPublicDataPageWithoutAuth(t *testing.T) {
 	if !adapter.MatchHost("www.garak.co.kr") {
 		t.Fatal("expected garak adapter to match www.garak.co.kr")
 	}
+	if !adapter.MatchHost("temp.garak.co.kr") {
+		t.Fatal("expected garak adapter to match temp.garak.co.kr")
+	}
 	if adapter.MatchHost("apis.data.go.kr") {
 		t.Fatal("garak adapter should not match data.go.kr gateway")
 	}
