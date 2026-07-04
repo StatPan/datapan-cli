@@ -396,6 +396,7 @@ func DefaultRegistry() (Registry, error) {
 		NewJeonjuAdapter(),
 		NewJongnoAdapter(),
 		NewJusoAdapter(),
+		NewKEITAdapter(),
 		NewKHOAAdapter(),
 		NewKIPRISPlusAdapter(),
 		NewKISTEPAdapter(),
