@@ -376,6 +376,7 @@ func DefaultRegistry() (Registry, error) {
 		NewGICOMSAdapter(),
 		NewGimhaeAdapter(),
 		NewGIMSAdapter(),
+		NewGogungAdapter(),
 		NewGwanakAdapter(),
 		NewGwangjinAdapter(),
 		NewGwangmyeongAdapter(),
