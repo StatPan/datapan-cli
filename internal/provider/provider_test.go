@@ -945,6 +945,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKMAAPIHubAdapter(),
 		},
 		{
+			name:     "kric",
+			provider: "kric",
+			host:     "data.kric.go.kr",
+			endpoint: "https://data.kric.go.kr/api/example",
+			adapter:  NewKRICAdapter(),
+		},
+		{
 			name:     "kipris-plus",
 			provider: "kipris-plus",
 			host:     "plus.kipris.or.kr",
@@ -1335,6 +1342,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "kipris-plus", provider: "kipris-plus", endpoint: "https://plus.kipris.or.kr/api/missing", adapter: NewKIPRISPlusAdapter()},
 		{name: "koreapost", provider: "koreapost", endpoint: "https://koreapost.go.kr/api/missing", adapter: NewKoreaPostAdapter()},
 		{name: "kosmes", provider: "kosmes", endpoint: "https://kosmes.or.kr/api/missing", adapter: NewKOSMESAdapter()},
+		{name: "kric", provider: "kric", endpoint: "https://data.kric.go.kr/api/missing", adapter: NewKRICAdapter()},
 		{name: "ecvam", provider: "ecvam", endpoint: "https://ecvam.neins.go.kr/api/missing", adapter: NewECVAMAdapter()},
 		{name: "daegu", provider: "daegu", endpoint: "https://www.daegu.go.kr/api/missing", adapter: NewDaeguAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
