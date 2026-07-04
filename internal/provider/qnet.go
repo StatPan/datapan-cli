@@ -418,6 +418,7 @@ func DefaultRegistry() (Registry, error) {
 		NewLofin365Adapter(),
 		NewMAFRAAdapter(),
 		NewMAFRALegacyAdapter(),
+		NewMilipassAdapter(),
 		NewMNDOpenDataAdapter(),
 		NewMPVAEgonghunAdapter(),
 		NewMUCHAdapter(),

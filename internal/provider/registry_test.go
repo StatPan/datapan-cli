@@ -173,6 +173,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"211.237.50.150":                  "mafra-legacy",
 		"211.237.50.150:7080":             "mafra-legacy",
 		"data.mafra.go.kr":                "mafra",
+		"www.milipass.kr":                 "milipass",
 		"opendata.mnd.go.kr":              "mnd-open-data",
 		"e-gonghun.mpva.go.kr":            "mpva-egonghun",
 		"www.much.go.kr":                  "much",
@@ -242,13 +243,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 133 || report.HostCount != 166 {
+	if report.AdapterCount != 134 || report.HostCount != 167 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 133 || report.SplitReadiness.VerificationCapableAdapters != 133 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 134 || report.SplitReadiness.VerificationCapableAdapters != 134 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -337,6 +338,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"lofin365", "www.lofin365.go.kr", "verification"},
 		{"mafra", "data.mafra.go.kr", "verification"},
 		{"mafra-legacy", "211.237.50.150,211.237.50.150:7080", "verification"},
+		{"milipass", "www.milipass.kr", "verification"},
 		{"mnd-open-data", "opendata.mnd.go.kr", "verification"},
 		{"mpva-egonghun", "e-gonghun.mpva.go.kr", "verification"},
 		{"much", "www.much.go.kr", "verification"},

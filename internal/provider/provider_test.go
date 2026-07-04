@@ -1036,6 +1036,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewIWestAdapter(),
 		},
 		{
+			name:     "milipass",
+			provider: "milipass",
+			host:     "www.milipass.kr",
+			endpoint: "https://www.milipass.kr/api/example",
+			adapter:  NewMilipassAdapter(),
+		},
+		{
 			name:     "mnd-open-data",
 			provider: "mnd-open-data",
 			host:     "opendata.mnd.go.kr",
@@ -1394,6 +1401,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "daejeon-gis", provider: "daejeon", endpoint: "https://gis.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
 		{name: "gims", provider: "gims", endpoint: "https://www.gims.go.kr/api/missing", adapter: NewGIMSAdapter()},
 		{name: "mafra-legacy", provider: "mafra-legacy", endpoint: "http://211.237.50.150:7080/openapi/sample/xml/missing/1/5", adapter: NewMAFRALegacyAdapter()},
+		{name: "milipass", provider: "milipass", endpoint: "https://www.milipass.kr/api/missing", adapter: NewMilipassAdapter()},
 		{name: "mnd-open-data", provider: "mnd-open-data", endpoint: "https://opendata.mnd.go.kr/api/missing", adapter: NewMNDOpenDataAdapter()},
 		{name: "mpva-egonghun", provider: "mpva-egonghun", endpoint: "https://e-gonghun.mpva.go.kr/api/missing", adapter: NewMPVAEgonghunAdapter()},
 		{name: "nosc", provider: "nosc", endpoint: "https://nosc.go.kr/api/missing", adapter: NewNOSCAdapter()},
