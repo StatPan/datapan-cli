@@ -1047,6 +1047,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewYouthCenterAdapter(),
 		},
 		{
+			name:     "ulsan-www",
+			provider: "ulsan-www",
+			host:     "www.ulsan.go.kr",
+			endpoint: "https://www.ulsan.go.kr/api/example",
+			adapter:  NewUlsanWWWAdapter(),
+		},
+		{
 			name:     "daejeon",
 			provider: "daejeon",
 			host:     "bigdata.daejeon.go.kr",
@@ -1314,6 +1321,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
 		{name: "youthcenter", provider: "youthcenter", endpoint: "https://www.youthcenter.go.kr/api/missing", adapter: NewYouthCenterAdapter()},
+		{name: "ulsan-www", provider: "ulsan-www", endpoint: "https://www.ulsan.go.kr/api/missing", adapter: NewUlsanWWWAdapter()},
 	}
 	for _, tc := range cases {
 		tc := tc
