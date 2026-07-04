@@ -417,6 +417,7 @@ func DefaultRegistry() (Registry, error) {
 		NewNCPMSAdapter(),
 		NewNierNescAdapter(),
 		NewNIEEcobankAdapter(),
+		NewNIHCAdapter(),
 		NewNFQSAdapter(),
 		NewNongsaroAdapter(),
 		NewNOSCAdapter(),

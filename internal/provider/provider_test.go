@@ -1005,6 +1005,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewMNDOpenDataAdapter(),
 		},
 		{
+			name:     "nihc",
+			provider: "nihc",
+			host:     "www.nihc.go.kr",
+			endpoint: "https://www.nihc.go.kr/api/example",
+			adapter:  NewNIHCAdapter(),
+		},
+		{
 			name:     "nosc",
 			provider: "nosc",
 			host:     "nosc.go.kr",
@@ -1292,6 +1299,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "nosc", provider: "nosc", endpoint: "https://nosc.go.kr/api/missing", adapter: NewNOSCAdapter()},
 		{name: "nier-nesc", provider: "nier-nesc", endpoint: "https://nesc.nier.go.kr/api/missing", adapter: NewNierNescAdapter()},
 		{name: "nie-ecobank", provider: "nie-ecobank", endpoint: "https://www.nie-ecobank.kr/api/missing", adapter: NewNIEEcobankAdapter()},
+		{name: "nihc", provider: "nihc", endpoint: "https://www.nihc.go.kr/api/missing", adapter: NewNIHCAdapter()},
 		{name: "unipass", provider: "unipass", endpoint: "https://unipass.customs.go.kr/api/missing", adapter: NewUniPassAdapter()},
 		{name: "much", provider: "much", endpoint: "https://www.much.go.kr/cop/bbs/missing.do", adapter: NewMUCHAdapter()},
 		{name: "nabic", provider: "nabic", endpoint: "https://nabic.rda.go.kr/api/missing", adapter: NewNABICAdapter()},
