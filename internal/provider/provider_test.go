@@ -1036,6 +1036,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewNRichAdapter(),
 		},
 		{
+			name:     "tashu",
+			provider: "tashu",
+			host:     "bike.tashu.or.kr",
+			endpoint: "https://bike.tashu.or.kr/api/example",
+			adapter:  NewTashuAdapter(),
+		},
+		{
 			name:     "nosc",
 			provider: "nosc",
 			host:     "nosc.go.kr",
@@ -1353,6 +1360,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "seoul-map", provider: "seoul-map", endpoint: "https://map.seoul.go.kr/api/missing", adapter: NewSeoulMapAdapter()},
 		{name: "seoul-tdata", provider: "seoul-tdata", endpoint: "https://t-data.seoul.go.kr/api/missing", adapter: NewSeoulTDataAdapter()},
 		{name: "smartfarm-korea", provider: "smartfarm-korea", endpoint: "https://www.smartfarmkorea.net/openApi/missing.do", adapter: NewSmartFarmKoreaAdapter()},
+		{name: "tashu", provider: "tashu", endpoint: "https://bike.tashu.or.kr/api/missing", adapter: NewTashuAdapter()},
 		{name: "wamis", provider: "wamis", endpoint: "https://www.wamis.go.kr/api/missing", adapter: NewWAMISAdapter()},
 		{name: "vworld", provider: "vworld", endpoint: "https://www.vworld.kr/api/missing", adapter: NewVWorldAdapter()},
 		{name: "youthcenter", provider: "youthcenter", endpoint: "https://www.youthcenter.go.kr/api/missing", adapter: NewYouthCenterAdapter()},
