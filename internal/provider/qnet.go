@@ -413,6 +413,7 @@ func DefaultRegistry() (Registry, error) {
 		NewKOPISAdapter(),
 		NewKoradAdapter(),
 		NewKoreaPostAdapter(),
+		NewKOROADAdapter(),
 		NewKOSISAdapter(),
 		NewKOSMESAdapter(),
 		NewKRICAdapter(),

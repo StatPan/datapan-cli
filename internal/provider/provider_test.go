@@ -1050,6 +1050,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewKOAGIAdapter(),
 		},
 		{
+			name:     "koroad",
+			provider: "koroad",
+			host:     "opendata.koroad.or.kr",
+			endpoint: "https://opendata.koroad.or.kr/api/example",
+			adapter:  NewKOROADAdapter(),
+		},
+		{
 			name:     "iwest",
 			provider: "iwest",
 			host:     "www.iwest.co.kr",
@@ -1420,6 +1427,7 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "kisti-ntis", provider: "kisti", endpoint: "https://www.ntis.go.kr/api/missing", adapter: NewKISTIAdapter()},
 		{name: "kisti-aida", provider: "kisti", endpoint: "https://aida.kisti.re.kr/api/missing", adapter: NewKISTIAdapter()},
 		{name: "koagi", provider: "koagi", endpoint: "https://seedpedia.koagi.or.kr/api/missing", adapter: NewKOAGIAdapter()},
+		{name: "koroad", provider: "koroad", endpoint: "https://opendata.koroad.or.kr/api/missing", adapter: NewKOROADAdapter()},
 		{name: "ecvam", provider: "ecvam", endpoint: "https://ecvam.neins.go.kr/api/missing", adapter: NewECVAMAdapter()},
 		{name: "daegu", provider: "daegu", endpoint: "https://www.daegu.go.kr/api/missing", adapter: NewDaeguAdapter()},
 		{name: "daejeon", provider: "daejeon", endpoint: "https://bigdata.daejeon.go.kr/api/missing", adapter: NewDaejeonAdapter()},
