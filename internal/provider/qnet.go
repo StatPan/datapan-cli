@@ -404,6 +404,7 @@ func DefaultRegistry() (Registry, error) {
 		NewKoradAdapter(),
 		NewKoreaPostAdapter(),
 		NewKOSMESAdapter(),
+		NewKRICAdapter(),
 		NewKPXAdapter(),
 		NewLHEBidAdapter(),
 		NewLofin365Adapter(),
