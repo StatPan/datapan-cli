@@ -457,6 +457,7 @@ func DefaultRegistry() (Registry, error) {
 		NewWorkAdapter(),
 		NewWork24Adapter(),
 		NewWorldJobAdapter(),
+		NewYuseongAdapter(),
 		NewYouthCenterAdapter(),
 	)
 }
