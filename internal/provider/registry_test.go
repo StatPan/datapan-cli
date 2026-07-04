@@ -149,6 +149,9 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"www.khoa.go.kr":                  "khoa",
 		"plus.kipris.or.kr":               "kipris-plus",
 		"www.kistep.re.kr":                "kistep",
+		"aida.kisti.re.kr":                "kisti",
+		"scienceon.kisti.re.kr":           "kisti",
+		"www.ntis.go.kr":                  "kisti",
 		"apihub.kma.go.kr":                "kma-apihub",
 		"www.kofpi.or.kr":                 "kofpi",
 		"koreapost.go.kr":                 "koreapost",
@@ -224,13 +227,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 120 || report.HostCount != 148 {
+	if report.AdapterCount != 121 || report.HostCount != 151 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 120 || report.SplitReadiness.VerificationCapableAdapters != 120 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 121 || report.SplitReadiness.VerificationCapableAdapters != 121 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -300,6 +303,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"khoa", "www.khoa.go.kr", "verification"},
 		{"kipris-plus", "plus.kipris.or.kr", "verification"},
 		{"kistep", "www.kistep.re.kr", "verification"},
+		{"kisti", "aida.kisti.re.kr,scienceon.kisti.re.kr,www.ntis.go.kr", "verification"},
 		{"kma-apihub", "apihub.kma.go.kr", "verification"},
 		{"kofpi", "www.kofpi.or.kr", "verification"},
 		{"korad", "www.korad.or.kr", "call,verification"},

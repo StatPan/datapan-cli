@@ -399,6 +399,7 @@ func DefaultRegistry() (Registry, error) {
 		NewKHOAAdapter(),
 		NewKIPRISPlusAdapter(),
 		NewKISTEPAdapter(),
+		NewKISTIAdapter(),
 		NewKMAAPIHubAdapter(),
 		NewKOFPIAdapter(),
 		NewKoradAdapter(),
