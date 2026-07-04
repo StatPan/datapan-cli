@@ -1036,6 +1036,13 @@ func TestRemainingLinkDetailAdaptersVerifyHTMLLandingPageWithoutAuth(t *testing.
 			adapter:  NewRecyclingInfoAdapter(),
 		},
 		{
+			name:     "incheon",
+			provider: "incheon",
+			host:     "www.incheon.go.kr",
+			endpoint: "https://www.incheon.go.kr/api/example",
+			adapter:  NewIncheonAdapter(),
+		},
+		{
 			name:     "iwest",
 			provider: "iwest",
 			host:     "www.iwest.co.kr",
@@ -1387,6 +1394,9 @@ func TestRemainingLinkDetailAdaptersFailNonOKLandingPage(t *testing.T) {
 		{name: "gwangjin", provider: "gwangjin", endpoint: "https://www.gwangjin.go.kr/api/missing", adapter: NewGwangjinAdapter()},
 		{name: "gwangmyeong", provider: "gwangmyeong", endpoint: "https://data.gm.go.kr/api/missing", adapter: NewGwangmyeongAdapter()},
 		{name: "ins24", provider: "ins24", endpoint: "https://www.ins24.go.kr/api/missing", adapter: NewIns24Adapter()},
+		{name: "incheon", provider: "incheon", endpoint: "https://www.incheon.go.kr/api/missing", adapter: NewIncheonAdapter()},
+		{name: "incheon-ifac", provider: "incheon", endpoint: "https://ifac.or.kr/api/missing", adapter: NewIncheonAdapter()},
+		{name: "incheon-itour", provider: "incheon", endpoint: "https://itour.incheon.go.kr/api/missing", adapter: NewIncheonAdapter()},
 		{name: "ip-navi", provider: "ip-navi", endpoint: "https://api.ip-navi.or.kr/api/missing", adapter: NewIPNaviAdapter()},
 		{name: "iwest", provider: "iwest", endpoint: "https://www.iwest.co.kr/api/missing", adapter: NewIWestAdapter()},
 		{name: "jejudatahub", provider: "jejudatahub", endpoint: "https://www.jejudatahub.net/api/missing", adapter: NewJejuDataHubAdapter()},
