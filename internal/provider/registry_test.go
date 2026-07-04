@@ -129,6 +129,9 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		"data.humetro.busan.kr":           "humetro",
 		"search.i815.or.kr":               "i815",
 		"www.icheon.go.kr":                "icheon",
+		"ifac.or.kr":                      "incheon",
+		"itour.incheon.go.kr":             "incheon",
+		"www.incheon.go.kr":               "incheon",
 		"www.ins24.go.kr":                 "ins24",
 		"api.ip-navi.or.kr":               "ip-navi",
 		"api.ip-navi.or.kr:8000":          "ip-navi",
@@ -244,13 +247,13 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		}
 	}
 	report := registry.IndexReport("2026-06-24T00:00:00Z", "test")
-	if report.AdapterCount != 135 || report.HostCount != 168 {
+	if report.AdapterCount != 136 || report.HostCount != 171 {
 		t.Fatalf("unexpected provider index counts: %#v", report)
 	}
 	if !report.SplitReadiness.Ready {
 		t.Fatalf("provider split should be ready after forest call capability is declared: %#v", report.SplitReadiness)
 	}
-	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 135 || report.SplitReadiness.VerificationCapableAdapters != 135 || report.SplitReadiness.CallCapableAdapters != 23 {
+	if report.SplitReadiness.Status != "ready" || report.SplitReadiness.AdapterCount != 136 || report.SplitReadiness.VerificationCapableAdapters != 136 || report.SplitReadiness.CallCapableAdapters != 23 {
 		t.Fatalf("unexpected split readiness: %#v", report.SplitReadiness)
 	}
 	if len(report.SplitReadiness.Reasons) != 0 {
@@ -308,6 +311,7 @@ func TestDefaultRegistryIncludesExternalAdapters(t *testing.T) {
 		{"humetro", "data.humetro.busan.kr", "call,verification"},
 		{"i815", "search.i815.or.kr", "verification"},
 		{"icheon", "www.icheon.go.kr", "verification"},
+		{"incheon", "ifac.or.kr,itour.incheon.go.kr,www.incheon.go.kr", "verification"},
 		{"ins24", "www.ins24.go.kr", "verification"},
 		{"ip-navi", "api.ip-navi.or.kr,api.ip-navi.or.kr:8000", "verification"},
 		{"itfind", "open.itfind.or.kr", "call,verification"},

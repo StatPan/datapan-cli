@@ -387,6 +387,7 @@ func DefaultRegistry() (Registry, error) {
 		NewHumetroAdapter(),
 		NewI815Adapter(),
 		NewIcheonAdapter(),
+		NewIncheonAdapter(),
 		NewIns24Adapter(),
 		NewIPNaviAdapter(),
 		NewITSAdapter(),
