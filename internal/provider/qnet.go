@@ -437,6 +437,7 @@ func DefaultRegistry() (Registry, error) {
 		NewOneclickLawAdapter(),
 		NewOpenDARTAdapter(),
 		NewOpenAssemblyAdapter(),
+		NewOpenFiscalDataAdapter(),
 		NewOpenLawAdapter(),
 		NewPQISAdapter(),
 		NewPSISAdapter(),
