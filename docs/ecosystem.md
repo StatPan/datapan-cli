@@ -163,6 +163,7 @@ Likely artifacts:
 - `schemas/datapan.verification-plan.v1.schema.json`;
 - `schemas/datapan.verification-summary.v1.schema.json`;
 - `schemas/datapan.runtime-evidence-growth.v1.schema.json`;
+- `schemas/datapan.registry-shards.v1.schema.json`;
 - `schemas/datapan.release-manifest.v1.schema.json`;
 - `schemas/datapan.release-verification.v1.schema.json`;
 - `schemas/datapan.release-readiness.v1.schema.json`;

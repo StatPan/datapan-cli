@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/csv"
@@ -56,6 +58,9 @@ const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
 const datapanRegistryZipAssetSuffix = ".zip"
 const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
+const datapanRegistryShardsAssetName = "data-go-kr-shards.tar.gz"
+const datapanRegistryShardsInventoryPath = "registry-shards.json"
+const datapanRegistryShardsReleaseDir = "registry-shards"
 const coverageGoalCallablePercent = 99.0
 const coverageGoalExternalAdapterPercent = 98.0
 const coverageGoalEvidenceOperationPercent = 10.0
@@ -1410,6 +1415,9 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 			install.Release.RouteDispositionAdapterCandidates,
 		)
 	}
+	if install.Release.ShardsValidated {
+		fmt.Fprintf(a.stdout, "  registry shards: %d shards, %d records\n", install.Release.ShardsCount, install.Release.ShardsRecords)
+	}
 	if install.ReleaseDir != "" && len(install.ReleaseFiles) > 0 {
 		fmt.Fprintf(a.stdout, "  release evidence: %s (%d files)\n", install.ReleaseDir, len(install.ReleaseFiles))
 	}
@@ -1449,6 +1457,13 @@ type datapanRegistryInstallRelease struct {
 	RouteDispositionTransient         int    `json:"route_disposition_transient_failures"`
 	RouteDispositionParameterBlocked  int    `json:"route_disposition_parameter_blocked"`
 	RouteDispositionAdapterCandidates int    `json:"route_disposition_adapter_candidates"`
+	ShardsAssetPresent                bool   `json:"shards_asset_present"`
+	ShardsInventoryPresent            bool   `json:"shards_inventory_present"`
+	ShardsValidated                   bool   `json:"shards_validated"`
+	ShardsStrategy                    string `json:"shards_strategy,omitempty"`
+	ShardsCount                       int    `json:"shards_count,omitempty"`
+	ShardsRecords                     int    `json:"shards_records,omitempty"`
+	ShardsBytes                       int    `json:"shards_bytes,omitempty"`
 }
 
 func (i datapanRegistryInstall) Payload() map[string]any {
@@ -1472,8 +1487,10 @@ func (i datapanRegistryInstall) Payload() map[string]any {
 }
 
 func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (datapanRegistryInstall, error) {
+	var release datapanRegistryRelease
 	if assetURL == "" {
-		release, err := a.fetchDatapanRegistryRelease(releaseURL)
+		var err error
+		release, err = a.fetchDatapanRegistryRelease(releaseURL)
 		if err != nil {
 			return datapanRegistryInstall{}, err
 		}
@@ -1493,6 +1510,20 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 	specs, err := decodeRegistryBytes(snapshot.RegistryData)
 	if err != nil {
 		return datapanRegistryInstall{}, err
+	}
+	if registryPath != "-" && release.ShardsAssetURL != "" {
+		shardsData, err := a.downloadBytes(release.ShardsAssetURL)
+		if err != nil {
+			return datapanRegistryInstall{}, fmt.Errorf("download registry shards: %w", err)
+		}
+		shards, err := datapanRegistryShardsArchiveFromTarGz(shardsData, snapshot.RegistryData)
+		if err != nil {
+			return datapanRegistryInstall{}, err
+		}
+		snapshot.Release.applyShards(shards.Inventory)
+		for name, data := range datapanRegistryShardReleaseFiles(shards.Files) {
+			snapshot.ReleaseFiles[name] = data
+		}
 	}
 	if err := writeOutput(registryPath, snapshot.RegistryData, a.stdout); err != nil {
 		return datapanRegistryInstall{}, err
@@ -1628,8 +1659,9 @@ func initNextSteps(registryPath string, credentialPresent bool) []string {
 }
 
 type datapanRegistryRelease struct {
-	TagName     string
-	ZipAssetURL string
+	TagName        string
+	ZipAssetURL    string
+	ShardsAssetURL string
 }
 
 func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRelease, error) {
@@ -1650,9 +1682,13 @@ func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRele
 	}
 	out := datapanRegistryRelease{TagName: payload.TagName}
 	for _, asset := range payload.Assets {
-		if strings.HasSuffix(strings.ToLower(asset.Name), datapanRegistryZipAssetSuffix) && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+		name := strings.ToLower(strings.TrimSpace(asset.Name))
+		downloadURL := strings.TrimSpace(asset.BrowserDownloadURL)
+		if strings.HasSuffix(name, datapanRegistryZipAssetSuffix) && downloadURL != "" && out.ZipAssetURL == "" {
 			out.ZipAssetURL = asset.BrowserDownloadURL
-			return out, nil
+		}
+		if name == datapanRegistryShardsAssetName && downloadURL != "" && out.ShardsAssetURL == "" {
+			out.ShardsAssetURL = asset.BrowserDownloadURL
 		}
 	}
 	return out, nil
@@ -1872,6 +1908,174 @@ func installReleaseFilesFromZip(entries map[string][]byte) map[string][]byte {
 		}
 	}
 	return files
+}
+
+type datapanRegistryShardsArchive struct {
+	Inventory registryShardsInventory
+	Files     map[string][]byte
+}
+
+type registryShardsInventory struct {
+	SchemaVersion        string                `json:"schema_version"`
+	SourceRegistrySHA256 string                `json:"source_registry_sha256"`
+	Strategy             string                `json:"strategy"`
+	Summary              registryShardsSummary `json:"summary"`
+	Shards               []registryShardEntry  `json:"shards"`
+}
+
+type registryShardsSummary struct {
+	Shards  int `json:"shards"`
+	Records int `json:"records"`
+	Bytes   int `json:"bytes"`
+}
+
+type registryShardEntry struct {
+	Path    string `json:"path"`
+	Key     string `json:"key"`
+	Records int    `json:"records"`
+	Bytes   int    `json:"bytes"`
+	SHA256  string `json:"sha256"`
+}
+
+func datapanRegistryShardsArchiveFromTarGz(data, registryData []byte) (datapanRegistryShardsArchive, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return datapanRegistryShardsArchive{}, fmt.Errorf("open registry shards archive: %w", err)
+	}
+	defer gz.Close()
+
+	files := map[string][]byte{}
+	tr := tar.NewReader(gz)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return datapanRegistryShardsArchive{}, fmt.Errorf("read registry shards archive: %w", err)
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			continue
+		}
+		name, ok := cleanArchivePath(header.Name)
+		if !ok {
+			return datapanRegistryShardsArchive{}, fmt.Errorf("registry shards archive path escapes root: %s", header.Name)
+		}
+		body, err := io.ReadAll(tr)
+		if err != nil {
+			return datapanRegistryShardsArchive{}, err
+		}
+		files[name] = body
+	}
+	inventoryData, ok := files[datapanRegistryShardsInventoryPath]
+	if !ok {
+		return datapanRegistryShardsArchive{}, fmt.Errorf("registry shards archive does not contain %s", datapanRegistryShardsInventoryPath)
+	}
+	var inventory registryShardsInventory
+	if err := json.Unmarshal(inventoryData, &inventory); err != nil {
+		return datapanRegistryShardsArchive{}, fmt.Errorf("decode registry shards inventory: %w", err)
+	}
+	if err := validateRegistryShardsInventory(inventory, registryData, files); err != nil {
+		return datapanRegistryShardsArchive{}, err
+	}
+	return datapanRegistryShardsArchive{Inventory: inventory, Files: files}, nil
+}
+
+func cleanArchivePath(name string) (string, bool) {
+	if strings.Contains(name, `\`) || strings.TrimSpace(name) == "" {
+		return "", false
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(name)))
+	clean = strings.TrimPrefix(clean, "./")
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return "", false
+	}
+	return clean, true
+}
+
+func validateRegistryShardsInventory(inventory registryShardsInventory, registryData []byte, files map[string][]byte) error {
+	if inventory.SchemaVersion != "datapan.registry-shards.v1" {
+		return fmt.Errorf("unsupported registry shards inventory schema_version: %s", inventory.SchemaVersion)
+	}
+	if inventory.Strategy != "by_institution" {
+		return fmt.Errorf("unsupported registry shards strategy: %s", inventory.Strategy)
+	}
+	sourceSum := sha256.Sum256(registryData)
+	if !strings.EqualFold(inventory.SourceRegistrySHA256, fmt.Sprintf("%x", sourceSum)) {
+		return fmt.Errorf("registry shards inventory source checksum does not match registry")
+	}
+	if len(inventory.Shards) == 0 {
+		return fmt.Errorf("registry shards inventory contains no shards")
+	}
+	if inventory.Summary.Shards != len(inventory.Shards) {
+		return fmt.Errorf("registry shards inventory shard count mismatch")
+	}
+	seenPaths := map[string]bool{}
+	seenKeys := map[string]bool{}
+	totalRecords := 0
+	totalBytes := 0
+	for _, shard := range inventory.Shards {
+		if strings.TrimSpace(shard.Key) == "" {
+			return fmt.Errorf("registry shards inventory contains a shard with an empty key")
+		}
+		if seenKeys[shard.Key] {
+			return fmt.Errorf("registry shards inventory contains duplicate key %s", shard.Key)
+		}
+		seenKeys[shard.Key] = true
+		path, ok := cleanArchivePath(shard.Path)
+		if !ok || path == datapanRegistryShardsInventoryPath {
+			return fmt.Errorf("registry shards inventory contains invalid shard path %s", shard.Path)
+		}
+		if seenPaths[path] {
+			return fmt.Errorf("registry shards inventory contains duplicate path %s", path)
+		}
+		seenPaths[path] = true
+		shardData, ok := files[path]
+		if !ok {
+			return fmt.Errorf("registry shards archive is missing shard %s", path)
+		}
+		if shard.Bytes != len(shardData) {
+			return fmt.Errorf("registry shards inventory byte count mismatch for %s", path)
+		}
+		sum := sha256.Sum256(shardData)
+		if !strings.EqualFold(shard.SHA256, fmt.Sprintf("%x", sum)) {
+			return fmt.Errorf("registry shards inventory checksum mismatch for %s", path)
+		}
+		var records []json.RawMessage
+		if err := json.Unmarshal(shardData, &records); err != nil {
+			return fmt.Errorf("decode registry shard %s: %w", path, err)
+		}
+		if shard.Records != len(records) {
+			return fmt.Errorf("registry shards inventory record count mismatch for %s", path)
+		}
+		totalRecords += shard.Records
+		totalBytes += shard.Bytes
+	}
+	if inventory.Summary.Records != totalRecords {
+		return fmt.Errorf("registry shards inventory record total mismatch")
+	}
+	if inventory.Summary.Bytes != totalBytes {
+		return fmt.Errorf("registry shards inventory byte total mismatch")
+	}
+	return nil
+}
+
+func datapanRegistryShardReleaseFiles(files map[string][]byte) map[string][]byte {
+	out := map[string][]byte{}
+	for name, data := range files {
+		out[datapanRegistryShardsReleaseDir+"/"+name] = data
+	}
+	return out
+}
+
+func (r *datapanRegistryInstallRelease) applyShards(inventory registryShardsInventory) {
+	r.ShardsAssetPresent = true
+	r.ShardsInventoryPresent = true
+	r.ShardsValidated = true
+	r.ShardsStrategy = inventory.Strategy
+	r.ShardsCount = inventory.Summary.Shards
+	r.ShardsRecords = inventory.Summary.Records
+	r.ShardsBytes = inventory.Summary.Bytes
 }
 
 func writeDatapanRegistryReleaseFiles(releaseDir string, files map[string][]byte) ([]string, error) {

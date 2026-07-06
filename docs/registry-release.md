@@ -46,6 +46,7 @@ schemas/
   datapan.verification-plan.v1.schema.json
   datapan.verification-summary.v1.schema.json
   datapan.runtime-evidence-growth.v1.schema.json
+  datapan.registry-shards.v1.schema.json
   datapan.release-manifest.v1.schema.json
   datapan.release-verification.v1.schema.json
   datapan.release-readiness.v1.schema.json
@@ -109,6 +110,26 @@ datapan catalog install datapan-registry --registry .datapan/data-go-kr.registry
 
 The specs registry preserves upstream data.go.kr catalog metadata and keeps
 Datapan-created search helpers separate from upstream fields.
+
+### Registry Shards
+
+Path:
+
+```text
+registry-shards.json
+```
+
+Schema:
+
+```text
+schemas/datapan.registry-shards.v1.schema.json
+```
+
+Registry shards are optional consumer acceleration artifacts, normally
+published outside the main release zip as `data-go-kr-shards.tar.gz`. Consumers
+must keep `data/data-go-kr.registry.json` as the compatibility fallback and
+validate shard inventories against the canonical registry checksum before using
+shard files.
 
 ### Provider Index
 
