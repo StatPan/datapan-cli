@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -60,6 +62,81 @@ func zipFilesForTest(t *testing.T, files map[string]string) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func tarGzFilesForTest(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, data := range files {
+		body := []byte(data)
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name,
+			Mode: 0o644,
+			Size: int64(len(body)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func registryShardsTarGzForTest(t *testing.T, registry, sourceSHA string) []byte {
+	t.Helper()
+	shardPath := "by-institution/test.registry.json"
+	shardSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(registry)))
+	inventory := fmt.Sprintf(`{
+		"schema_version": "datapan.registry-shards.v1",
+		"generated_at": "2026-06-24T00:00:00Z",
+		"source_id": "data_go_kr",
+		"provider": "data.go.kr",
+		"strategy": "by_institution",
+		"source_registry": "data/data-go-kr.registry.json",
+		"source_registry_sha256": %q,
+		"generation_inputs": {
+			"source_registry": "data/data-go-kr.registry.json",
+			"generator": "scripts/generate-registry-shards.py"
+		},
+		"recomposition": {
+			"policy": "canonical_record_set",
+			"primary_shard_key": "institution",
+			"record_identity_fields": ["id"],
+			"requires_exactly_once_records": true,
+			"requires_canonical_order": true
+		},
+		"summary": {
+			"shards": 1,
+			"records": 1,
+			"bytes": %d,
+			"providers": 1,
+			"hosts": 0,
+			"aggregate_sha256": %q
+		},
+		"shards": [{
+			"path": %q,
+			"key": "test",
+			"label": "테스트",
+			"records": 1,
+			"bytes": %d,
+			"sha256": %q,
+			"providers": ["data.go.kr"],
+			"hosts": []
+		}]
+	}`, sourceSHA, len([]byte(registry)), shardSHA, shardPath, len([]byte(registry)), shardSHA)
+	return tarGzFilesForTest(t, map[string]string{
+		datapanRegistryShardsInventoryPath: inventory,
+		shardPath:                          registry,
+	})
 }
 
 func TestSearchJSON(t *testing.T) {
@@ -2535,6 +2612,7 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 		`"route_disposition_dead_route_candidates": 14`,
 		`"route_disposition_transient_failures": 14`,
 		`"route_disposition_adapter_candidates": 0`,
+		`"shards_asset_present": false`,
 		`"release_files":`,
 		`.datapan/release/reports/latest-verification.json`,
 		`.datapan/release/reports/route-disposition.json`,
@@ -2561,6 +2639,126 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 		if _, err := os.ReadFile(path); err != nil {
 			t.Fatalf("expected release evidence file %s: %v", path, err)
 		}
+	}
+}
+
+func TestCatalogInstallDatapanRegistryDownloadsAndValidatesShardAsset(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	output := filepath.Join(dir, "registry.json")
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	sourceSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(registry)))
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	shardsData := registryShardsTarGzForTest(t, registry, sourceSHA)
+	var urls []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		switch req.URL.String() {
+		case defaultDatapanRegistryReleaseAPI:
+			return &http.Response{
+				StatusCode: 200,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "vtest",
+					"assets": [
+						{"name": "datapan-registry-vtest.zip", "browser_download_url": "https://example.test/registry.zip"},
+						{"name": "data-go-kr-shards.tar.gz", "browser_download_url": "https://example.test/data-go-kr-shards.tar.gz"}
+					]
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		case "https://example.test/registry.zip":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(zipData)),
+				Header:     make(http.Header),
+			}, nil
+		case "https://example.test/data-go-kr-shards.tar.gz":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(shardsData)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if len(urls) != 3 || urls[0] != defaultDatapanRegistryReleaseAPI || urls[1] != "https://example.test/registry.zip" || urls[2] != "https://example.test/data-go-kr-shards.tar.gz" {
+		t.Fatalf("unexpected URLs: %#v", urls)
+	}
+	for _, want := range []string{
+		`"shards_asset_present": true`,
+		`"shards_inventory_present": true`,
+		`"shards_validated": true`,
+		`"shards_strategy": "by_institution"`,
+		`"shards_count": 1`,
+		`"shards_records": 1`,
+		`.datapan/release/registry-shards/registry-shards.json`,
+		`.datapan/release/registry-shards/by-institution/test.registry.json`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in shard install output: %s", want, stdout)
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(dir, ".datapan", "release", "registry-shards", "registry-shards.json"),
+		filepath.Join(dir, ".datapan", "release", "registry-shards", "by-institution", "test.registry.json"),
+	} {
+		if _, err := os.ReadFile(path); err != nil {
+			t.Fatalf("expected shard release file %s: %v", path, err)
+		}
+	}
+}
+
+func TestCatalogInstallDatapanRegistryRejectsStaleShardInventory(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
+	shardsData := registryShardsTarGzForTest(t, registry, strings.Repeat("0", 64))
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case defaultDatapanRegistryReleaseAPI:
+			return &http.Response{
+				StatusCode: 200,
+				Body: io.NopCloser(strings.NewReader(`{
+					"tag_name": "vtest",
+					"assets": [
+						{"name": "datapan-registry-vtest.zip", "browser_download_url": "https://example.test/registry.zip"},
+						{"name": "data-go-kr-shards.tar.gz", "browser_download_url": "https://example.test/data-go-kr-shards.tar.gz"}
+					]
+				}`)),
+				Header: make(http.Header),
+			}, nil
+		case "https://example.test/registry.zip":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(zipData)),
+				Header:     make(http.Header),
+			}, nil
+		case "https://example.test/data-go-kr-shards.tar.gz":
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader(shardsData)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+			return nil, nil
+		}
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, nil, client)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+	if !strings.Contains(stdout, `"error": "request_failed"`) || !strings.Contains(stdout, `registry shards inventory source checksum does not match registry`) {
+		t.Fatalf("expected stale shard inventory failure: %s", stdout)
 	}
 }
 
