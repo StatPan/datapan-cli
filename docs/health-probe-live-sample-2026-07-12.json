@@ -1,0 +1,58 @@
+{
+  "schema_version": "datapan.health-probe-feasibility-sample.v1",
+  "observed_at": "2026-07-11T16:02:26Z",
+  "registry": {
+    "dataset_id": "StatPan/datapan-registry",
+    "dataset_revision": "a804917eba528c62a9f12cefca1e41ccf0840190",
+    "registry_sha256": "eeda72ee8590f458de8d75703662578e80edf3e61282f0e5e67547c4f6e5f644"
+  },
+  "execution": {
+    "selection": "one operation per distinct dataset previously blocked by missing_auth",
+    "workers": 1,
+    "timeout_ms": 10000,
+    "request_budget": 73,
+    "credential_configured": true
+  },
+  "summary": {
+    "datasets_sampled": 73,
+    "provider_success": 2,
+    "http_403": 71,
+    "skipped": 0,
+    "credential_leaks_detected": 0
+  },
+  "successful_canaries": [
+    {
+      "dataset_id": "15000415",
+      "operation": "특보현황조회",
+      "http_status": 200,
+      "provider_code": "00",
+      "provider_message": "NORMAL_SERVICE",
+      "body_shape": "rows:1"
+    },
+    {
+      "dataset_id": "15000897",
+      "operation": "선거코드",
+      "http_status": 200,
+      "provider_code": "INFO-00",
+      "provider_message": "NORMAL SERVICE",
+      "body_shape": "xml"
+    },
+    {
+      "dataset_id": "3044607",
+      "operation": "숲에서 만날 수 있는 식물 이야기 목록 정보 검색",
+      "provider": "forest",
+      "dependency_class": "external_endpoint",
+      "http_status": 200,
+      "provider_code": "00",
+      "provider_message": "NORMAL SERVICE.",
+      "body_shape": "xml_items"
+    }
+  ],
+  "interpretation": {
+    "http_403": "service_specific_authorization_or_approval_required",
+    "global_credential_outage": false,
+    "raw_response_rows_stored": false,
+    "full_query_urls_stored": false,
+    "credential_values_stored": false
+  }
+}
