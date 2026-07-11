@@ -644,6 +644,7 @@ The first schema drafts live in `schemas/`:
 - `datapan.release-manifest.v1.schema.json` for release artifact manifests;
 - `datapan.release-verification.v1.schema.json` for release verification reports;
 - `datapan.release-readiness.v1.schema.json` for registry publication gate reports;
+- `datapan.source-candidate-verification.v1.schema.json` for bounded, credential-redacted source candidate verification;
 - `datapan.schema-index.v1.schema.json` for the release schema index at
   `schemas/index.json`.
 
