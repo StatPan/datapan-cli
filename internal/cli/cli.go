@@ -1744,7 +1744,8 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 	if manifestData, ok := snapshot.ReleaseFiles["manifest.json"]; ok {
 		sum := sha256.Sum256(manifestData)
 		install.ReleaseManifestSHA256 = fmt.Sprintf("%x", sum)
-	} else if len(release.ManifestData) > 0 {
+	}
+	if len(release.ManifestData) > 0 {
 		sum := sha256.Sum256(release.ManifestData)
 		install.DatasetManifestSHA256 = fmt.Sprintf("%x", sum)
 	}
