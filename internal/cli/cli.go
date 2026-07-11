@@ -318,6 +318,9 @@ func (a app) run() int {
 		if hasHelpArg(args[1:], "-h", "--help") {
 			return a.commandHelp(args)
 		}
+		if hasAnyArg(args[1:], "--source-profile", "--candidates") {
+			return a.sourceCandidateVerify(args[1:], jsonOut)
+		}
 		return a.verify(args[1:], jsonOut)
 	case "list", "ls":
 		if hasHelpArg(args[1:], "-h", "--help") {

@@ -171,6 +171,7 @@ datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider t
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider uiryeong --kind external_endpoint --limit 6 --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --provider ulsan --kind external_endpoint --limit 6 --json
 datapan catalog verify --input .datapan/latest-verification.json --status failed --json
+datapan verify --source-profile sources/ecos.json --candidates reports/ecos/runtime-candidates.json --credential-env DATAPAN_ECOS_API_KEY --limit 1 --output .datapan/ecos-source-verification.json --json
 datapan catalog verify summary --input .datapan/qnet-batch-verification.json --json
 datapan catalog verify merge --input .datapan/qnet-verification.json --input .datapan/epost-verification.json --input .datapan/ekape-verification.json --input .datapan/emuseum-verification.json --input .datapan/forest-verification.json --input .datapan/folk-verification.json --input .datapan/gblib-verification.json --input .datapan/airport-verification.json --input .datapan/andong-verification.json --input .datapan/jeju-verification.json --input .datapan/jeonju-verification.json --input .datapan/geoje-verification.json --input .datapan/humetro-verification.json --input .datapan/itfind-verification.json --input .datapan/korad-verification.json --input .datapan/kpx-verification.json --input .datapan/lh-ebid-verification.json --input .datapan/myhome-verification.json --input .datapan/naqs-verification.json --input .datapan/oneclick-law-verification.json --input .datapan/pqis-verification.json --input .datapan/seoul-bus-verification.json --input .datapan/sisul-verification.json --input .datapan/tour-verification.json --input .datapan/uiryeong-verification.json --input .datapan/ulsan-verification.json --output .datapan/latest-verification.json --json
 datapan catalog release draft --registry .datapan/data-go-kr.registry.json --previous-registry .datapan/previous.registry.json --verification .datapan/latest-verification.json --json
@@ -643,6 +644,7 @@ The first schema drafts live in `schemas/`:
 - `datapan.release-manifest.v1.schema.json` for release artifact manifests;
 - `datapan.release-verification.v1.schema.json` for release verification reports;
 - `datapan.release-readiness.v1.schema.json` for registry publication gate reports;
+- `datapan.source-candidate-verification.v1.schema.json` for bounded, credential-redacted source candidate verification;
 - `datapan.schema-index.v1.schema.json` for the release schema index at
   `schemas/index.json`.
 
