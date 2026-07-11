@@ -4969,7 +4969,7 @@ func TestCatalogInstallDatapanRegistryFromHuggingFaceAnonymousAndPinned(t *testi
 	}
 }
 
-func TestCatalogInstallDatapanRegistryUsesHFTokenWithoutLeaking(t *testing.T) {
+func TestCatalogInstallDatapanRegistryIgnoresHFToken(t *testing.T) {
 	t.Chdir(t.TempDir())
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"hf-auth","title":"HF Auth","provider":"data.go.kr","priority":"P2","operations":[]}]`
@@ -4978,8 +4978,8 @@ func TestCatalogInstallDatapanRegistryUsesHFTokenWithoutLeaking(t *testing.T) {
 	var requestCount int
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requestCount++
-		if req.Header.Get("Authorization") != "Bearer hf-secret" {
-			t.Fatalf("request %d missing HF authorization", requestCount)
+		if got := req.Header.Get("Authorization"); got != "" {
+			t.Fatalf("public HF request %d unexpectedly had authorization: %q", requestCount, got)
 		}
 		body := registry
 		if req.URL.String() == defaultDatapanRegistryReleaseAPI {
@@ -4992,9 +4992,6 @@ func TestCatalogInstallDatapanRegistryUsesHFTokenWithoutLeaking(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, fakeEnv{"HF_TOKEN": "hf-secret"}, client)
 	if code != exitOK || stderr != "" || requestCount != 3 {
 		t.Fatalf("code=%d requests=%d stdout=%s stderr=%s", code, requestCount, stdout, stderr)
-	}
-	if strings.Contains(stdout, "hf-secret") {
-		t.Fatalf("HF token leaked: %s", stdout)
 	}
 }
 

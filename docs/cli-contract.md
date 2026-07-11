@@ -628,9 +628,9 @@ named by that pointer, downloads the Registry, shards, release verification,
 readiness, freshness, compatibility, decision, error-action, and remediation
 contracts from that revision, verifies every distribution byte count and
 SHA-256 plus the canonical release manifest, validates that the file decodes as a Datapan
-registry, and writes it to `PATH` without calling data.go.kr. Requests are
-anonymous when `HF_TOKEN` is absent and authenticated when it is present; both
-paths use the same immutable revision and digest verification. Use `--url URL`
+registry, and writes it to `PATH` without calling data.go.kr. Hugging Face
+Registry requests are always anonymous because the Dataset is public; the CLI
+does not read `HF_TOKEN` or attach an Authorization header. Use `--url URL`
 to install from an explicit legacy release zip and skip metadata lookup. Use
 `--release-url URL` to point at a compatible Hugging Face Dataset API or legacy
 GitHub Release endpoint. JSON output reports `ok`, `provider`,

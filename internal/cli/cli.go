@@ -2284,7 +2284,6 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 	req.Header.Set("Accept", "application/json, application/zip, application/octet-stream")
 	req.Header.Set("User-Agent", "datapan-cli")
 	a.addGitHubAPIHeaders(req)
-	a.addHuggingFaceHeaders(req)
 	client := a.http
 	if client == nil {
 		client = RealHTTPClient{}
@@ -2314,7 +2313,7 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 			if resp.StatusCode == http.StatusNotFound {
 				category, action = "distribution_artifact_missing", "publish or select a Registry revision containing the required artifact"
 			} else if resp.StatusCode == http.StatusTooManyRequests {
-				category, action = "distribution_rate_limited", "retry after the Hugging Face rate-limit window or set HF_TOKEN"
+				category, action = "distribution_rate_limited", "retry after the Hugging Face rate-limit window"
 			}
 			return nil, registryDistributionError{Category: category, Action: action, Err: fmt.Errorf("download %s returned HTTP %d", rawURL, resp.StatusCode)}
 		}
@@ -2337,17 +2336,6 @@ type registryDistributionError struct {
 
 func (e registryDistributionError) Error() string { return e.Err.Error() }
 func (e registryDistributionError) Unwrap() error { return e.Err }
-
-func (a app) addHuggingFaceHeaders(req *http.Request) {
-	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Host, "huggingface.co") || a.env == nil {
-		return
-	}
-	value, ok := a.env.LookupEnv("HF_TOKEN")
-	if !ok || strings.TrimSpace(value) == "" {
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(value))
-}
 
 func (a app) addGitHubAPIHeaders(req *http.Request) {
 	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Host, "api.github.com") {
