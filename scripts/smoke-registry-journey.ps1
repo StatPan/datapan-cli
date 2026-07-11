@@ -63,7 +63,12 @@ try {
         }
         $requiredInstallArtifacts = @(".datapan/data-go-kr.registry.json", ".datapan/registry-install.json")
         if ($init.install.distribution -eq "huggingface_dataset") {
-            $requiredInstallArtifacts += ".datapan/release/registry-shards.json"
+            if ($init.install.release.manifest_present) {
+                $requiredInstallArtifacts += ".datapan/release/manifest.json"
+                $requiredInstallArtifacts += ".datapan/release/registry-shards/registry-shards.json"
+            } else {
+                $requiredInstallArtifacts += ".datapan/release/registry-shards.json"
+            }
             if ([string]::IsNullOrWhiteSpace([string]$init.install.dataset_revision) -or
                 [string]$init.install.dataset_revision -notmatch "^[a-f0-9]{40}([a-f0-9]{24})?$") {
                 throw "Hugging Face install did not preserve an immutable Dataset revision"
