@@ -57,7 +57,7 @@ trap cleanup EXIT INT TERM
 curl -fsSL "$base_url/$asset" -o "$tmp/$asset"
 curl -fsSL "$base_url/checksums.txt" -o "$tmp/checksums.txt"
 
-expected="$(grep " $asset\$" "$tmp/checksums.txt" | awk '{print $1}')"
+expected="$(awk -v asset="$asset" '{ name=$2; sub(/^\.\//, "", name); if (name == asset) { print $1; exit } }' "$tmp/checksums.txt")"
 if [ -z "$expected" ]; then
   echo "checksum for $asset not found" >&2
   exit 1

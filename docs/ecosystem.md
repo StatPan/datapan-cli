@@ -40,21 +40,20 @@ modes."
 
 ## Repository Map
 
-Repository splits should follow contracts, not ambition. The current bias is to
-keep implementation and schemas in `datapan-cli` until a split makes a contract
-more reliable.
+Repository splits should follow contracts, not ambition. `datapan-registry` is
+the durable standardization ledger; `datapan-cli` is its local execution and
+reference-consumer surface.
 
 | Repository | Timing | Owns | Must Not Own |
 | --- | --- | --- | --- |
-| `datapan-cli` | Active now | CLI runtime, command contract, local auth, import/update/diff/audit, verification, first provider adapters | hosted service responsibilities or broad claims about unverified APIs |
+| `datapan-cli` | Active now | registry consumption, CLI runtime, command contract, local auth, request execution, caching, and developer exports | canonical registry truth, global coverage policy, or hosted service responsibilities |
 | `datapan-data` | Existing research/server-side reference | prior data.go.kr application research, browser/application workflow evidence, server-side experiments worth mining | the canonical user-facing contract or released registry artifacts |
-| `datapan-registry` | Active first release | versioned registry snapshots, provider backlog, verification reports, provenance, release notes | CLI behavior or provider call logic |
+| `datapan-registry` | Active standardization ledger | canonical metadata, source contracts, coverage and freshness evidence, consumer compatibility, versioned releases | CLI behavior, local credentials, or provider call execution |
 | `datapan-providers` | Create after multiple external adapters prove the boundary | reusable provider adapters, provider auth/error/approval semantics | catalog release policy or UI state |
 | `datapan-spec` | Optional after schemas have consumers outside the CLI | canonical JSON Schemas and codegen inputs | implementation-specific Go internals |
 | `datapan-sdk-*` | Deferred until specs and verification are stable | generated or registry-driven clients for application developers | hand-written wrappers for thousands of APIs |
-| `datapan-studio` | Future product | DBeaver/Postman-like UI over the same registry, verification, and call engine | a second interpretation of public-data behavior |
+| `datapan-studio` | Future visual surface after contracts stabilize | UI over the same registry, verification, and call engine | a second interpretation of public-data behavior |
 | `datapan-mcp` | Future after CLI contracts stabilize | MCP server exposing search, status, schema, verification, and call/export tools to AI agents | direct portal scraping or behavior that disagrees with the CLI |
-| `datapan-cloud` | Future business layer | hosted registry, scheduled verification, monitoring, team workflows | required runtime dependency for open-source CLI users |
 
 ### datapan-cli
 
@@ -64,12 +63,17 @@ Purpose:
 
 - provide the canonical `datapan` command and optional `dp` alias;
 - define the agent-friendly CLI contract;
-- import, update, diff, and audit data.go.kr catalog metadata;
+- install and validate compatible `datapan-registry` releases;
 - resolve dataset references from IDs, URLs, titles, and queries;
 - check local authentication and load local `.env` keys safely;
 - help users start or inspect data.go.kr usage applications;
-- call approved APIs and export JSON/CSV results;
+- call approved APIs, cache results, and export reusable artifacts;
 - expose stable command behavior for future UI, SDK, and automation layers.
+
+Import, update, diff, audit, verification aggregation, and release commands may
+remain in this binary while the registry operator workflow depends on them.
+They are operator tooling and should not define the CLI's end-user product
+goal. Canonical release decisions remain owned by `datapan-registry`.
 
 This repository should own the first executable implementation of Datapan
 Core. Even if other repositories appear later, the CLI should remain the
@@ -77,14 +81,13 @@ headless runtime that proves the contracts.
 
 Near-term priorities:
 
-1. Use `catalog providers` to expose external host/provider backlog from the
-   imported registry and choose the next adapter targets.
-2. Use `catalog verify` to collect bounded, repeatable verification evidence.
-3. Harden verification reports into a stable JSON artifact.
-4. Improve `get` and `save` around verified operations before broadening API
-   claims.
-5. Add export surfaces only after registry and verification contracts are
-   stable.
+1. Make registry install, integrity, schema, and consumer compatibility visible.
+2. Complete the `init -> search -> try -> get -> sync/export` user path.
+3. Preserve freshness, manual-review, and unsupported states from registry
+   evidence instead of reducing them to a single callable flag.
+4. Keep credentials out of output, caches, generated clients, and evidence.
+5. Stabilize the CLI JSON and exit-code contract for SDK, MCP, and Studio
+   consumers.
 
 Non-goals for this repository:
 
@@ -124,8 +127,9 @@ Non-goals for this repository:
 
 ### datapan-registry
 
-Status: active initial release at
-`https://github.com/StatPan/datapan-registry/releases/tag/v2026.06.24`.
+Status: active Registry source at `https://github.com/StatPan/datapan-registry`
+with the public distribution Dataset at
+`https://huggingface.co/datasets/StatPan/datapan-registry`.
 
 Purpose:
 
@@ -336,11 +340,11 @@ Creation trigger:
 
 ### datapan-studio
 
-Status: future product, not MVP.
+Status: future visual surface, not MVP.
 
 Purpose:
 
-- provide a DBeaver/Postman-like UI for public data;
+- provide a visual UI for public data;
 - search public-data catalogs;
 - inspect provider metadata, approval requirements, and verification status;
 - fill request parameters with forms generated from specs;
@@ -357,25 +361,6 @@ Creation trigger:
 
 - start Studio when CLI verification and provider routing are reliable enough
   that the UI can show trust states instead of hiding uncertainty.
-
-### datapan-cloud
-
-Status: business layer, future.
-
-Purpose:
-
-- host verified registry releases;
-- run scheduled verification;
-- monitor public-data API reliability;
-- provide team sharing and audit logs;
-- expose managed API routing or cache layers for organizations;
-- support business features without making the open-source CLI dependent on a
-  hosted Datapan server.
-
-Creation trigger:
-
-- start after the open registry and CLI have enough usage to justify hosted
-  verification, team workflows, or reliability monitoring.
 
 ### datapan-mcp
 
@@ -422,8 +407,8 @@ contract before the project claims the next one.
    adapters instead of one-off command fixes.
 6. **Call and export contract**: make discovered and verified operations usable
    through JSON/CSV, curl/Postman exports, and later SDK generation.
-7. **Studio and cloud surfaces**: build UI and hosted reliability features only
-   on top of the same registry, provider, verification, and call contracts.
+7. **Future surfaces**: build visual, agent, or SDK-facing surfaces only on top
+   of the same registry, provider, verification, and call contracts.
 
 The rule of thumb: if a fact can be preserved from upstream, preserve it; if a
 fact is Datapan's interpretation, mark it as Datapan-owned evidence; if a fact
@@ -687,8 +672,8 @@ Required:
 
 Completion bar:
 
-- Studio can be used as a DBeaver/Postman-like public-data workbench while the
-  CLI remains the underlying runtime.
+- Studio can make registry, verification, and call contracts explorable while
+  the CLI remains the underlying runtime.
 
 ## Open-Source Posture
 
@@ -698,19 +683,6 @@ Default posture:
 - keep source schemas and contracts open;
 - avoid hosted-server dependency for core behavior;
 - keep user credentials local by default.
-
-Good commercial boundaries:
-
-- hosted verified registry;
-- scheduled verification;
-- team sharing;
-- reliability monitoring;
-- managed public-data gateway;
-- enterprise adapters;
-- private provider catalogs.
-
-This lets the open-source layer build trust while leaving room for a business
-that sells reliability, collaboration, and operational depth.
 
 ## Organization Timing
 

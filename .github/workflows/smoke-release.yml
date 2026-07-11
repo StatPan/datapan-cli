@@ -15,16 +15,59 @@ permissions:
 
 jobs:
   first-run:
-    name: First run from latest release
+    name: Public release journey (${{ matrix.os }})
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Smoke latest release
+      - name: Install latest public release
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: .\scripts\smoke-first-run.ps1
+        run: |
+          $installDir = Join-Path $PWD "release-bin"
+          if ($IsWindows) {
+            ./scripts/install.ps1 -Version latest -InstallDir $installDir
+            $datapan = Join-Path $installDir "datapan.exe"
+            $dp = Join-Path $installDir "dp.exe"
+          } else {
+            $env:DATAPAN_VERSION = "latest"
+            $env:DATAPAN_INSTALL_DIR = $installDir
+            $env:DATAPAN_INSTALL_DP = "1"
+            & sh ./scripts/install.sh
+            if ($LASTEXITCODE -ne 0) { throw "install.sh failed with exit code $LASTEXITCODE" }
+            $datapan = Join-Path $installDir "datapan"
+            $dp = Join-Path $installDir "dp"
+          }
+          if (-not (Test-Path -LiteralPath $datapan) -or -not (Test-Path -LiteralPath $dp)) {
+            throw "release installer did not install datapan and dp"
+          }
+          $datapanVersion = (& $datapan version --json | ConvertFrom-Json).version
+          $dpVersion = (& $dp version --json | ConvertFrom-Json).version
+          if ($datapanVersion -ne $dpVersion) { throw "datapan and dp versions differ" }
+          ./scripts/smoke-registry-journey.ps1 -Datapan $datapan -WorkDir release-smoke -KeepWorkDir
+
+      - name: Upload public release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-release-journey-${{ matrix.os }}
+          path: |
+            release-smoke/journey-evidence.json
+            release-smoke/selected.params.json
+            release-smoke/selected.params.json.datapan-provenance.json
+            release-smoke/kit/datapan-provenance.json
+            release-smoke/selected.openapi.json
+            release-smoke/selected.openapi.json.datapan-provenance.json
+          if-no-files-found: warn
+          retention-days: 30

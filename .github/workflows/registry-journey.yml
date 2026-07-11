@@ -1,0 +1,64 @@
+name: Registry Journey
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  latest-registry:
+    name: Latest Registry journey (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build current CLI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $suffix = if ($IsWindows) { ".exe" } else { "" }
+          go build -trimpath -o "dist/datapan$suffix" ./cmd/datapan
+
+      - name: Exercise latest Registry release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $suffix = if ($IsWindows) { ".exe" } else { "" }
+          ./scripts/smoke-registry-journey.ps1 -Datapan "dist/datapan$suffix" -KeepWorkDir -WorkDir registry-journey
+
+      - name: Upload journey evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-journey-${{ matrix.os }}
+          path: |
+            registry-journey/journey-evidence.json
+            registry-journey/selected.params.json
+            registry-journey/selected.params.json.datapan-provenance.json
+            registry-journey/kit/datapan-provenance.json
+            registry-journey/selected.openapi.json
+            registry-journey/selected.openapi.json.datapan-provenance.json
+          if-no-files-found: warn
+          retention-days: 14

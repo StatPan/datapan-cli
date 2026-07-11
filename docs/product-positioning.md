@@ -5,6 +5,36 @@ stable surface: it lets developers and coding agents discover datasets, inspect
 normalized metadata, call approved APIs from the user's machine, and export
 machine-readable artifacts without requiring a hosted Datapan server.
 
+## CLI Goal
+
+Datapan CLI is the local-first execution environment that turns a verified
+`datapan-registry` release into usable public-data results. A user should be
+able to install a registry, find and understand an operation, determine whether
+it is ready to call, execute it with local credentials, and save or export the
+result. When that path is blocked, the CLI must preserve the registry's risk
+state and explain the next action instead of presenting uncertainty as support.
+
+The repository boundary is deliberate:
+
+- `datapan-registry` owns canonical metadata, source contracts, coverage
+  denominators, evidence freshness, release readiness, and consumer
+  compatibility;
+- `datapan-cli` owns registry installation and compatibility checks, local
+  credentials, discovery, request planning and execution, response handling,
+  caching, and developer exports;
+- registry-production commands under `datapan catalog` remain operator tooling,
+  not the center of the end-user product.
+
+The first completion path is:
+
+```text
+init -> search -> try -> get -> sync/export
+```
+
+That path must remain machine-readable, credential-safe, and honest about
+approval requirements, missing parameters, adapter support, stale evidence,
+manual-review boundaries, and upstream failures.
+
 The long-term product shape is broader than a command-line tool:
 
 - **CLI** for developers, scripts, and coding agents.
@@ -13,11 +43,8 @@ The long-term product shape is broader than a command-line tool:
   shape.
 - **SDK and export surfaces** for tools such as OpenAPI, Postman, generated
   clients, and agent workflows.
-- **Studio** for non-developers who need search, preview, filtering, joining,
-  export, and AI-assisted use without writing shell commands.
-- **International access layer** for teams outside Korea that need Korean public
-  data with English documentation, stable schemas, licensing notes, and
-  machine-readable delivery formats.
+- **Future visual and agent surfaces** that consume the same registry,
+  verification, and export contracts.
 
 ## Product Thesis
 
@@ -73,8 +100,8 @@ Some of these commands are future-facing, but the direction is deliberate:
 Datapan should feel like npm, Homebrew, Postman, and a local data workbench for
 public APIs. The open-source CLI should become the trusted local interface;
 registry releases should become the package index; provider adapters should
-become the compatibility layer; SDK/codegen, Postman/curl exports, Studio, and
-MCP should become consumers of the same contracts.
+become the compatibility layer; SDK/codegen, Postman/curl exports, and MCP
+should consume the same contracts.
 
 ## Why the Current CLI Shape Fits
 
@@ -89,8 +116,8 @@ That means Datapan can grow without changing its center of gravity:
 2. Publish normalized registry artifacts.
 3. Add provider adapters for high-value external endpoints.
 4. Generate exports and SDKs from the same normalized specs.
-5. Let Studio consume the same registry, dependency, verification, and export
-   artifacts instead of inventing a separate product model.
+5. Keep future surfaces aligned with the same registry, dependency,
+   verification, and export artifacts.
 
 ## Wedge
 
@@ -109,76 +136,24 @@ datapan codegen go 15084084 --output apartment_client.go
 ```
 
 For developers, this feels like a package manager and API planner. For agents,
-it is a stable command surface with machine-readable output. For Studio, it is
-the backend product contract.
+it is a stable command surface with machine-readable output.
 
-## Studio Direction
+## Coverage And Milestones
 
-Studio should not start as a full BI product. It should be a visual layer over
-Datapan's existing artifacts:
+The public roadmap should be judged by measurable coverage and contract
+maturity rather than broad product claims:
 
-1. Search Korean public datasets.
-2. Preview normalized metadata, parameters, response fields, provider status,
-   and access requirements.
-3. Explain which datasets are callable, approval-gated, missing adapters, or
-   unsupported.
-4. Let users export OpenAPI, Postman, CSV, parquet-like data products, or SDK
-   starter code.
-5. Let users ask AI-assisted questions against metadata and sampled outputs.
-
-The key constraint: Studio should reuse CLI/registry semantics. If the CLI says
-a dataset is ambiguous, approval-required, missing an adapter, or verified,
-Studio should show the same status rather than hiding the complexity.
-
-## International Service Direction
-
-Selling raw public data is weak because the source is public and licensing can
-vary by dataset. A stronger international product is a paid access and
-interpretation layer for Korean data:
-
-- English dataset descriptions and field explanations.
-- Stable API and file delivery formats.
-- Update monitoring and changelogs.
-- Licensing and attribution notes.
-- Administrative-region normalization.
-- Geospatial joins and standard codes.
-- Curated bundles for market entry, real estate, mobility, weather, population,
-  business districts, and public facilities.
-- Support for AI agents that need Korean data but cannot navigate Korean portals
-  reliably.
-
-In this framing, Datapan sells reliability, normalization, documentation,
-translation, monitoring, and support rather than claiming ownership over public
-raw data.
-
-## Business Model Direction
-
-The realistic paid product is not "selling public data." It is selling the
-operational layer around public data:
-
-- hosted verification, monitoring, and SLA-style reliability reporting;
-- managed API gateway and cache for teams that do not want every service to hit
-  upstream portals directly;
-- team workspaces for credentials, usage applications, audit logs, saved
-  datasets, generated SDKs, and Studio views;
-- data transformation, schema normalization, and join-ready curated bundles;
-- MCP and agent data platform features for organizations that want AI systems
-  to use public data safely;
-- enterprise support for regulated teams that need predictable public-data
-  integration.
-
-This keeps the open-source promise intact: local CLI use stays free and
-portable, while organizations pay for reliability, collaboration, hosted
-automation, and support.
-
-Risks to track:
-
-- official government SDKs or portals may improve enough to reduce basic
-  discovery value;
-- public-data systems differ by country, so international expansion requires
-  new provider knowledge rather than simple translation;
-- many users will be free CLI users, so monetization depends on team and
-  reliability pain becoming visible.
+1. Registry install works from a release artifact.
+2. Search and show results expose stable source metadata.
+3. Callable and call-ready coverage are reported conservatively.
+4. Provider adapters increase verified operation coverage without hiding
+   unsupported or approval-gated routes.
+5. Verification reports distinguish `verified`, `failed`, `skipped`, and
+   `unknown`.
+6. Export and codegen surfaces reuse the same registry and verification
+   contracts.
+7. Future visual or agent-facing surfaces reuse the CLI/registry semantics
+   instead of inventing a second interpretation.
 
 ## Near-Term Priorities
 
@@ -193,8 +168,8 @@ Risks to track:
 6. Pick a small number of high-value Korean domains and make them feel excellent:
    real estate, weather, population, business districts, transport, or public
    facilities.
-7. Add Studio only after the artifact model is stable enough that the UI can be
-   mostly a visual consumer of the same contracts.
+7. Keep future surfaces milestone-gated by registry, verification, and export
+   contract stability.
 
 ## Non-Goals
 
@@ -202,4 +177,4 @@ Risks to track:
 - Do not bypass provider security or approval flows.
 - Do not claim every imported operation is callable.
 - Do not sell public raw data as if it were proprietary.
-- Do not make Studio a separate semantic model from the CLI and registry.
+- Do not let future surfaces diverge from the CLI and registry semantics.
