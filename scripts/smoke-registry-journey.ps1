@@ -61,7 +61,17 @@ try {
         if (-not $init.ok -or -not $init.ready_for_search) {
             throw "init did not install a searchable Registry release"
         }
-        foreach ($path in @(".datapan/data-go-kr.registry.json", ".datapan/registry-install.json", ".datapan/release/manifest.json")) {
+        $requiredInstallArtifacts = @(".datapan/data-go-kr.registry.json", ".datapan/registry-install.json")
+        if ($init.install.distribution -eq "huggingface_dataset") {
+            $requiredInstallArtifacts += ".datapan/release/registry-shards.json"
+            if ([string]::IsNullOrWhiteSpace([string]$init.install.dataset_revision) -or
+                [string]$init.install.dataset_revision -notmatch "^[a-f0-9]{40}([a-f0-9]{24})?$") {
+                throw "Hugging Face install did not preserve an immutable Dataset revision"
+            }
+        } else {
+            $requiredInstallArtifacts += ".datapan/release/manifest.json"
+        }
+        foreach ($path in $requiredInstallArtifacts) {
             if (-not (Test-Path -LiteralPath $path)) {
                 throw "init did not preserve required release artifact: $path"
             }
@@ -164,6 +174,8 @@ try {
             ok = $true
             datapan_version = (Invoke-DatapanJSON @("version", "--json")).version
             registry_release = $status.registry_release.installed.release_tag
+            registry_distribution = $init.install.distribution
+            registry_dataset_revision = $init.install.dataset_revision
             registry_specs = $status.registry.specs
             trust_status = $show.registry_trust.status
             dataset = $dataset
