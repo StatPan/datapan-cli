@@ -192,7 +192,7 @@ func providerResult(value any) (ProviderStatus, bool) {
 
 func providerCodeOK(code string) bool {
 	code = strings.TrimSpace(strings.ToUpper(code))
-	return code == "00" || code == "0" || code == "NORMAL_SERVICE"
+	return code == "00" || code == "0" || code == "INFO-00" || code == "NORMAL_SERVICE"
 }
 
 func stringValue(value any) string {

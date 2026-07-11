@@ -45,18 +45,47 @@ The dominant HTML count demonstrates the principal gap: a reachable portal or
 HTML response can be valuable transport evidence, but it is not proof that a
 documented data operation returned healthy data.
 
-## Bounded live check
+## Bounded live checks
 
-On 2026-07-11, the spike selected Registry operation `3044607`, forest
-operation `숲에서 만날 수 있는 식물 이야기 목록 정보 검색`, with safe parameters
-`numOfRows=1`, `pageNo=1`, and `searchWrd=소나무`. The existing verification
-engine stopped before HTTP with `missing_auth` because no supported data.go.kr
-credential environment variable was configured. No credential value was read
-or printed.
+On 2026-07-11, the unauthenticated spike selected Registry operation `3044607`,
+forest operation `숲에서 만날 수 있는 식물 이야기 목록 정보 검색`, with safe
+parameters `numOfRows=1`, `pageNo=1`, and `searchWrd=소나무`. The existing
+verification engine stopped before HTTP with `missing_auth`. This confirmed
+candidate resolution and conservative parameter planning without leaking a
+credential.
 
-This confirms that candidate resolution and conservative parameter planning
-work for a real published operation. A credentialed Provider success remains a
-required manual canary before #134 can be called production-ready.
+On 2026-07-12, a user-supplied data.go.kr credential was mapped into the CLI
+process without printing or persisting its value. A single KMA canary,
+`15000415 / 특보현황조회`, returned HTTP 200, provider code `00`, semantic status
+`provider_ok`, and one row.
+
+The spike then selected one operation for each of the 73 distinct dataset IDs
+whose published evidence had stopped at `missing_auth`. Execution was
+sequential, used one request per dataset, and bounded every request to 10
+seconds. After correcting the `INFO-00` success-code classification found by
+the sample, results were:
+
+| Result | Count |
+| --- | ---: |
+| Provider success | 2 |
+| HTTP 403 | 71 |
+| Credential occurrence in saved artifacts | 0 |
+
+The second success was `15000897 / 선거코드`, which returned HTTP 200,
+`resultCode=INFO-00`, and `NORMAL SERVICE`. Before the correction, the CLI
+incorrectly classified that documented success envelope as `provider_error`.
+
+The 71 HTTP 403 results show that a valid portal credential is not equivalent
+to approval for every data.go.kr service. Health storage must preserve this as
+a service-specific authorization/approval observation instead of reporting a
+global credential outage. The redacted aggregate is preserved in
+`docs/health-probe-live-sample-2026-07-12.json`.
+
+A registered external-adapter canary also succeeded for `3044607 / 숲에서 만날
+수 있는 식물 이야기 목록 정보 검색`: the forest adapter returned HTTP 200,
+provider code `00`, semantic status `provider_ok`, and `xml_items`. This proves
+that the existing gateway and adapter paths can feed the same future receipt
+contract.
 
 ## Confidence levels
 
@@ -160,8 +189,8 @@ Go for #134 as a receipt and classification feature after these constraints:
 1. do not rename current `verified` to `healthy`;
 2. implement L0-L4 first and mark L5-L7 not observed without explicit policy;
 3. reuse the existing executor and issue #12 execution budgets;
-4. complete one credentialed data.go.kr canary and one registered external
-   adapter canary with redacted receipts;
+4. retain the completed credentialed data.go.kr and registered external-adapter
+   canaries as redacted regression evidence;
 5. keep scheduling, database hosting, alerts, and status pages outside the CLI.
 
 The remaining catalog-wide work is to measure maximum confidence level per
