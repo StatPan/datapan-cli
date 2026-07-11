@@ -9,6 +9,36 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: Verify release source (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Build commands
+        run: go build ./cmd/datapan ./cmd/dp
+
   build:
     name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
     runs-on: ubuntu-latest
@@ -81,10 +111,93 @@ jobs:
             dist/*.zip
           if-no-files-found: error
 
+  archive-smoke:
+    name: Verify release archive (${{ matrix.goos }}-${{ matrix.goarch }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            extension: tar.gz
+            executable: datapan
+            dp_executable: dp
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            extension: tar.gz
+            executable: datapan
+            dp_executable: dp
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            extension: zip
+            executable: datapan.exe
+            dp_executable: dp.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download release archive
+        uses: actions/download-artifact@v4
+        with:
+          name: datapan-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release-archive
+
+      - name: Extract archive and exercise latest Registry
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $archive = Get-ChildItem release-archive -Recurse -File -Filter "*.${{ matrix.extension }}" | Select-Object -First 1
+          if (-not $archive) { throw "release archive not found" }
+          New-Item -ItemType Directory -Path extracted -Force | Out-Null
+          if ("${{ matrix.extension }}" -eq "zip") {
+            Expand-Archive -LiteralPath $archive.FullName -DestinationPath extracted
+          } else {
+            & tar -xzf $archive.FullName -C extracted
+            if ($LASTEXITCODE -ne 0) { throw "tar extraction failed" }
+          }
+          $payload = Join-Path extracted "datapan-cli_${env:GITHUB_REF_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          $datapan = Join-Path $payload "${{ matrix.executable }}"
+          $dp = Join-Path $payload "${{ matrix.dp_executable }}"
+          if (-not (Test-Path -LiteralPath $datapan) -or -not (Test-Path -LiteralPath $dp)) {
+            throw "datapan or dp executable missing from archive"
+          }
+          $expectedVersion = "${env:GITHUB_REF_NAME}"
+          $datapanVersion = (& $datapan version --json | ConvertFrom-Json).version
+          $dpVersion = (& $dp version --json | ConvertFrom-Json).version
+          if ($datapanVersion -ne $expectedVersion -or $dpVersion -ne $expectedVersion) {
+            throw "archive binaries do not match tag ${expectedVersion}: datapan=${datapanVersion} dp=${dpVersion}"
+          }
+          ./scripts/smoke-registry-journey.ps1 -Datapan $datapan -WorkDir archive-smoke -KeepWorkDir
+
+      - name: Upload archive smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-smoke-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            archive-smoke/journey-evidence.json
+            archive-smoke/selected.params.json
+            archive-smoke/selected.params.json.datapan-provenance.json
+            archive-smoke/kit/datapan-provenance.json
+            archive-smoke/selected.openapi.json
+            archive-smoke/selected.openapi.json.datapan-provenance.json
+          if-no-files-found: warn
+          retention-days: 30
+
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs:
+      - verify
+      - build
+      - archive-smoke
 
     steps:
       - name: Check out repository
@@ -93,6 +206,7 @@ jobs:
       - name: Download archive artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: datapan-cli-*
           path: release-assets
           merge-multiple: true
 
@@ -112,3 +226,64 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" release-assets/* \
             --title "datapan-cli ${GITHUB_REF_NAME}" \
             --notes "Datapan CLI binary release for ${GITHUB_REF_NAME}. Install a platform archive, then put datapan or dp on PATH. Checksums are attached."
+
+  public-smoke:
+    name: Verify published tag (${{ matrix.os }})
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+
+      - name: Install exact published release and exercise Registry journey
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $installDir = Join-Path $PWD "published-bin"
+          $expectedVersion = "${env:GITHUB_REF_NAME}"
+          if ($IsWindows) {
+            ./scripts/install.ps1 -Version $expectedVersion -InstallDir $installDir
+            $datapan = Join-Path $installDir "datapan.exe"
+            $dp = Join-Path $installDir "dp.exe"
+          } else {
+            $env:DATAPAN_VERSION = $expectedVersion
+            $env:DATAPAN_INSTALL_DIR = $installDir
+            $env:DATAPAN_INSTALL_DP = "1"
+            & sh ./scripts/install.sh
+            if ($LASTEXITCODE -ne 0) { throw "install.sh failed with exit code $LASTEXITCODE" }
+            $datapan = Join-Path $installDir "datapan"
+            $dp = Join-Path $installDir "dp"
+          }
+          if (-not (Test-Path -LiteralPath $datapan) -or -not (Test-Path -LiteralPath $dp)) {
+            throw "published installer did not install datapan and dp"
+          }
+          $datapanVersion = (& $datapan version --json | ConvertFrom-Json).version
+          $dpVersion = (& $dp version --json | ConvertFrom-Json).version
+          if ($datapanVersion -ne $expectedVersion -or $dpVersion -ne $expectedVersion) {
+            throw "published binaries do not match tag ${expectedVersion}: datapan=${datapanVersion} dp=${dpVersion}"
+          }
+          ./scripts/smoke-registry-journey.ps1 -Datapan $datapan -WorkDir published-smoke -KeepWorkDir
+
+      - name: Upload exact-tag public evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-tag-journey-${{ matrix.os }}
+          path: |
+            published-smoke/journey-evidence.json
+            published-smoke/selected.params.json
+            published-smoke/selected.params.json.datapan-provenance.json
+            published-smoke/kit/datapan-provenance.json
+            published-smoke/selected.openapi.json
+            published-smoke/selected.openapi.json.datapan-provenance.json
+          if-no-files-found: warn
+          retention-days: 30

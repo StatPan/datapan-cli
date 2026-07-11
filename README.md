@@ -22,7 +22,8 @@ a stable surface before any UI exists:
 - `--json` output for automation;
 - stdin/stdout-friendly parameter and export flows;
 - local API keys owned by the user;
-- browser automation only for explicit `datapan access login` and `--apply` workflows.
+- browser automation only for explicit `datapan access login`, access inspection,
+  and `--apply` workflows.
 
 ## Coverage Goals
 
@@ -30,18 +31,21 @@ Datapan's open-source coverage target is not just "many catalog rows." The
 project tracks whether public APIs can be discovered, routed, called, exported,
 and verified from a local machine.
 
-Current public registry release `v2026.06.25.20` contains `12060` data.go.kr
-specs and `12205` operations. It reports `12063` callable operations (`98.8%`),
-`586` registered external-adapter operations out of `595` external endpoint
-operations (`95.4%`), `21` call-capable provider adapters, and `256` bounded
-runtime verification checks. The remaining `28` unadapted external endpoint
-operations are probed separately so dead routes do not masquerade as adapter
-work.
+Snapshot counts, layered coverage denominators, evidence freshness, remaining
+risks, and consumer compatibility belong to each `datapan-registry` release.
+The CLI does not duplicate one release's numbers as permanent product truth.
+Install a release and inspect its evidence instead:
 
-The next public targets are visible in `datapan coverage --json` under
-`goals`: `99%` callable operation coverage, `98%` external adapter coverage,
-`10%` operation-level runtime evidence, at least `25` call-capable adapters,
-and no more than `10` missing-adapter operations.
+```bash
+datapan init --json
+datapan status --json
+datapan coverage --json
+```
+
+`status` verifies the installed registry provenance and exposes the release's
+CLI compatibility and manual-review boundary. `coverage` combines the active
+registry with preserved release evidence while keeping callable, adapter, and
+runtime verification coverage distinct.
 
 ## Install
 
@@ -84,11 +88,40 @@ Tagged `v*` releases build Linux, macOS, and Windows archives containing both
 `checksums.txt` so install scripts and agents can verify downloaded binaries.
 Release binaries stamp `datapan version --json` with the tag name.
 
-Maintainers can smoke-test the public first-run path from a release archive:
+Maintainers can smoke-test the public Windows first-run path from a release archive:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/smoke-first-run.ps1 -Version latest
 ```
+
+The scheduled `Registry Journey` workflow builds the current source on Linux,
+macOS, and Windows, installs the latest public `datapan-registry` release, and
+checks the offline-safe path from init and integrity status through ready,
+search, show, try, SHA-bound params generation, params-file redacted dry-run,
+SHA-bound standalone OpenAPI export, and starter-kit generation. It checks
+generated files for credential leakage and uploads a compact journey result,
+params and export artifacts, and generated provenance as CI evidence. The same
+check can be run against a local binary with PowerShell 7:
+
+```powershell
+pwsh scripts/smoke-registry-journey.ps1 -Datapan ./datapan -KeepWorkDir
+```
+
+Tagged releases are published only after tests, vet, and command builds pass on
+Linux, macOS, and Windows. After publication, the `Smoke Release` workflow uses
+the public installer on all three operating systems, verifies both `datapan`
+and `dp`, runs the latest Registry journey against the installed release, and
+retains the journey summary and generated provenance for 30 days. The Unix
+installer accepts both `asset` and `./asset` checksum filename formats emitted
+by common `sha256sum` workflows.
+The tag workflow itself also runs an exact-version public smoke after publish:
+each operating system installs `GITHUB_REF_NAME`, requires both binary version
+fields to equal that tag, runs the Registry journey, and retains exact-tag
+evidence. The separately scheduled Smoke Release workflow remains a latest
+release drift check rather than the authoritative tag binding.
+Before publication, each Linux amd64, macOS Intel, and Windows amd64 archive
+smoke requires both packaged executables to exist and requires `datapan version`
+and `dp version` to equal the tag before starting the Registry journey.
 
 See `.env.example` for local key names, `docs/cli-contract.md` for the
 agent-facing command contract, `docs/ecosystem.md` for the spec-first Datapan
@@ -301,12 +334,47 @@ Use `datapan catalog install datapan-registry --json` when you want only the
 registry download/install step. It also preserves key release evidence files
 under `.datapan/release` when installing to a file, so follow-up coverage
 commands can reuse the published verification and route-disposition evidence.
+It writes `.datapan/registry-install.json` with the release tag, source URLs,
+registry and release-manifest SHA-256 values, install mode, shard evidence, and CLI consumer compatibility
+known at install time. Registry data, release evidence, and provenance are
+staged and replaced as one recoverable install transaction. A commit failure
+restores the previous local state, and a release without evidence clears stale
+evidence from an older installation. Before replacing any target, the CLI
+syncs `.datapan/registry-install.transaction.json`. If the process or machine
+stops before the journal is removed at the commit point, the next non-help CLI
+command restores the previous complete Registry, evidence, and provenance set
+before loading Registry data. Invalid or unrecoverable journals stop execution
+with a structured recovery error instead of guessing which partial state is
+safe. Status reports when that invocation recovered an interrupted install.
 Use `datapan status --json` or `datapan doctor --json` when you want to
 recheck which registry is active, how many specs and operations it contains,
 whether a data.go.kr API key is present, and which external provider adapters
 are registered. After `datapan init`, status also reports the installed
 release evidence files and the key verification, route-disposition, and
-coverage numbers they contain.
+coverage numbers they contain. The `registry_release` block verifies that the
+active registry path and digest still match the install provenance, checks the
+latest release metadata without replacing local files, and preserves CLI
+compatibility and runtime manual-review boundaries. A failed online freshness
+check does not make an intact installed registry unusable.
+New Registry releases may include the manifest-bound sustainable coverage
+policy and report. The CLI preserves them and classifies each verification
+record against the policy's 30/90-day-style thresholds using
+`manifest.generated_at`, not the current machine clock. Stale or expired
+evidence is surfaced as a `stale_verification` warning with next actions; it is
+not silently treated as current and does not block a new provider request
+unless a future Registry consumer contract explicitly requires that behavior.
+The CLI also preserves `release-consumer-decision.json`. A decision that tells
+`datapan-cli` to consume the canonical Registry remains executable even when
+release adoption still requires manual review; the manual-review boundary and
+Registry-provided reason remain visible. A blocked decision, unsupported CLI
+action, or locally modified decision artifact stops provider HTTP as a
+`compatibility` failure.
+Manifest-bound Registry error-action catalogs also refine failed calls. JSON
+preserves the matched rule, Registry classification, severity, scoped actions,
+action reasons, impact categories, and the source runtime manual-review
+boundary under `failure.registry_routing`. The CLI uses only verified rules and
+does not apply a locally modified catalog; an integrity error is reported while
+the built-in failure classification remains intact.
 Use `datapan providers --adapters --json` when you want to see external hosts
 already owned by registered provider adapters, and `datapan providers --gaps
 --json` when you want the missing external endpoint host backlog without
@@ -473,6 +541,11 @@ bounded adapter evidence without blindly calling the whole catalog. Add
 adapter; Datapan performs a credential-free GET probe and records DNS, timeout,
 HTTP 404, HTTP 503, and other transport failures as explicit verification
 evidence instead of leaving them as unknown skips.
+Live verification uses the same Registry trust gate as get and sync, and stops
+before adapter, probe, or provider HTTP when installed integrity, readiness, or
+consumer compatibility is blocked. JSON includes `registry_trust`. Offline
+report filtering, summary, merge, and planning remain available while blocked.
+Transport evidence redacts both raw and URL-encoded credential values.
 Use `datapan catalog verify plan --verification REPORT` to generate the next
 bounded verification batches. The plan emits ready-to-run commands and includes
 `--exclude-input REPORT` so repeated runs grow evidence instead of rechecking
@@ -517,6 +590,12 @@ normalized spec, and also returns access metadata, operation parameter names,
 response-field counts, and copyable next-step examples where Datapan can
 synthesize them from the imported data.go.kr spec.
 
+Human `datapan show <ref>` presents the same approval, authentication,
+parameter, source, and response-field facts. Each operation separately reports
+its endpoint host, call-ready decision, gateway or adapter route, provider
+owner, and verification freshness, so an unadapted external URL is not mistaken
+for an executable operation.
+
 `datapan use <ref> KEY=VALUE --json` is the shortest non-calling handoff from a
 dataset to action. It resolves the dataset, selects an operation, merges
 defaults, smoke values, `--params-file`, positional `KEY=VALUE`, and
@@ -530,15 +609,43 @@ object for `--params-file`. The template keeps exact upstream parameter names,
 omits auth parameters, fills known defaults, smoke values, and supplied
 overrides, and leaves unknown values as `VALUE` so humans and agents can edit
 one small file instead of memorizing long command lines.
+File output also creates `<output>.datapan-provenance.json`, binding the params
+file SHA256 to the dataset, operation, Registry trust, and verification without
+copying parameter names, values, or credentials. Use `--provenance-output` for
+a custom sidecar. Raw stdout stays a pure params object and sends evidence
+diagnostics to stderr.
 
 `datapan get` treats HTTP failures, data.go.kr provider errors such as non-`00`
 `resultCode`, and HTML service pages as request failures. JSON output preserves
 provider error fields under `provider_status`, including `resultCode/resultMsg`
 or `OpenAPI_ServiceResponse` fields such as `returnReasonCode`,
 `returnAuthMsg`, and `errMsg` when they appear in the response body.
+Failed call and sync JSON also includes `failure.category`, a stable reason,
+whether retry is appropriate, and concrete next steps. This separates
+credential rejection, missing approval, invalid input, adapter/response-shape
+problems, and external provider outages without hiding the underlying provider
+status. Credentials are redacted from transport error text.
+Without `--json`, failures print the same category, reason, and next actions to
+stderr so provider data on stdout remains pipeable. Human dry-run uses stderr
+for Registry trust and verification freshness while leaving only the redacted
+GET request on stdout. Successful human get and sync use the same stderr trust
+channel, leaving the provider body or sync summary on stdout unchanged.
+If a provider reflects the active credential in a response body, message, or
+provider-status field, the CLI replaces both the raw and URL-encoded value with
+`REDACTED` before human or JSON output, CSV saving, row extraction, or sync cache
+writes. Public response data otherwise remains unchanged.
 Use `--timeout 5s` or `--timeout 500ms` on `get`, `call`, `save`, and
 CSV/JSON `export` when an external provider is slow or unstable. A bare integer
 such as `--timeout 5` is interpreted as seconds.
+`save --json` preserves the selected dataset and operation, Registry trust,
+verification status, and stale-evidence warning from the underlying call.
+Human save keeps those diagnostics on stderr so raw CSV or JSON stdout remains
+pipeable; failed saves retain the same failure category and next actions as
+`get`.
+Call-based CSV and JSON export preserves the same dataset, operation, Registry
+trust, verification, and stale warning in JSON summaries. Human export leaves
+rows on stdout, sends evidence to stderr, and renders provider failure
+classification and next actions instead of failing silently.
 Use `datapan curl <ref>` when you want a copyable request without making a
 provider call. It emits a `curl -fsS ...` command with `serviceKey=${ENV_VAR}`
 instead of printing credential values. `datapan export --format curl <ref>` is
@@ -565,6 +672,18 @@ Use `datapan codegen python <ref> --output client.py` for a dependency-free
 Python client using `urllib`. It keeps upstream parameter names exact, reads
 the service key through `DatapanClient.from_env()`, and does not embed
 credential values.
+Postman, OpenAPI, Go, Node, and Python outputs written to files also create a
+`<output>.datapan-provenance.json` sidecar by default. The sidecar binds the
+artifact path, byte count, SHA-256, dataset, operation, Registry trust, and
+verification evidence without copying credentials. Use
+`--provenance-output PATH` to choose another sidecar path. Raw stdout output
+keeps its existing artifact-only contract and does not create a sidecar. File
+and sidecar replacement is transactional for command failures, so an update
+does not leave a new artifact paired with old provenance.
+JSON summaries for curl and every standalone generator include the same
+Registry trust, operation verification, and stale-evidence warning. Human
+generation keeps the copyable command or artifact alone on stdout and writes
+that evidence context to stderr.
 Use `datapan sync <ref> --json` when you want one approved API call cached as
 local files under `.datapan/cache`: request params without credentials,
 `response.json`, extracted `rows.json`/`rows.csv` when possible, and a
@@ -574,10 +693,25 @@ of forcing every script or agent to call the upstream provider again. The
 manifest also records `integrity`: extracted row count, upstream
 `currentCount`/`totalCount`-style counters when present, and warnings such as
 `row_count_exceeds_total_count` when provider metadata and actual rows disagree.
+It preserves the operation verification and stale-evidence warning used for
+the call, and records byte counts and SHA256 values for params, response, and
+extracted row artifacts so cached bytes can be checked against their generation
+manifest.
+One sync is staged as a complete cache generation before replacing its output
+directory. Reusing a directory removes stale files from the prior generation;
+if the commit fails during the command, the previous directory is restored and
+temporary staging and backup directories are removed. JSON reports such local
+failures as `sync_cache_write_failed` with trust, verification, and recovery
+steps.
 Use `datapan preview --input response.json` or `datapan head --input rows.csv`
 to inspect saved data without leaving the CLI. It accepts data.go.kr response
 JSON, Datapan row JSON, or CSV, prints a compact table by default, and returns
 `columns`, `count`, limited `rows`, and `truncated` under `--json`.
+When the input belongs to a sync directory, preview and input-based export first
+verify its byte count and SHA256 against the sibling manifest. Mismatched,
+unlisted, or invalid-manifest cache files fail as `cache_integrity_failed`
+before rows or CSV are emitted. Ordinary files and stdin remain usable without
+a sync manifest.
 
 For browser-backed application automation, first save an authenticated
 data.go.kr browser session. This flow does not bypass CAPTCHA or provider
@@ -601,6 +735,15 @@ Browser-backed access defaults to inspection/dry-run behavior. It submits only
 when `--apply` is explicitly present. `datapan apply` and
 `datapan access request` remain compatibility aliases for early builds; new docs
 and scripts should use `datapan access`.
+
+Opening a Registry-provided application URL and both browser-backed inspection
+and submission require an execution-allowed local Registry. They stop before
+opening or starting a browser when the Registry trust decision blocks execution,
+including provenance, integrity, readiness, or consumer-compatibility failures.
+Their JSON results include `registry_trust`. Purpose-text display and copying
+remain available for diagnosis, and `access login` remains available because it
+uses the provider's fixed login page rather than a Registry-provided dataset
+URL.
 
 Exit codes are intentionally small and stable:
 
@@ -649,6 +792,9 @@ The first schema drafts live in `schemas/`:
 See `docs/registry-release.md` for the local draft layout and release gates for
 the published `datapan-registry` repository:
 `https://github.com/StatPan/datapan-registry`.
+See `docs/goal-completion-audit.md` for the requirement-by-requirement evidence
+boundary and the remaining conditions before this product goal can be marked
+complete.
 
 ## Non-Goals For The MVP
 

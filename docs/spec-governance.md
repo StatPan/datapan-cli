@@ -51,6 +51,17 @@ Examples:
 - `$id`: `https://schemas.datapan.dev/datapan.release-manifest.v1.schema.json`;
 - `schema_version`: `datapan.release-manifest.v1`.
 
+Local state contracts follow the same compatibility rules even when they are
+not registry release artifacts. `.datapan/registry-install.json` uses
+`schemas/datapan.registry-install.v1.schema.json` and records installation
+provenance without becoming canonical registry truth. Its optional
+`release_manifest_sha256` binds locally interpreted release policies and
+evidence back to the exact manifest accepted during installation.
+Generated starter kits and standalone generated-file sidecars use
+`schemas/datapan.generated-artifact-provenance.v1.schema.json` to carry the
+Registry trust, operation verification context, and artifact digest used
+during generation.
+
 ## Compatibility
 
 Within a major schema version, changes should be additive and conservative:
@@ -81,6 +92,13 @@ Datapan-owned evidence.
 
 Schemas should not move to `datapan-spec` until at least one consumer outside
 `datapan-cli` or `datapan-registry` needs them.
+
+Schema presence and JSON syntax alone are not implementation conformance.
+CLI CI validates actual `datapan.registry-install.v1` and
+`datapan.generated-artifact-provenance.v1` instances against these schemas.
+The contract test covers params, Postman, OpenAPI, Go, Node, Python,
+starter-kit, and install payload variants, with negative cases for unknown
+artifact kinds and unsupported install pin modes.
 
 ## Release Gate
 

@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -14,11 +15,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type fakeEnv map[string]string
@@ -38,6 +41,992 @@ func runTest(args []string, env fakeEnv, client HTTPClient) (int, string, string
 	var stdout, stderr bytes.Buffer
 	code := Run(args, &stdout, &stderr, env, client)
 	return code, stdout.String(), stderr.String()
+}
+
+func compileRepositorySchemaForTest(t *testing.T, name string) *jsonschema.Schema {
+	t.Helper()
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not locate cli_test.go")
+	}
+	path := filepath.Join(filepath.Dir(sourceFile), "..", "..", "schemas", name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata struct {
+		ID string `json:"$id"`
+	}
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource(metadata.ID, document); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return schema
+}
+
+func validateSchemaBytesForTest(t *testing.T, schema *jsonschema.Schema, data []byte) {
+	t.Helper()
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(instance); err != nil {
+		t.Fatalf("payload does not satisfy schema: %v\n%s", err, data)
+	}
+}
+
+func writeRegistryInstallStateForTest(t *testing.T, registryPath, registry, releaseTag string) registryInstallProvenance {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(registryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(registryPath, []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(registry))
+	manifestVerified := true
+	provenance := registryInstallProvenance{
+		SchemaVersion:            "datapan.registry-install.v1",
+		InstalledAt:              "2026-07-11T00:00:00Z",
+		Provider:                 "datapan-registry",
+		RegistryPath:             registryPath,
+		RegistrySHA256:           fmt.Sprintf("%x", sum),
+		ReleaseTag:               releaseTag,
+		ReleaseAPIURL:            defaultDatapanRegistryReleaseAPI,
+		AssetURL:                 "https://example.test/" + releaseTag + ".zip",
+		PinMode:                  "latest",
+		SourceMode:               "default_installed",
+		ManifestRegistryVerified: &manifestVerified,
+	}
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	return provenance
+}
+
+func writeTrustedRegistryEvidenceForTest(t *testing.T, registryPath, registry, datasetID, operation string) {
+	t.Helper()
+	writeRegistryInstallStateForTest(t, registryPath, registry, "v1")
+	files := map[string]string{
+		defaultReleaseReadinessPath: `{
+			"manifest":"manifest.json",
+			"root":".",
+			"schema_version":"datapan.release-readiness.v1",
+			"generated_at":"2026-07-11T00:00:00Z",
+			"datapan_version":"test",
+			"provider":"data.go.kr",
+			"ready":true,
+			"summary":{"failed":0},
+			"gates":[]
+		}`,
+		defaultReleaseConsumerCompatibilityPath: `{
+			"schema_version":"datapan.release-consumer-compatibility.v1",
+			"runtime_risk_evidence":{"manual_review_required":true,"compatibility_effect":"manual_review_required_until_runtime_blockers_resolved"},
+			"consumers":[{"consumer":"datapan-cli","compatibility_mode":"shard_preferred_with_monolith_fallback","status":"proven"}]
+		}`,
+		defaultReleaseVerificationPath: fmt.Sprintf(`{
+			"generated_at":"2026-07-11T00:00:00Z",
+			"provider":"data.go.kr",
+			"registry":%q,
+			"limit":1,
+			"truncated":false,
+			"filtered_count":1,
+			"summary":{"total":1,"verified":1,"failed":0,"skipped":0,"unknown":0},
+			"results":[{"dataset_id":%q,"title":"테스트 API","operation":%q,"provider":"data.go.kr","dependency_class":"data_go_kr_gateway","status":"verified","reason":"normal_response","verified_at":"2026-07-11T00:00:00Z","http_status":200,"semantic_status":"ok"}]
+		}`, registryPath, datasetID, operation),
+	}
+	for path, data := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := osWriteFile(path, []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func writeFreshnessPolicyForTest(t *testing.T, asOf string, freshDays, expireDays int) {
+	t.Helper()
+	policyData, err := jsonIndentedBytes(map[string]any{
+		"schema_version": "datapan.sustainable-coverage-policy.v1",
+		"freshness": map[string]any{
+			"fresh_days": freshDays, "expire_days": expireDays,
+			"missing_timestamp_classification": "unknown_timestamp",
+			"evaluation_time_source":           "manifest.generated_at",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policySum := sha256.Sum256(policyData)
+	manifestData, err := jsonIndentedBytes(releaseManifest{
+		SchemaVersion: "datapan.release-manifest.v1", GeneratedAt: asOf, ArtifactCount: 1,
+		Artifacts: []releaseManifestArtifact{{Path: "policy/sustainable-coverage.json", Kind: "policy", Bytes: int64(len(policyData)), SHA256: fmt.Sprintf("%x", policySum)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(defaultReleaseSustainableCoveragePolicyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultReleaseSustainableCoveragePolicyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultReleaseManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		registry := `[]`
+		if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(defaultRegistryPath, []byte(registry), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		registrySum := sha256.Sum256([]byte(registry))
+		verified := true
+		provenance = registryInstallProvenance{
+			SchemaVersion: "datapan.registry-install.v1", InstalledAt: asOf, Provider: "datapan-registry",
+			RegistryPath: defaultRegistryPath, RegistrySHA256: fmt.Sprintf("%x", registrySum),
+			AssetURL: "https://example.test/registry.zip", PinMode: "direct_url", SourceMode: "default_installed",
+			ManifestRegistryVerified: &verified,
+		}
+	}
+	manifestSum := sha256.Sum256(manifestData)
+	provenance.ReleaseManifestPath = defaultReleaseManifestPath
+	provenance.ReleaseManifestSHA256 = fmt.Sprintf("%x", manifestSum)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeConsumerDecisionForTest(t *testing.T, decision string, manualRequired, manualAccepted bool, cliAction string) {
+	t.Helper()
+	reportData, err := jsonIndentedBytes(map[string]any{
+		"schema_version": "datapan.release-consumer-decision.v1",
+		"generated_at":   "2026-07-11T00:00:00Z",
+		"provider":       "datapan-registry",
+		"summary": map[string]any{
+			"release_decision": decision, "canonical_registry_consumption": "compatible",
+			"manual_review_required": manualRequired, "manual_review_accepted": manualAccepted,
+		},
+		"consumer_actions": []map[string]any{{
+			"consumer": "datapan-cli", "action": cliAction, "reason": "Registry supplied CLI consumer action.",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportSum := sha256.Sum256(reportData)
+	manifestData, err := jsonIndentedBytes(releaseManifest{
+		SchemaVersion: "datapan.release-manifest.v1", GeneratedAt: "2026-07-11T00:00:00Z", ArtifactCount: 1,
+		Artifacts: []releaseManifestArtifact{{Path: "reports/release-consumer-decision.json", Kind: "release_consumer_decision", Bytes: int64(len(reportData)), SHA256: fmt.Sprintf("%x", reportSum)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(defaultReleaseConsumerDecisionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultReleaseConsumerDecisionPath, reportData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultReleaseManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestSum := sha256.Sum256(manifestData)
+	provenance.ReleaseManifestPath = defaultReleaseManifestPath
+	provenance.ReleaseManifestSHA256 = fmt.Sprintf("%x", manifestSum)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeRegistryErrorRoutingForTest(t *testing.T, catalog, remediation string) {
+	t.Helper()
+	files := map[string]string{
+		"reports/data-go-kr/error-action-catalog.json": catalog,
+		"reports/source-runtime-remediation-map.json":  remediation,
+	}
+	artifacts := make([]releaseManifestArtifact, 0, len(files))
+	for path, data := range files {
+		sum := sha256.Sum256([]byte(data))
+		artifacts = append(artifacts, releaseManifestArtifact{Path: path, Kind: "runtime_evidence", Bytes: int64(len(data)), SHA256: fmt.Sprintf("%x", sum)})
+		output := filepath.Join(defaultReleaseDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(output, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifestData, err := jsonIndentedBytes(releaseManifest{
+		SchemaVersion: "datapan.release-manifest.v1", GeneratedAt: "2026-07-11T00:00:00Z",
+		ArtifactCount: len(artifacts), Artifacts: artifacts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultReleaseManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestSum := sha256.Sum256(manifestData)
+	provenance.ReleaseManifestPath = defaultReleaseManifestPath
+	provenance.ReleaseManifestSHA256 = fmt.Sprintf("%x", manifestSum)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func registryErrorCatalogFixture() string {
+	return `{
+		"schema_version":"datapan.error-action-catalog.v1","generated_at":"2026-07-11T00:00:00Z","provider":"data.go.kr","source_id":"data_go_kr",
+		"rules":[
+			{"rule_id":"data-go-kr-service-key-not-registered","status":"verified","scope":{"dependency_classes":["data_go_kr_gateway","external_endpoint"]},"match":{"kind":"field_equals","field":"resultCode","value":"30","case_sensitive":false},"classification":"credential","severity":"blocking","actions":[{"target":"registry-release","action":"refresh_verification","automation":"manual_review","reason":"Verify credentials before parser or adapter work."}],"impact_categories":["verification_status_changed"]},
+			{"rule_id":"data-go-kr-http-429","status":"verified","match":{"kind":"http_status","http_status":429},"classification":"rate_limit","severity":"medium","actions":[{"target":"provider-adapter","action":"update_adapter","automation":"manual_review","reason":"Use source-specific throttling only after repeated evidence."}]},
+			{"rule_id":"data-go-kr-external-timeout","status":"verified","scope":{"dependency_classes":["external_endpoint"]},"match":{"kind":"timeout"},"classification":"upstream_outage","severity":"medium","actions":[{"target":"registry-release","action":"refresh_verification","automation":"manual_review","reason":"Keep timeout evidence transient until repeated checks."}]}
+		]
+	}`
+}
+
+func registryRuntimeRemediationFixture() string {
+	return `{
+		"schema_version":"datapan.source-runtime-remediation-map.v1",
+		"summary":{"manual_review_required":true,"compatibility_effect":"manual_review_required_until_runtime_blockers_resolved"},
+		"sources":[{"source_id":"data_go_kr","blocking_count":1,"warning_count":0,"findings":[{"id":"credential_required"}]}]
+	}`
+}
+
+func TestInstalledVerificationFreshnessUsesRegistryPolicyBoundaries(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+	if err := writeJSONFile(defaultReleaseVerificationPath, map[string]any{
+		"generated_at": "2026-07-11T00:00:00Z",
+		"summary":      map[string]any{"total": 6, "verified": 6, "failed": 0, "skipped": 0, "unknown": 0},
+		"results": []map[string]any{
+			{"dataset_id": "fresh", "operation": "op", "status": "verified", "verified_at": "2026-06-11T00:00:00Z"},
+			{"dataset_id": "stale", "operation": "op", "status": "verified", "verified_at": "2026-06-10T23:59:59Z"},
+			{"dataset_id": "stale-boundary", "operation": "op", "status": "verified", "verified_at": "2026-04-12T00:00:00Z"},
+			{"dataset_id": "expired", "operation": "op", "status": "verified", "verified_at": "2026-04-11T23:59:59Z"},
+			{"dataset_id": "missing", "operation": "op", "status": "verified"},
+			{"dataset_id": "future", "operation": "op", "status": "verified", "verified_at": "2026-07-11T00:00:01Z"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	index := installedOperationVerificationIndex()
+	if !index.FreshnessPolicy.Valid || index.FreshnessPolicy.AsOfText != "2026-07-11T00:00:00Z" {
+		t.Fatalf("unexpected policy: %#v", index.FreshnessPolicy)
+	}
+	wants := map[string]string{
+		"fresh": "fresh", "stale": "stale", "stale-boundary": "stale",
+		"expired": "expired", "missing": "unknown_timestamp", "future": "invalid_timestamp",
+	}
+	for dataset, want := range wants {
+		got := index.Results[verificationContextKey(dataset, "op")]
+		if got.Freshness != want || got.FreshnessAsOf != "2026-07-11T00:00:00Z" || got.FreshDays != 30 || got.ExpireDays != 90 {
+			t.Fatalf("%s freshness=%#v want=%s", dataset, got, want)
+		}
+	}
+}
+
+func TestInstalledFreshnessPolicyRejectsLocalManifestOrPolicyDrift(t *testing.T) {
+	t.Run("policy", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+		file, err := os.OpenFile(defaultReleaseSustainableCoveragePolicyPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.WriteString(" "); err != nil {
+			t.Fatal(err)
+		}
+		_ = file.Close()
+		policy := installedVerificationFreshnessPolicy()
+		if policy.Valid || !strings.Contains(policy.Error, "mismatch") {
+			t.Fatalf("expected manifest binding failure, got %#v", policy)
+		}
+	})
+	t.Run("manifest", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+		file, err := os.OpenFile(defaultReleaseManifestPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.WriteString(" "); err != nil {
+			t.Fatal(err)
+		}
+		_ = file.Close()
+		policy := installedVerificationFreshnessPolicy()
+		if policy.Valid || !strings.Contains(policy.Error, "manifest digest") {
+			t.Fatalf("expected provenance binding failure, got %#v", policy)
+		}
+	})
+}
+
+func TestStaleVerificationProducesEvidenceWarningWithoutBlockingDryRun(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+	data, err := os.ReadFile(defaultReleaseVerificationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.ReplaceAll(data, []byte("2026-07-11T00:00:00Z"), []byte("2026-05-11T00:00:00Z"))
+	if err := os.WriteFile(defaultReleaseVerificationPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest(
+		[]string{"get", "100", "--operation", "목록", "--dry-run", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, nil,
+	)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"freshness": "stale"`,
+		`"category": "stale_verification"`,
+		`"reason": "verification_evidence_stale"`,
+		`"dry_run": true`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked: %s", stdout)
+	}
+}
+
+func TestHumanDryRunShowsStaleVerificationBoundaryWithoutChangingRequestOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+	data, err := os.ReadFile(defaultReleaseVerificationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.ReplaceAll(data, []byte("2026-07-11T00:00:00Z"), []byte("2026-05-11T00:00:00Z"))
+	if err := os.WriteFile(defaultReleaseVerificationPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest(
+		[]string{"get", "100", "--operation", "목록", "--dry-run"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, nil,
+	)
+	if code != exitOK || !strings.HasPrefix(stdout, "GET https://apis.data.go.kr/test/list?") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"registry trust: manual_review", "verification: verified", "freshness stale", "evidence warning: verification_evidence_stale", "install a newer Registry release"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in human warning: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stdout+stderr, "secret-value") {
+		t.Fatalf("credential leaked: stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestRegistryTrustPreservesManualReviewConsumerDecision(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	writeConsumerDecisionForTest(t, "manual_review_required", true, false, "consume_canonical_registry")
+	code, stdout, stderr := runTest([]string{"show", "100", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"status": "manual_review"`,
+		`"consumer_decision": "manual_review_required"`,
+		`"cli_consumer_action": "consume_canonical_registry"`,
+		`"cli_consumer_action_reason": "Registry supplied CLI consumer action."`,
+		`"consumer_manual_review_accepted": false`,
+		`"execution_allowed": true`,
+		`"release_manual_review_required"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestBlockedConsumerDecisionStopsProviderExecutionAsCompatibilityFailure(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	writeConsumerDecisionForTest(t, "blocked", true, false, "consume_canonical_registry")
+	called := false
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		called = true
+		return nil, errors.New("must not call provider")
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "100", "--operation", "목록", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stderr != "" || called {
+		t.Fatalf("code=%d called=%t stdout=%s stderr=%s", code, called, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"error": "registry_untrusted"`,
+		`"category": "compatibility"`,
+		`"reason": "release_consumer_decision_blocked"`,
+		`"execution_allowed": false`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked: %s", stdout)
+	}
+}
+
+func TestTamperedConsumerDecisionBlocksExecution(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	writeConsumerDecisionForTest(t, "safe_to_consume", false, false, "consume_canonical_registry")
+	file, err := os.OpenFile(defaultReleaseConsumerDecisionPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(" "); err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	trust := (app{registryPath: defaultRegistryPath, registrySource: "default"}).localRegistryTrust()
+	if trust.ExecutionAllowed || trust.Status != "blocked" || !strings.Contains(strings.Join(trust.ReasonCodes, ","), "release_consumer_decision_invalid") {
+		t.Fatalf("tampered decision was not blocked: %#v", trust)
+	}
+}
+
+func TestConsumerDecisionExpectedByProvenanceCannotDisappearSilently(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.ConsumerReleaseDecision = "safe_to_consume"
+	provenance.CLIConsumerAction = "consume_canonical_registry"
+	provenance.CLIConsumerActionReason = "expected installed evidence"
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	trust := (app{registryPath: defaultRegistryPath, registrySource: "default"}).localRegistryTrust()
+	if trust.ExecutionAllowed || trust.Status != "blocked" || !strings.Contains(strings.Join(trust.ReasonCodes, ","), "release_consumer_decision_missing_from_install") {
+		t.Fatalf("missing installed decision was not blocked: %#v", trust)
+	}
+}
+
+func TestCatalogInstallRejectsBlockedOrUnsupportedConsumerDecisionBeforeWrite(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		decision string
+		action   string
+		message  string
+	}{
+		{name: "blocked", decision: "blocked", action: "consume_canonical_registry", message: "consumer decision is blocked"},
+		{name: "unsupported_action", decision: "safe_to_consume", action: "manual_review_before_release_adoption", message: "unsupported datapan-cli consumer action"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+			decision := fmt.Sprintf(`{"schema_version":"datapan.release-consumer-decision.v1","generated_at":"2026-07-11T00:00:00Z","provider":"datapan-registry","summary":{"release_decision":%q,"canonical_registry_consumption":"compatible","manual_review_required":true,"manual_review_accepted":false},"consumer_actions":[{"consumer":"datapan-cli","action":%q,"reason":"test"}]}`, tt.decision, tt.action)
+			artifacts := []releaseManifestArtifact{}
+			for path, data := range map[string]string{datapanRegistryZipRegistryPath: registry, "reports/release-consumer-decision.json": decision} {
+				sum := sha256.Sum256([]byte(data))
+				kind := "release_consumer_decision"
+				if path == datapanRegistryZipRegistryPath {
+					kind = "registry"
+				}
+				artifacts = append(artifacts, releaseManifestArtifact{Path: path, Kind: kind, Bytes: int64(len(data)), SHA256: fmt.Sprintf("%x", sum)})
+			}
+			manifestData, err := json.Marshal(releaseManifest{SchemaVersion: "datapan.release-manifest.v1", GeneratedAt: "2026-07-11T00:00:00Z", ArtifactCount: len(artifacts), Artifacts: artifacts})
+			if err != nil {
+				t.Fatal(err)
+			}
+			zipData := zipFilesForTest(t, map[string]string{
+				datapanRegistryZipRegistryPath:           registry,
+				"manifest.json":                          string(manifestData),
+				"reports/release-consumer-decision.json": decision,
+			})
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(zipData)), Header: make(http.Header)}, nil
+			})
+			code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--url", "https://example.test/registry.zip", "--json"}, nil, client)
+			if code != exitRequest || stderr != "" || !strings.Contains(stdout, tt.message) {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, path := range []string{defaultRegistryPath, defaultReleaseDir, defaultRegistryInstallProvenancePath} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("rejected install wrote %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestProviderFailureUsesManifestBoundRegistryErrorRouting(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	writeRegistryErrorRoutingForTest(t, registryErrorCatalogFixture(), registryRuntimeRemediationFixture())
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "application/json")
+		return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"30","resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR."}}}`))}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "100", "--operation", "목록", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"category": "authentication"`,
+		`"reason": "data-go-kr-service-key-not-registered"`,
+		`"registry_routing":`,
+		`"classification": "credential"`,
+		`"severity": "blocking"`,
+		`"action": "refresh_verification"`,
+		`"reason": "Verify credentials before parser or adapter work."`,
+		`"runtime_boundary":`,
+		`"manual_review_required": true`,
+		`"credential_required"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked: %s", stdout)
+	}
+}
+
+func TestRegistryRoutingRespectsScopeAndRetryClassification(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	writeRegistryErrorRoutingForTest(t, registryErrorCatalogFixture(), registryRuntimeRemediationFixture())
+	gatewayPlan := requestPlan{Spec: datago.Spec{ID: "gateway", Provider: "data.go.kr"}, Operation: datago.Operation{Name: "op", Endpoint: "https://apis.data.go.kr/test"}, URL: "https://apis.data.go.kr/test"}
+	rateEnvelope := datago.ResponseEnvelope{StatusCode: http.StatusTooManyRequests, SemanticStatus: "http_error"}
+	rate := applyRegistryFailureRouting(classifyResponseFailure(rateEnvelope), gatewayPlan, &rateEnvelope, nil)
+	if rate.RegistryRouting == nil || rate.RegistryRouting.RuleID != "data-go-kr-http-429" || rate.RegistryRouting.Classification != "rate_limit" || !rate.Retryable {
+		t.Fatalf("unexpected rate-limit routing: %#v", rate)
+	}
+
+	timeoutErr := context.DeadlineExceeded
+	gatewayTimeout := applyRegistryFailureRouting(classifyExecutionError(timeoutErr), gatewayPlan, nil, timeoutErr)
+	if gatewayTimeout.RegistryRouting != nil {
+		t.Fatalf("external timeout rule must not match gateway scope: %#v", gatewayTimeout)
+	}
+	externalPlan := requestPlan{Spec: datago.Spec{ID: "external", Provider: "data.go.kr"}, Operation: datago.Operation{Name: "op", Endpoint: "https://external.example.test/api"}, URL: "https://external.example.test/api"}
+	externalTimeout := applyRegistryFailureRouting(classifyExecutionError(timeoutErr), externalPlan, nil, timeoutErr)
+	if externalTimeout.RegistryRouting == nil || externalTimeout.RegistryRouting.RuleID != "data-go-kr-external-timeout" || !externalTimeout.Retryable {
+		t.Fatalf("unexpected external timeout routing: %#v", externalTimeout)
+	}
+}
+
+func TestTamperedRegistryRoutingFallsBackWithoutHidingIntegrityError(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	writeRegistryErrorRoutingForTest(t, registryErrorCatalogFixture(), registryRuntimeRemediationFixture())
+	file, err := os.OpenFile(defaultReleaseErrorActionCatalogPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.WriteString(" ")
+	_ = file.Close()
+	plan := requestPlan{Spec: datago.Spec{ID: "gateway", Provider: "data.go.kr"}, Operation: datago.Operation{Name: "op", Endpoint: "https://apis.data.go.kr/test"}, URL: "https://apis.data.go.kr/test"}
+	envelope := datago.ResponseEnvelope{StatusCode: http.StatusTooManyRequests, SemanticStatus: "http_error"}
+	failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), plan, &envelope, nil)
+	if failure.RegistryRouting != nil || failure.RegistryRoutingError == "" || failure.Reason != "provider_temporarily_unavailable" {
+		t.Fatalf("tampered routing evidence was hidden or applied: %#v", failure)
+	}
+}
+
+func TestStandaloneGeneratedFilesWriteBoundProvenanceSidecars(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	tests := []struct {
+		name string
+		kind string
+		args func(string) []string
+	}{
+		{name: "postman", kind: "postman", args: func(path string) []string {
+			return []string{"export", "--format", "postman", "100", "--operation", "목록", "--output", path, "--json"}
+		}},
+		{name: "openapi_export", kind: "openapi", args: func(path string) []string {
+			return []string{"export", "--format", "openapi", "100", "--operation", "목록", "--output", path, "--json"}
+		}},
+		{name: "go", kind: "codegen_go", args: func(path string) []string {
+			return []string{"codegen", "go", "100", "--operation", "목록", "--output", path, "--json"}
+		}},
+		{name: "node", kind: "codegen_node", args: func(path string) []string {
+			return []string{"codegen", "node", "100", "--operation", "목록", "--output", path, "--json"}
+		}},
+		{name: "python", kind: "codegen_python", args: func(path string) []string {
+			return []string{"codegen", "python", "100", "--operation", "목록", "--output", path, "--json"}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := filepath.Join("generated", tt.name+".out")
+			code, stdout, stderr := runTest(tt.args(output), fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, nil)
+			if code != exitOK || stderr != "" {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			provenancePath := output + ".datapan-provenance.json"
+			if !strings.Contains(stdout, `"provenance": `+fmt.Sprintf("%q", provenancePath)) || !strings.Contains(stdout, `"verification":`) {
+				t.Fatalf("JSON summary did not report provenance and verification: %s", stdout)
+			}
+			artifactData, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			provenanceData, err := os.ReadFile(provenancePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(provenanceData), "secret-value") {
+				t.Fatalf("credential leaked into provenance: %s", provenanceData)
+			}
+			var provenance struct {
+				SchemaVersion string                       `json:"schema_version"`
+				GeneratedAt   string                       `json:"generated_at"`
+				Dataset       string                       `json:"dataset"`
+				Operation     string                       `json:"operation"`
+				RegistryTrust registryTrustContext         `json:"registry_trust"`
+				Verification  operationVerificationContext `json:"verification"`
+				Artifact      struct {
+					Kind   string `json:"kind"`
+					Path   string `json:"path"`
+					Bytes  int    `json:"bytes"`
+					SHA256 string `json:"sha256"`
+				} `json:"artifact"`
+			}
+			if err := json.Unmarshal(provenanceData, &provenance); err != nil {
+				t.Fatal(err)
+			}
+			wantSHA := fmt.Sprintf("%x", sha256.Sum256(artifactData))
+			if provenance.SchemaVersion != "datapan.generated-artifact-provenance.v1" || provenance.GeneratedAt == "" || provenance.Dataset != "100" || provenance.Operation != "목록" || provenance.Artifact.Kind != tt.kind || provenance.Artifact.Path != output || provenance.Artifact.Bytes != len(artifactData) || provenance.Artifact.SHA256 != wantSHA {
+				t.Fatalf("unexpected provenance: %#v", provenance)
+			}
+			if provenance.RegistryTrust.Status != "manual_review" || provenance.Verification.Status != "verified" {
+				t.Fatalf("Registry evidence was not preserved: %#v", provenance)
+			}
+		})
+	}
+}
+
+func TestStandaloneGeneratedArtifactSupportsCustomProvenancePathAndRejectsCollision(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	output := filepath.Join("generated", "client.py")
+	provenance := filepath.Join("evidence", "client.provenance.json")
+	code, stdout, stderr := runTest([]string{"codegen", "python", "100", "--output", output, "--provenance-output", provenance, "--json"}, nil, nil)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, fmt.Sprintf("%q", provenance)) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := os.Stat(provenance); err != nil {
+		t.Fatalf("custom provenance was not written: %v", err)
+	}
+
+	collision := filepath.Join("generated", "collision.py")
+	code, stdout, stderr = runTest([]string{"codegen", "python", "100", "--output", collision, "--provenance-output", collision, "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, "provenance output must differ") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := os.Stat(collision); !os.IsNotExist(err) {
+		t.Fatalf("collision should be rejected before artifact write: %v", err)
+	}
+}
+
+func TestGeneratedAndInstallPayloadsSatisfyPublishedSchemas(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"스키마 테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list","request_params":[{"name":"serviceKey"},{"name":"pageNo"}]}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	provenanceSchema := compileRepositorySchemaForTest(t, "datapan.generated-artifact-provenance.v1.schema.json")
+	installSchema := compileRepositorySchemaForTest(t, "datapan.registry-install.v1.schema.json")
+
+	commands := []struct {
+		args       []string
+		provenance string
+	}{
+		{args: []string{"params", "100", "--operation", "목록", "--output", "params.json", "--json"}, provenance: "params.json.datapan-provenance.json"},
+		{args: []string{"export", "--format", "postman", "100", "--operation", "목록", "--output", "postman.json", "--json"}, provenance: "postman.json.datapan-provenance.json"},
+		{args: []string{"export", "--format", "openapi", "100", "--operation", "목록", "--output", "openapi.json", "--json"}, provenance: "openapi.json.datapan-provenance.json"},
+		{args: []string{"codegen", "go", "100", "--operation", "목록", "--output", "client.go", "--json"}, provenance: "client.go.datapan-provenance.json"},
+		{args: []string{"codegen", "node", "100", "--operation", "목록", "--output", "client.js", "--json"}, provenance: "client.js.datapan-provenance.json"},
+		{args: []string{"codegen", "python", "100", "--operation", "목록", "--output", "client.py", "--json"}, provenance: "client.py.datapan-provenance.json"},
+	}
+	for _, command := range commands {
+		code, stdout, stderr := runTest(command.args, nil, nil)
+		if code != exitOK || stderr != "" {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", command.args, code, stdout, stderr)
+		}
+		data, err := os.ReadFile(command.provenance)
+		if err != nil {
+			t.Fatal(err)
+		}
+		validateSchemaBytesForTest(t, provenanceSchema, data)
+	}
+
+	code, stdout, stderr := runTest([]string{"kit", "100", "--operation", "목록", "--output-dir", "kit", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	kitProvenance, err := os.ReadFile("kit/datapan-provenance.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	validateSchemaBytesForTest(t, provenanceSchema, kitProvenance)
+
+	installProvenance, err := os.ReadFile(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validateSchemaBytesForTest(t, installSchema, installProvenance)
+
+	invalidArtifact := map[string]any{}
+	validArtifact, err := os.ReadFile("params.json.datapan-provenance.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(validArtifact, &invalidArtifact); err != nil {
+		t.Fatal(err)
+	}
+	invalidArtifact["artifact"].(map[string]any)["kind"] = "invented_kind"
+	invalidArtifactData, err := json.Marshal(invalidArtifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidInstance, err := jsonschema.UnmarshalJSON(bytes.NewReader(invalidArtifactData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provenanceSchema.Validate(invalidInstance); err == nil {
+		t.Fatal("generated artifact schema accepted an invented kind")
+	}
+
+	invalidInstall := map[string]any{}
+	if err := json.Unmarshal(installProvenance, &invalidInstall); err != nil {
+		t.Fatal(err)
+	}
+	invalidInstall["pin_mode"] = "floating_unverified"
+	invalidInstallData, err := json.Marshal(invalidInstall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidInstallInstance, err := jsonschema.UnmarshalJSON(bytes.NewReader(invalidInstallData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installSchema.Validate(invalidInstallInstance); err == nil {
+		t.Fatal("Registry install schema accepted an unsupported pin mode")
+	}
+}
+
+func TestStandaloneGeneratedArtifactRollsBackArtifactAndProvenanceTogether(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	output := filepath.Join("generated", "client.py")
+	provenance := output + ".datapan-provenance.json"
+	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(output, []byte("old artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(provenance, []byte("old provenance"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalRename := registryInstallRename
+	registryInstallRename = func(oldPath, newPath string) error {
+		if sameFilePath(newPath, provenance) && strings.Contains(filepath.Base(oldPath), ".stage-") {
+			return errors.New("injected provenance commit failure")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	defer func() { registryInstallRename = originalRename }()
+	code, stdout, stderr := runTest([]string{"codegen", "python", "100", "--output", output, "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, "injected provenance commit failure") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for path, want := range map[string]string{output: "old artifact", provenance: "old provenance"} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("generated pair rollback failed for %s: err=%v data=%s", path, err, data)
+		}
+	}
+	staged, _ := filepath.Glob(filepath.Join("generated", ".*.stage-*"))
+	backups, _ := filepath.Glob(filepath.Join("generated", ".*.backup-*"))
+	if len(staged) != 0 || len(backups) != 0 {
+		t.Fatalf("generated pair rollback left files: staged=%v backups=%v", staged, backups)
+	}
+}
+
+func TestLiveVerifyRespectsBlockedRegistryTrustBeforeHTTP(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.RegistrySHA256 = strings.Repeat("0", 64)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		called = true
+		return nil, errors.New("must not call provider")
+	})
+	code, stdout, stderr := runTest(
+		[]string{"verify", "--ref", "100", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stderr != "" || called {
+		t.Fatalf("code=%d called=%t stdout=%s stderr=%s", code, called, stdout, stderr)
+	}
+	for _, want := range []string{`"error": "registry_untrusted"`, `"registry_digest_mismatch"`, `"category": "compatibility"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked: %s", stdout)
+	}
+}
+
+func TestOfflineVerificationReportInspectionRemainsAvailableWhenRegistryBlocked(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.RegistrySHA256 = strings.Repeat("0", 64)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := "verification.json"
+	if err := writeJSONFile(reportPath, map[string]any{
+		"generated_at": "2026-07-11T00:00:00Z", "summary": map[string]any{"total": 1, "verified": 1},
+		"results": []map[string]any{{"dataset_id": "100", "operation": "목록", "status": "verified"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"verify", "--input", reportPath, "--json"}, nil, nil)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"filtered_count": 1`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestLiveVerifyRedactsCredentialFromTransportFailureEvidence(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("request %s failed with secret-value", req.URL.String())
+	})
+	code, stdout, stderr := runTest(
+		[]string{"verify", "--ref", "100", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, "secret-value") || !strings.Contains(stdout, "REDACTED") {
+		t.Fatalf("verification failure did not redact credential: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"registry_trust"`) {
+		t.Fatalf("verification output omitted Registry trust: %s", stdout)
+	}
+}
+
+func TestRegistrySnapshotPreservesManifestBoundFreshnessContract(t *testing.T) {
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	policy := `{"schema_version":"datapan.sustainable-coverage-policy.v1","freshness":{"fresh_days":30,"expire_days":90,"missing_timestamp_classification":"unknown_timestamp","evaluation_time_source":"manifest.generated_at"}}`
+	report := `{"schema_version":"datapan.sustainable-coverage.v1","freshness":{"as_of":"2026-07-11T00:00:00Z","fresh_days":30,"expire_days":90,"fresh":1,"stale":0,"expired":0,"unknown_timestamp":0,"fresh_verified":1}}`
+	schema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`
+	decision := `{"schema_version":"datapan.release-consumer-decision.v1","generated_at":"2026-07-11T00:00:00Z","provider":"datapan-registry","summary":{"release_decision":"safe_to_consume","canonical_registry_consumption":"compatible","manual_review_required":false,"manual_review_accepted":false},"consumer_actions":[{"consumer":"datapan-cli","action":"consume_canonical_registry","reason":"compatible"}]}`
+	files := map[string]string{
+		datapanRegistryZipRegistryPath:                                  registry,
+		"policy/sustainable-coverage.json":                              policy,
+		"reports/sustainable-coverage.json":                             report,
+		"schemas/datapan.sustainable-coverage-policy.v1.schema.json":    schema,
+		"reports/release-consumer-decision.json":                        decision,
+		"schemas/datapan.release-consumer-decision.v1.schema.json":      schema,
+		"reports/data-go-kr/error-action-catalog.json":                  registryErrorCatalogFixture(),
+		"schemas/datapan.error-action-catalog.v1.schema.json":           schema,
+		"reports/source-runtime-remediation-map.json":                   registryRuntimeRemediationFixture(),
+		"schemas/datapan.source-runtime-remediation-map.v1.schema.json": schema,
+	}
+	artifacts := make([]releaseManifestArtifact, 0, len(files))
+	for path, data := range files {
+		sum := sha256.Sum256([]byte(data))
+		kind := "evidence"
+		if path == datapanRegistryZipRegistryPath {
+			kind = "registry"
+		}
+		artifacts = append(artifacts, releaseManifestArtifact{Path: path, Kind: kind, Bytes: int64(len(data)), SHA256: fmt.Sprintf("%x", sum)})
+	}
+	manifest, err := json.Marshal(releaseManifest{
+		SchemaVersion: "datapan.release-manifest.v1", GeneratedAt: "2026-07-11T00:00:00Z",
+		Artifacts: artifacts, ArtifactCount: len(artifacts),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["manifest.json"] = string(manifest)
+	snapshot, err := datapanRegistrySnapshotFromZip(zipFilesForTest(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"policy/sustainable-coverage.json",
+		"reports/sustainable-coverage.json",
+		"schemas/datapan.sustainable-coverage-policy.v1.schema.json",
+		"reports/release-consumer-decision.json",
+		"schemas/datapan.release-consumer-decision.v1.schema.json",
+		"reports/data-go-kr/error-action-catalog.json",
+		"schemas/datapan.error-action-catalog.v1.schema.json",
+		"reports/source-runtime-remediation-map.json",
+		"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
+	} {
+		if _, ok := snapshot.ReleaseFiles[path]; !ok {
+			t.Fatalf("freshness artifact was not preserved: %s", path)
+		}
+	}
+
+	files["policy/sustainable-coverage.json"] = policy + " "
+	if _, err := datapanRegistrySnapshotFromZip(zipFilesForTest(t, files)); err == nil || !strings.Contains(err.Error(), "mismatch") {
+		t.Fatalf("expected manifest-bound policy checksum failure, got %v", err)
+	}
 }
 
 func zipBytesForTest(t *testing.T, name string, data string) []byte {
@@ -244,6 +1233,570 @@ func TestStatusJSONAliasesDoctor(t *testing.T) {
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in status output: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONReportsRegistryReleaseIntegrityFreshnessAndCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		latestTag   string
+		wantStale   string
+		wantCurrent string
+	}{
+		{name: "current", latestTag: "v1", wantStale: `"stale": false`, wantCurrent: `"current": true`},
+		{name: "stale", latestTag: "v2", wantStale: `"stale": true`, wantCurrent: `"current": false`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			registry := `[{"id":"local-1","title":"지역 설치 Registry API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+			writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+			if err := os.MkdirAll(filepath.Dir(defaultReleaseConsumerCompatibilityPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := osWriteFile(defaultReleaseConsumerCompatibilityPath, []byte(`{
+				"schema_version":"datapan.release-consumer-compatibility.v1",
+				"runtime_risk_evidence":{"manual_review_required":true,"compatibility_effect":"manual_review_required_until_runtime_blockers_resolved"},
+				"consumers":[{"consumer":"datapan-cli","compatibility_mode":"shard_preferred_with_monolith_fallback","status":"proven"}]
+			}`)); err != nil {
+				t.Fatal(err)
+			}
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != defaultDatapanRegistryReleaseAPI {
+					t.Fatalf("unexpected URL: %s", req.URL)
+				}
+				return &http.Response{
+					StatusCode: 200,
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{
+						"tag_name":%q,
+						"assets":[
+							{"name":"datapan-registry.zip","browser_download_url":"https://example.test/latest.zip"},
+							{"name":"data-go-kr-shards.tar.gz","browser_download_url":"https://example.test/latest-shards.tar.gz"}
+						]
+					}`, tc.latestTag))),
+					Header: make(http.Header),
+				}, nil
+			})
+			code, stdout, stderr := runTest([]string{"status", "--json"}, nil, client)
+			if code != exitOK {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, want := range []string{
+				`"provenance_present": true`,
+				`"active_registry_matches": true`,
+				`"registry_digest_matches": true`,
+				`"consumer_compatibility_present": true`,
+				`"cli_consumer_status": "proven"`,
+				`"cli_compatibility_mode": "shard_preferred_with_monolith_fallback"`,
+				`"runtime_manual_review_required": true`,
+				`"latest_shards_asset_url": "https://example.test/latest-shards.tar.gz"`,
+				tc.wantStale,
+				tc.wantCurrent,
+			} {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("expected %q in registry status: %s", want, stdout)
+				}
+			}
+		})
+	}
+}
+
+func TestStatusJSONStopsFreshnessCheckOnRegistryDigestMismatch(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"local-1","title":"원본","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	if err := osWriteFile(defaultRegistryPath, []byte(`[{"id":"changed","title":"변경됨","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("latest release must not be fetched after an integrity mismatch")
+		return nil, nil
+	})
+	code, stdout, stderr := runTest([]string{"doctor", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ready_for_search": false`, `"ready_for_calls": false`, `"registry_digest_matches": false`, `"reason": "registry_digest_mismatch"`, `datapan init --json`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in integrity status: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONDoesNotClaimCallReadinessForBlockedConsumer(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"local-1","title":"설치됨","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.CLIConsumerStatus = "blocked"
+	provenance.CLICompatibilityMode = "manual_review_only"
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"tag_name":"v1","assets":[]}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ready_for_search": true`, `"ready_for_calls": false`, `"cli_consumer_status": "blocked"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in blocked consumer status: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("status leaked credential: %s", stdout)
+	}
+}
+
+func TestStatusJSONDoesNotClaimCallReadinessWhenReleaseReadinessFailed(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"local-1","title":"설치됨","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	if err := os.MkdirAll(filepath.Dir(defaultReleaseReadinessPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultReleaseReadinessPath, []byte(`{
+		"manifest":"manifest.json",
+		"root":".",
+		"schema_version":"datapan.release-readiness.v1",
+		"generated_at":"2026-07-11T00:00:00Z",
+		"datapan_version":"test",
+		"provider":"data.go.kr",
+		"ready":false,
+		"summary":{"failed":2},
+		"gates":[]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v1","assets":[]}`)), Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest([]string{"doctor", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ready_for_calls": false`, `"readiness_ready": false`, `"readiness_failed_gates": 2`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in failed readiness status: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONDistinguishesActiveRegistryFromInstalledProvenance(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"default","title":"기본","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	envRegistry := filepath.Join(t.TempDir(), "env-registry.json")
+	if err := osWriteFile(envRegistry, []byte(`[{"id":"env","title":"환경","provider":"data.go.kr","priority":"P2","operations":[]}]`)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("latest release must not be fetched for an unrelated active registry")
+		return nil, nil
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": envRegistry}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"active_source": "env"`, `"active_registry_matches": false`, `"reason": "active_registry_differs_from_provenance"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in active registry status: %s", want, stdout)
+		}
+	}
+}
+
+func TestStatusJSONKeepsInstalledRegistryUsableWhenLatestFetchFails(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"local-1","title":"설치됨","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("network unavailable")
+	})
+	code, stdout, stderr := runTest([]string{"status", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ready_for_search": true`, `"registry_digest_matches": true`, `"reason": "latest_fetch_failed"`, `"latest_fetch_error": "network unavailable"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in offline registry status: %s", want, stdout)
+		}
+	}
+}
+
+func TestRegistryTrustAndVerificationFlowThroughDiscoveryAndPlanning(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","organization":"테스트 기관","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "search", args: []string{"search", "테스트", "--json"}},
+		{name: "show", args: []string{"show", "100", "--json"}},
+		{name: "try", args: []string{"try", "테스트", "--json"}},
+		{name: "use", args: []string{"use", "100", "--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stdout, stderr := runTest(tc.args, nil, nil)
+			if code != exitOK {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, want := range []string{
+				`"registry_trust":`,
+				`"status": "manual_review"`,
+				`"integrity": "verified"`,
+				`"release_readiness": "ready"`,
+				`"cli_consumer_status": "proven"`,
+				`"runtime_manual_review_required": true`,
+				`"execution_allowed": true`,
+				`"verification":`,
+				`"status": "verified"`,
+				`"reason": "normal_response"`,
+				`"freshness": "not_evaluated_by_cli"`,
+			} {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("expected %q in %s output: %s", want, tc.name, stdout)
+				}
+			}
+		})
+	}
+
+	code, stdout, stderr := runTest([]string{"search", "테스트"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "registry trust: manual_review (v1)") || !strings.Contains(stdout, "runtime evidence: manual review required") {
+		t.Fatalf("expected human trust context: %s", stdout)
+	}
+}
+
+func TestProviderExecutionStopsBeforeHTTPWhenRegistryIntegrityFails(t *testing.T) {
+	for _, command := range []string{"get", "sync"} {
+		t.Run(command, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+			writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+			changed := `[{"id":"100","title":"변경된 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+			if err := osWriteFile(defaultRegistryPath, []byte(changed)); err != nil {
+				t.Fatal(err)
+			}
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				t.Fatalf("provider HTTP must not run for an untrusted registry")
+				return nil, nil
+			})
+			code, stdout, stderr := runTest([]string{command, "100", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+			if code != exitRequest {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, want := range []string{`"error": "registry_untrusted"`, `"execution_allowed": false`, `"registry_digest_mismatch"`, `datapan init --json`} {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("expected %q in blocked %s output: %s", want, command, stdout)
+				}
+			}
+			if strings.Contains(stdout, "secret-value") {
+				t.Fatalf("blocked execution leaked credential: %s", stdout)
+			}
+		})
+	}
+}
+
+func TestHumanRegistryBlockReportsSameFailureAndNextActionAsJSON(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	if err := osWriteFile(defaultRegistryPath, []byte(strings.Replace(registry, "테스트 API", "변경된 API", 1))); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatal("provider HTTP must not run")
+		return nil, nil
+	})
+
+	code, stdout, stderr := runTest([]string{"get", "100"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+	if code != exitRequest || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"registry trust does not allow provider execution: registry_digest_mismatch",
+		"failure: compatibility (registry_digest_mismatch)",
+		"next: datapan init --json",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in human failure: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "secret-value") {
+		t.Fatalf("credential leaked: %s", stderr)
+	}
+}
+
+func TestDryRunExplainsBlockedRegistryWithoutCallingProvider(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	changed := strings.Replace(registry, "테스트 API", "변경된 API", 1)
+	if err := osWriteFile(defaultRegistryPath, []byte(changed)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("dry-run must not call provider HTTP")
+		return nil, nil
+	})
+	code, stdout, stderr := runTest([]string{"get", "100", "--dry-run", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"dry_run": true`, `"status": "blocked"`, `"execution_allowed": false`, `"registry_digest_mismatch"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in blocked dry-run output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("dry-run leaked credential: %s", stdout)
+	}
+}
+
+func TestTrustedManualReviewRegistryCanCallAndPreservesTrustInResponse(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("serviceKey") != "secret-value" {
+			t.Fatalf("missing service key in provider request")
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`)),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"get", "100", "--json"}, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ok": true`, `"body": "{\"data\":[{\"value\":1}]}"`, `"registry_trust":`, `"status": "manual_review"`, `"execution_allowed": true`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in trusted response: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("provider response leaked credential: %s", stdout)
+	}
+}
+
+func TestHumanGetAndSyncPreserveTrustWithoutContaminatingDataOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`)),
+		}, nil
+	})
+	env := fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}
+
+	code, stdout, stderr := runTest([]string{"get", "100", "--operation", "목록"}, env, client)
+	if code != exitOK || strings.TrimSpace(stdout) != `{"data":[{"value":1}]}` {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"registry trust: manual_review (v1)", "verification: verified"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in get diagnostics: %s", want, stderr)
+		}
+	}
+
+	code, stdout, stderr = runTest([]string{"sync", "100", "--operation", "목록", "--output-dir", "cache"}, env, client)
+	if code != exitOK || !strings.HasPrefix(stdout, "Datapan sync\n") || strings.Contains(stdout, "registry trust:") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"registry trust: manual_review (v1)", "verification: verified"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in sync diagnostics: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stdout+stderr, "secret-value") {
+		t.Fatalf("credential leaked: stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestExportsAndCodegenReportRegistryTrust(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "curl", args: []string{"curl", "100", "--json"}},
+		{name: "postman", args: []string{"export", "--format", "postman", "100", "--output", "test.postman.json", "--json"}},
+		{name: "openapi", args: []string{"export", "--format", "openapi", "100", "--output", "test.openapi.json", "--json"}},
+		{name: "codegen_go", args: []string{"codegen", "go", "100", "--output", "client.go", "--json"}},
+		{name: "codegen_node", args: []string{"codegen", "node", "100", "--output", "client.js", "--json"}},
+		{name: "codegen_python", args: []string{"codegen", "python", "100", "--output", "client.py", "--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stdout, stderr := runTest(tc.args, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, nil)
+			if code != exitOK {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, want := range []string{`"registry_trust":`, `"status": "manual_review"`, `"integrity": "verified"`, `"execution_allowed": true`} {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("expected %q in %s output: %s", want, tc.name, stdout)
+				}
+			}
+			if strings.Contains(stdout, "secret-value") {
+				t.Fatalf("%s leaked credential: %s", tc.name, stdout)
+			}
+		})
+	}
+}
+
+func TestHumanExportsAndCodegenKeepArtifactsOnStdoutAndEvidenceOnStderr(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	tests := []struct {
+		name   string
+		args   []string
+		marker string
+	}{
+		{name: "curl", args: []string{"curl", "100", "--operation", "목록"}, marker: "curl -fsS"},
+		{name: "postman", args: []string{"export", "--format", "postman", "100", "--operation", "목록"}, marker: `"schema": "https://schema.getpostman.com`},
+		{name: "openapi", args: []string{"export", "--format", "openapi", "100", "--operation", "목록"}, marker: `"openapi": "3.1.0"`},
+		{name: "go", args: []string{"codegen", "go", "100", "--operation", "목록"}, marker: "package datapanclient"},
+		{name: "node", args: []string{"codegen", "node", "100", "--operation", "목록"}, marker: "class DatapanClient"},
+		{name: "python", args: []string{"codegen", "python", "100", "--operation", "목록"}, marker: "class DatapanClient"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := runTest(tt.args, fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"}, nil)
+			if code != exitOK || !strings.Contains(stdout, tt.marker) {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if strings.Contains(stdout, "registry trust:") || !strings.Contains(stderr, "registry trust: manual_review (v1)") || !strings.Contains(stderr, "verification: verified") {
+				t.Fatalf("artifact/evidence channels were not separated: stdout=%s stderr=%s", stdout, stderr)
+			}
+			if strings.Contains(stdout+stderr, "secret-value") {
+				t.Fatalf("credential leaked: stdout=%s stderr=%s", stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestGeneratedCommandJSONUsesCommonStaleEvidenceWarning(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+	data, err := os.ReadFile(defaultReleaseVerificationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.ReplaceAll(data, []byte("2026-07-11T00:00:00Z"), []byte("2026-05-11T00:00:00Z"))
+	if err := os.WriteFile(defaultReleaseVerificationPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := [][]string{
+		{"curl", "100", "--operation", "목록", "--json"},
+		{"export", "--format", "postman", "100", "--operation", "목록", "--output", "collection.json", "--json"},
+		{"export", "--format", "openapi", "100", "--operation", "목록", "--output", "openapi.json", "--json"},
+		{"codegen", "go", "100", "--operation", "목록", "--output", "client.go", "--json"},
+		{"codegen", "node", "100", "--operation", "목록", "--output", "client.js", "--json"},
+		{"codegen", "python", "100", "--operation", "목록", "--output", "client.py", "--json"},
+	}
+	for _, args := range tests {
+		code, stdout, stderr := runTest(args, nil, nil)
+		if code != exitOK || stderr != "" {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
+		}
+		for _, want := range []string{`"verification":`, `"freshness": "stale"`, `"evidence_warning":`, `"category": "stale_verification"`} {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("args=%v expected %q: %s", args, want, stdout)
+			}
+		}
+	}
+}
+
+func TestCallBasedRowExportPreservesRegistryEvidenceAndStdoutContract(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"내보내기 테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`))}, nil
+	})
+	env := fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}
+
+	for _, format := range []string{"csv", "json"} {
+		code, stdout, stderr := runTest([]string{"export", "--format", format, "100", "--operation", "목록", "--json"}, env, client)
+		if code != exitOK || stderr != "" {
+			t.Fatalf("format=%s code=%d stdout=%s stderr=%s", format, code, stdout, stderr)
+		}
+		for _, want := range []string{`"dataset": "100"`, `"operation": "목록"`, `"registry_trust":`, `"status": "manual_review"`, `"verification":`, `"status": "verified"`} {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("format=%s expected %q: %s", format, want, stdout)
+			}
+		}
+	}
+
+	code, stdout, stderr := runTest([]string{"export", "--format", "csv", "100", "--operation", "목록"}, env, client)
+	if code != exitOK || !strings.Contains(stdout, "value\n1\n") || strings.Contains(stdout, "registry trust:") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "registry trust: manual_review (v1)") || !strings.Contains(stderr, "verification: verified") {
+		t.Fatalf("human CSV omitted evidence: %s", stderr)
+	}
+
+	code, stdout, stderr = runTest([]string{"export", "--format", "json", "100", "--operation", "목록"}, env, client)
+	if code != exitOK || strings.Contains(stdout, `"registry_trust"`) || !strings.Contains(stdout, `"rows":`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "registry trust: manual_review (v1)") || !strings.Contains(stderr, "verification: verified") {
+		t.Fatalf("human JSON export omitted evidence: %s", stderr)
+	}
+	if strings.Contains(stdout+stderr, "secret-value") {
+		t.Fatalf("credential leaked: stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestCallBasedExportPreservesStaleWarningAndHumanFailure(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"내보내기 테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+	verificationData, err := os.ReadFile(defaultReleaseVerificationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationData = bytes.ReplaceAll(verificationData, []byte("2026-07-11T00:00:00Z"), []byte("2026-05-11T00:00:00Z"))
+	if err := os.WriteFile(defaultReleaseVerificationPath, verificationData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	successClient := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`))}, nil
+	})
+	code, stdout, stderr := runTest([]string{"export", "--format", "csv", "100", "--operation", "목록", "--json"}, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, successClient)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"evidence_warning":`) || !strings.Contains(stdout, `"category": "stale_verification"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+
+	failureClient := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("temporarily unavailable"))}, nil
+	})
+	code, stdout, stderr = runTest([]string{"export", "--format", "csv", "100", "--operation", "목록"}, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, failureClient)
+	if code != exitRequest || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"export failed: HTTP 503", "failure: external_provider (provider_temporarily_unavailable)", "next: retry with backoff"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in export failure: %s", want, stderr)
 		}
 	}
 }
@@ -1572,6 +3125,69 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 	}
 }
 
+func TestHumanShowExplainsApprovalAuthParametersAndEachProviderRoute(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[
+		{
+			"id":"999",
+			"title":"판단 테스트 API",
+			"provider":"data.go.kr",
+			"organization":"테스트기관",
+			"priority":"P1",
+			"operations":[
+				{"name":"게이트웨이 목록","endpoint":"https://apis.data.go.kr/test/list","request_params":[{"name":"serviceKey","label":"인증키"},{"name":"PAGE","label":"페이지"}],"response_params":[{"name":"value","label":"값"}]},
+				{"name":"외부 목록","endpoint":"https://unknown-provider.example.test/list","request_params":[{"name":"query","label":"검색어"}]}
+			],
+			"source":{"system":"data.go.kr","url":"https://www.data.go.kr/data/999/openapi.do","raw":{"is_confirmed_for_dev_nm":"신청필요","is_confirmed_for_prod_nm":"승인필요","register_status":"등록승인","data_format":"JSON"}}
+		}
+	]`
+	if err := osWriteFile(registryPath, []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	env := fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"}
+
+	code, stdout, stderr := runTest([]string{"show", "999"}, env, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"dev_approval: 신청필요",
+		"prod_approval: 승인필요",
+		"source_url: https://www.data.go.kr/data/999/openapi.do",
+		"- 게이트웨이 목록 (https://apis.data.go.kr/test/list)",
+		"call ready: yes (data.go.kr gateway)",
+		"call provider: data.go.kr",
+		"endpoint host: apis.data.go.kr",
+		"params: PAGE(페이지)",
+		"auth params: serviceKey via DATAPAN_DATA_GO_KR_KEY, DATA_PORTAL_API_KEY, DATA_GO_KR_SERVICE_KEY",
+		"response fields: 1",
+		"- 외부 목록 (https://unknown-provider.example.test/list)",
+		"call ready: no (generic external endpoint)",
+		"endpoint host: unknown-provider.example.test",
+		"params: query(검색어)",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in human show: %s", want, stdout)
+		}
+	}
+	if strings.Count(stdout, "verification: unknown") != 2 {
+		t.Fatalf("every operation must expose its own verification boundary: %s", stdout)
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked: %s", stdout)
+	}
+
+	code, stdout, stderr = runTest([]string{"show", "999", "--json"}, env, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"dev_approval": "신청필요"`, `"auth_params":`, `"call_ready": true`, `"call_route": "data_go_kr_gateway"`, `"call_ready": false`, `"call_route": "generic_external"`, `"verification":`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in JSON show: %s", want, stdout)
+		}
+	}
+}
+
 func TestParamsWritesReusableParamsFile(t *testing.T) {
 	dir := t.TempDir()
 	registryPath := dir + "/registry.json"
@@ -1615,6 +3231,9 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 		`"dataset": "999"`,
 		`"operation": "목록 조회"`,
 		`"output": "` + jsonEscaped(paramsPath) + `"`,
+		`"provenance": "` + jsonEscaped(paramsPath+".datapan-provenance.json") + `"`,
+		`"registry_trust":`,
+		`"verification":`,
 		`"next_get": "datapan get 999 --operation \"목록 조회\" --params-file`,
 		`--json"`,
 	} {
@@ -1639,6 +3258,27 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	if strings.Contains(text, "serviceKey") {
 		t.Fatalf("params file should not include auth params: %s", text)
 	}
+	provenanceData, err := os.ReadFile(paramsPath + ".datapan-provenance.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paramsSHA := fmt.Sprintf("%x", sha256.Sum256(data))
+	for _, want := range []string{
+		`"schema_version": "datapan.generated-artifact-provenance.v1"`,
+		`"kind": "params"`,
+		`"sha256": "` + paramsSHA + `"`,
+		`"registry_trust":`,
+		`"verification":`,
+	} {
+		if !strings.Contains(string(provenanceData), want) {
+			t.Fatalf("expected %q in params provenance: %s", want, provenanceData)
+		}
+	}
+	for _, secret := range []string{"should-not-write", "해운대", "numOfRows"} {
+		if strings.Contains(string(provenanceData), secret) {
+			t.Fatalf("params provenance copied parameter data %q: %s", secret, provenanceData)
+		}
+	}
 
 	code, stdout, stderr = runTest(
 		[]string{"get", "999", "--operation", "목록 조회", "--params-file", paramsPath, "--timeout", "5s", "--dry-run", "--json"},
@@ -1662,6 +3302,51 @@ func TestParamsWritesReusableParamsFile(t *testing.T) {
 	}
 	if strings.Contains(stdout, "secret-value") {
 		t.Fatalf("dry-run should not leak key: %s", stdout)
+	}
+}
+
+func TestParamsRawStdoutStaysArtifactOnlyAndCustomProvenanceRequiresFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	code, stdout, stderr := runTest(
+		[]string{"params", "15084084", "--operation", "getVilageFcst", "base_date=20260622"},
+		nil, nil,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var params map[string]string
+	if err := json.Unmarshal([]byte(stdout), &params); err != nil {
+		t.Fatalf("stdout is not a pure params object: %v\n%s", err, stdout)
+	}
+	if params["base_date"] != "20260622" || strings.Contains(stdout, "registry_trust") {
+		t.Fatalf("unexpected raw params stdout: %s", stdout)
+	}
+	if !strings.Contains(stderr, "registry trust: embedded") || !strings.Contains(stderr, "verification:") {
+		t.Fatalf("human params omitted evidence diagnostics: %s", stderr)
+	}
+	if matches, _ := filepath.Glob("*.datapan-provenance.json"); len(matches) != 0 {
+		t.Fatalf("raw stdout unexpectedly created provenance: %v", matches)
+	}
+
+	code, stdout, stderr = runTest(
+		[]string{"params", "15084084", "--operation", "getVilageFcst", "--provenance-output", "params.provenance.json"},
+		nil, nil,
+	)
+	if code != exitUsage || stdout != "" || !strings.Contains(stderr, "--provenance-output requires file --output") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+
+	code, stdout, stderr = runTest(
+		[]string{"params", "15084084", "--operation", "getVilageFcst", "--output", "params.json", "--provenance-output", "evidence/params.provenance.json", "--json"},
+		nil, nil,
+	)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"provenance": "evidence/params.provenance.json"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, path := range []string{"params.json", "evidence/params.provenance.json"} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("custom params artifact missing at %s: %v", path, err)
+		}
 	}
 }
 
@@ -1841,6 +3526,7 @@ func TestUseWritesStarterKit(t *testing.T) {
 		`"kind": "codegen_go"`,
 		`"kind": "codegen_node"`,
 		`"kind": "codegen_python"`,
+		`"kind": "provenance"`,
 		`"kind": "readme"`,
 		`--params-file`,
 		jsonEscaped(filepath.Join(dir, "15084084_params.json")),
@@ -1857,6 +3543,7 @@ func TestUseWritesStarterKit(t *testing.T) {
 		"15084084_client.go",
 		"15084084_client.js",
 		"15084084_client.py",
+		"datapan-provenance.json",
 		"README.md",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
@@ -1877,6 +3564,7 @@ func TestUseWritesStarterKit(t *testing.T) {
 		"15084084_client.go",
 		"15084084_client.js",
 		"15084084_client.py",
+		"datapan-provenance.json",
 		"README.md",
 	} {
 		data, err := osReadFile(filepath.Join(dir, name))
@@ -1886,6 +3574,13 @@ func TestUseWritesStarterKit(t *testing.T) {
 		if strings.Contains(string(data), "secret-value") {
 			t.Fatalf("%s leaked secret: %s", name, data)
 		}
+	}
+	provenanceData, err := osReadFile(filepath.Join(dir, "datapan-provenance.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(provenanceData), `"schema_version": "datapan.generated-artifact-provenance.v1"`) || !strings.Contains(string(provenanceData), `"registry_trust":`) || !strings.Contains(string(provenanceData), `"verification":`) {
+		t.Fatalf("unexpected generated artifact provenance: %s", provenanceData)
 	}
 	if err := osWriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/generated\n\ngo 1.26\n")); err != nil {
 		t.Fatal(err)
@@ -1912,6 +3607,39 @@ func TestUseWritesStarterKit(t *testing.T) {
 	}
 }
 
+func TestDefaultRegistryLoadsForDiscoveryAliasesAndKit(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"99123456","title":"설치 Registry 전용 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록 조회","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v-test")
+
+	for _, command := range [][]string{
+		{"list", "--json"},
+		{"ls", "--json"},
+		{"info", "99123456", "--json"},
+	} {
+		code, stdout, stderr := runTest(command, nil, nil)
+		if code != exitOK || stderr != "" {
+			t.Fatalf("command=%v code=%d stdout=%s stderr=%s", command, code, stdout, stderr)
+		}
+		if !strings.Contains(stdout, "99123456") || !strings.Contains(stdout, "설치 Registry 전용 API") {
+			t.Fatalf("command=%v did not load installed default Registry: %s", command, stdout)
+		}
+	}
+
+	code, stdout, stderr := runTest([]string{"kit", "99123456", "--operation", "목록 조회", "--output-dir", "kit", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"dataset": "99123456"`, `"output_dir": "kit"`, `"registry_source": "default"`, `"registry_trust":`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in kit output: %s", want, stdout)
+		}
+	}
+	if _, err := os.Stat(filepath.Join("kit", "datapan-provenance.json")); err != nil {
+		t.Fatalf("kit provenance missing: %v", err)
+	}
+}
+
 func TestKitWritesStarterKitWithDefaultOutputDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -1929,6 +3657,7 @@ func TestKitWritesStarterKitWithDefaultOutputDir(t *testing.T) {
 		`"kind": "postman"`,
 		`"kind": "openapi"`,
 		`"kind": "codegen_go"`,
+		`"kind": "provenance"`,
 		jsonEscaped(filepath.Join("15084084-kit", "15084084_params.json")),
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1943,6 +3672,7 @@ func TestKitWritesStarterKitWithDefaultOutputDir(t *testing.T) {
 		"15084084_client.go",
 		"15084084_client.js",
 		"15084084_client.py",
+		"datapan-provenance.json",
 		"README.md",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, "15084084-kit", name)); err != nil {
@@ -2475,19 +4205,21 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	t.Chdir(dir)
 	output := filepath.Join(dir, "registry.json")
 	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	registrySHA := fmt.Sprintf("%x", sha256.Sum256([]byte(registry)))
+	manifest := fmt.Sprintf(`{
+		"schema_version": "datapan.release-manifest.v1",
+		"generated_at": "2026-06-24T00:00:00Z",
+		"datapan_version": "test",
+		"provider": "data.go.kr",
+		"source_registry": "registry.json",
+		"output_dir": ".",
+		"artifact_count": 29,
+		"artifacts": [{"path": %q, "kind": "registry", "bytes": %d, "sha256": %q}]
+	}`, datapanRegistryZipRegistryPath, len(registry), registrySHA)
 	zipData := zipFilesForTest(t, map[string]string{
 		datapanRegistryZipRegistryPath: registry,
-		"manifest.json": `{
-			"schema_version": "datapan.release-manifest.v1",
-			"generated_at": "2026-06-24T00:00:00Z",
-			"datapan_version": "test",
-			"provider": "data.go.kr",
-			"source_registry": "registry.json",
-			"output_dir": ".",
-			"artifact_count": 29,
-			"artifacts": []
-		}`,
-		"RELEASE_NOTES.md": "# Datapan Registry Release\n",
+		"manifest.json":                manifest,
+		"RELEASE_NOTES.md":             "# Datapan Registry Release\n",
 		"reports/latest-release-verification.json": `{
 			"manifest": "manifest.json",
 			"root": ".",
@@ -2532,6 +4264,26 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 				"registry_specs": 12060
 			},
 			"gates": []
+		}`,
+		"reports/release-consumer-compatibility.json": `{
+			"schema_version": "datapan.release-consumer-compatibility.v1",
+			"summary": {
+				"canonical_registry_required": true,
+				"shard_assets_required": false
+			},
+			"runtime_risk_evidence": {
+				"manual_review_required": true,
+				"compatibility_effect": "manual_review_required_until_runtime_blockers_resolved",
+				"blocking_count": 9,
+				"warning_count": 4
+			},
+			"consumers": [
+				{
+					"consumer": "datapan-cli",
+					"compatibility_mode": "shard_preferred_with_monolith_fallback",
+					"status": "proven"
+				}
+			]
 		}`,
 		"reports/route-disposition.json": `{
 			"generated_at": "2026-06-24T00:00:00Z",
@@ -2599,6 +4351,9 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	if payload["release_dir"] != ".datapan/release" {
 		t.Fatalf("unexpected release dir: %#v", payload)
 	}
+	if payload["release_tag"] != "vtest" || payload["pin_mode"] != "latest" || payload["provenance"] != defaultRegistryInstallProvenancePath {
+		t.Fatalf("unexpected install provenance payload: %#v", payload)
+	}
 	release := payload["release"].(map[string]any)
 	for _, want := range []string{
 		`"manifest_present": true`,
@@ -2606,6 +4361,7 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 		`"verification_ok": true`,
 		`"readiness_ready": true`,
 		`"manifest_artifacts": 29`,
+		`"manifest_registry_verified": true`,
 		`"readiness_registry_specs": 12060`,
 		`"route_disposition_present": true`,
 		`"route_disposition_routes": 28`,
@@ -2613,7 +4369,17 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 		`"route_disposition_transient_failures": 14`,
 		`"route_disposition_adapter_candidates": 0`,
 		`"shards_asset_present": false`,
+		`"consumer_compatibility_present": true`,
+		`"consumer_compatibility_schema": "datapan.release-consumer-compatibility.v1"`,
+		`"cli_consumer_status": "proven"`,
+		`"cli_compatibility_mode": "shard_preferred_with_monolith_fallback"`,
+		`"runtime_manual_review_required": true`,
+		`"runtime_blocking_count": 9`,
+		`"runtime_warning_count": 4`,
+		`"canonical_registry_required": true`,
+		`"shard_assets_required": false`,
 		`"release_files":`,
+		`.datapan/release/reports/release-consumer-compatibility.json`,
 		`.datapan/release/reports/latest-verification.json`,
 		`.datapan/release/reports/route-disposition.json`,
 	} {
@@ -2634,11 +4400,27 @@ func TestCatalogInstallDatapanRegistryDownloadsReleaseAsset(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(dir, ".datapan", "release", "manifest.json"),
 		filepath.Join(dir, ".datapan", "release", "reports", "latest-verification.json"),
+		filepath.Join(dir, ".datapan", "release", "reports", "release-consumer-compatibility.json"),
 		filepath.Join(dir, ".datapan", "release", "reports", "route-disposition.json"),
 	} {
 		if _, err := os.ReadFile(path); err != nil {
 			t.Fatalf("expected release evidence file %s: %v", path, err)
 		}
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(registry)))
+	if provenance.RegistryPath != output || provenance.RegistrySHA256 != wantSHA || provenance.ReleaseTag != "vtest" || provenance.PinMode != "latest" || provenance.SourceMode != "explicit_path" {
+		t.Fatalf("unexpected registry install provenance: %#v", provenance)
+	}
+	wantManifestSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(manifest)))
+	if provenance.ReleaseManifestSHA256 != wantManifestSHA {
+		t.Fatalf("manifest digest was not preserved in provenance: %#v", provenance)
+	}
+	if provenance.CLIConsumerStatus != "proven" || provenance.CLICompatibilityMode != "shard_preferred_with_monolith_fallback" || provenance.RuntimeManualReview == nil || !*provenance.RuntimeManualReview {
+		t.Fatalf("expected consumer compatibility in provenance: %#v", provenance)
 	}
 }
 
@@ -2711,6 +4493,313 @@ func TestCatalogInstallDatapanRegistryDownloadsAndValidatesShardAsset(t *testing
 		if _, err := os.ReadFile(path); err != nil {
 			t.Fatalf("expected shard release file %s: %v", path, err)
 		}
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !provenance.ShardsValidated || provenance.ShardsCount != 1 || provenance.ShardsRecords != 1 || provenance.ShardsAssetURL != "https://example.test/data-go-kr-shards.tar.gz" {
+		t.Fatalf("expected shard install provenance: %#v", provenance)
+	}
+}
+
+func TestCatalogInstallRejectsUntrustedReleaseEvidenceBeforeWriting(t *testing.T) {
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	for _, tc := range []struct {
+		name    string
+		entries map[string]string
+		want    string
+	}{
+		{
+			name: "manifest checksum mismatch",
+			entries: map[string]string{
+				"manifest.json": fmt.Sprintf(`{"schema_version":"datapan.release-manifest.v1","generated_at":"2026-07-11T00:00:00Z","datapan_version":"test","provider":"data.go.kr","source_registry":"registry.json","output_dir":".","artifact_count":1,"artifacts":[{"path":%q,"kind":"registry","bytes":%d,"sha256":%q}]}`, datapanRegistryZipRegistryPath, len(registry), strings.Repeat("0", 64)),
+			},
+			want: "registry release manifest checksum mismatch",
+		},
+		{
+			name: "release verification failed",
+			entries: map[string]string{
+				"reports/latest-release-verification.json": `{"schema_version":"datapan.release-verification.v1","ok":false,"checked":1,"failed":1}`,
+			},
+			want: "registry release verification reports failure",
+		},
+		{
+			name: "release readiness failed",
+			entries: map[string]string{
+				"reports/latest-release-readiness.json": `{"schema_version":"datapan.release-readiness.v1","ready":false,"summary":{"failed":1}}`,
+			},
+			want: "registry release readiness reports not ready",
+		},
+		{
+			name: "CLI consumer blocked",
+			entries: map[string]string{
+				"reports/release-consumer-compatibility.json": `{"schema_version":"datapan.release-consumer-compatibility.v1","consumers":[{"consumer":"datapan-cli","status":"blocked","compatibility_mode":"blocked"}]}`,
+			},
+			want: "registry release reports datapan-cli consumer status blocked",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			entries := map[string]string{datapanRegistryZipRegistryPath: registry}
+			for path, data := range tc.entries {
+				entries[path] = data
+			}
+			zipData := zipFilesForTest(t, entries)
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(zipData)), Header: make(http.Header)}, nil
+			})
+			output := filepath.Join(t.TempDir(), "registry.json")
+			code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--url", "https://example.test/direct.zip", "--json"}, nil, client)
+			if code != exitRequest || stderr != "" {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if !strings.Contains(stdout, tc.want) {
+				t.Fatalf("expected %q: %s", tc.want, stdout)
+			}
+			if _, err := os.Stat(output); !os.IsNotExist(err) {
+				t.Fatalf("untrusted release must not write registry: %v", err)
+			}
+			if _, err := os.Stat(defaultRegistryInstallProvenancePath); !os.IsNotExist(err) {
+				t.Fatalf("untrusted release must not write provenance: %v", err)
+			}
+		})
+	}
+}
+
+func TestCatalogInstallAtomicallyReplacesRegistryAndClearsStaleEvidence(t *testing.T) {
+	t.Chdir(t.TempDir())
+	oldRegistry := `[{"id":"old","title":"이전 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(oldRegistry)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(defaultReleaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(filepath.Join(defaultReleaseDir, "stale-evidence.json"), []byte(`{"stale":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryInstallProvenancePath, []byte(`{"old":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	newRegistry := `[{"id":"new","title":"새 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, newRegistry)
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(zipData)), Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--url", "https://example.test/direct.zip", "--json"}, nil, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	data, err := osReadFile(defaultRegistryPath)
+	if err != nil || string(data) != newRegistry {
+		t.Fatalf("registry was not replaced: err=%v data=%s", err, data)
+	}
+	if _, err := os.Stat(filepath.Join(defaultReleaseDir, "stale-evidence.json")); !os.IsNotExist(err) {
+		t.Fatalf("stale release evidence should be removed: %v", err)
+	}
+	entries, err := os.ReadDir(defaultReleaseDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("direct install should leave an empty release evidence directory: err=%v entries=%v", err, entries)
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.PinMode != "direct_url" || provenance.RegistrySHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(newRegistry))) {
+		t.Fatalf("unexpected replacement provenance: %#v", provenance)
+	}
+}
+
+func TestCatalogInstallRollsBackRegistryEvidenceAndProvenanceOnCommitFailure(t *testing.T) {
+	t.Chdir(t.TempDir())
+	oldRegistry := `[{"id":"old","title":"이전 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	oldProvenance := `{"schema_version":"old-test"}`
+	oldEvidence := `{"release":"old"}`
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryPath, []byte(oldRegistry)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(defaultReleaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldEvidencePath := filepath.Join(defaultReleaseDir, "old-evidence.json")
+	if err := osWriteFile(oldEvidencePath, []byte(oldEvidence)); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(defaultRegistryInstallProvenancePath, []byte(oldProvenance)); err != nil {
+		t.Fatal(err)
+	}
+	newRegistry := `[{"id":"new","title":"새 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, newRegistry)
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(zipData)), Header: make(http.Header)}, nil
+	})
+	originalRename := registryInstallRename
+	registryInstallRename = func(oldPath, newPath string) error {
+		if sameFilePath(newPath, defaultRegistryInstallProvenancePath) && strings.Contains(filepath.Base(oldPath), ".stage-") {
+			return errors.New("injected provenance commit failure")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	defer func() { registryInstallRename = originalRename }()
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--url", "https://example.test/direct.zip", "--json"}, nil, client)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, "injected provenance commit failure") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for path, want := range map[string]string{
+		defaultRegistryPath:                  oldRegistry,
+		defaultRegistryInstallProvenancePath: oldProvenance,
+		oldEvidencePath:                      oldEvidence,
+	} {
+		data, err := osReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("rollback did not restore %s: err=%v data=%s", path, err, data)
+		}
+	}
+	staged, _ := filepath.Glob(filepath.Join(".datapan", ".*.stage-*"))
+	backups, _ := filepath.Glob(filepath.Join(".datapan", ".*.backup-*"))
+	if len(staged) != 0 || len(backups) != 0 {
+		t.Fatalf("rollback left transaction files: staged=%v backups=%v", staged, backups)
+	}
+	if _, err := os.Stat(defaultRegistryInstallTransactionPath); !os.IsNotExist(err) {
+		t.Fatalf("rollback left install transaction: %v", err)
+	}
+}
+
+func TestRunRecoversInterruptedRegistryInstallBeforeCommand(t *testing.T) {
+	t.Chdir(t.TempDir())
+	oldRegistry := `[{"id":"old","title":"이전 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	oldProvenance := `{"old":true}`
+	oldEvidence := `{"release":"old"}`
+	if err := os.MkdirAll(defaultReleaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultRegistryPath, []byte(oldRegistry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultRegistryInstallProvenancePath, []byte(oldProvenance), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldEvidencePath := filepath.Join(defaultReleaseDir, "old.json")
+	if err := os.WriteFile(oldEvidencePath, []byte(oldEvidence), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	releaseTarget, err := stageRegistryInstallDirectory(defaultReleaseDir, map[string][]byte{"new.json": []byte(`{"release":"new"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryTarget, err := stageRegistryInstallFile(defaultRegistryPath, []byte(`[{"id":"new","title":"새 API","provider":"data.go.kr","priority":"P1","operations":[]}]`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenanceTarget, err := stageRegistryInstallFile(defaultRegistryInstallProvenancePath, []byte(`{"new":true}`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []*registryInstallTarget{&releaseTarget, &registryTarget, &provenanceTarget}
+	for _, target := range targets {
+		target.HadTarget = true
+		target.Backup, err = registryInstallBackupPath(target.Target)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeRegistryInstallTransaction(defaultRegistryInstallTransactionPath, targets); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		if err := os.Rename(target.Target, target.Backup); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Simulate termination after release evidence and Registry were committed,
+	// but before provenance was replaced or the transaction was committed.
+	for _, target := range targets[:2] {
+		if err := os.Rename(target.Staged, target.Target); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, stdout, stderr := runTest([]string{"status", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"recovered_interrupted_transaction": true`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for path, want := range map[string]string{
+		defaultRegistryPath:                  oldRegistry,
+		defaultRegistryInstallProvenancePath: oldProvenance,
+		oldEvidencePath:                      oldEvidence,
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("recovery did not restore %s: err=%v data=%s", path, err, data)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(defaultReleaseDir, "new.json")); !os.IsNotExist(err) {
+		t.Fatalf("new evidence survived rollback: %v", err)
+	}
+	if _, err := os.Stat(defaultRegistryInstallTransactionPath); !os.IsNotExist(err) {
+		t.Fatalf("recovery did not remove transaction: %v", err)
+	}
+}
+
+func TestRecoveryRemovesNewTargetsWhenInterruptedInstallHadNoPreviousState(t *testing.T) {
+	t.Chdir(t.TempDir())
+	releaseTarget, err := stageRegistryInstallDirectory(defaultReleaseDir, map[string][]byte{"new.json": []byte(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryTarget, err := stageRegistryInstallFile(defaultRegistryPath, []byte(`[]`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenanceTarget, err := stageRegistryInstallFile(defaultRegistryInstallProvenancePath, []byte(`{}`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []*registryInstallTarget{&releaseTarget, &registryTarget, &provenanceTarget}
+	if err := writeRegistryInstallTransaction(defaultRegistryInstallTransactionPath, targets); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		if err := os.Rename(target.Staged, target.Target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recovered, err := recoverRegistryInstallTransaction(defaultRegistryInstallTransactionPath)
+	if err != nil || !recovered {
+		t.Fatalf("recovered=%t err=%v", recovered, err)
+	}
+	for _, path := range []string{defaultReleaseDir, defaultRegistryPath, defaultRegistryInstallProvenancePath, defaultRegistryInstallTransactionPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("interrupted new target survived at %s: %v", path, err)
+		}
+	}
+}
+
+func TestRunRefusesInvalidRegistryInstallTransaction(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(defaultRegistryInstallTransactionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultRegistryInstallTransactionPath, []byte(`{"schema_version":"unknown","targets":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"status", "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"error": "registry_install_recovery_failed"`) || !strings.Contains(stdout, `"next_steps"`) {
+		t.Fatalf("expected structured recovery failure: %s", stdout)
+	}
+	if _, err := os.Stat(defaultRegistryInstallTransactionPath); err != nil {
+		t.Fatalf("invalid transaction should be preserved for inspection: %v", err)
 	}
 }
 
@@ -2829,6 +4918,7 @@ func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
 }
 
 func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
+	t.Chdir(t.TempDir())
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P2","operations":[]}]`
 	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
@@ -2876,6 +4966,7 @@ func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
 }
 
 func TestCatalogInstallDatapanRegistryAcceptsGitHubReleasePageURL(t *testing.T) {
+	t.Chdir(t.TempDir())
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"101","title":"릴리스 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`
 	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
@@ -2912,12 +5003,13 @@ func TestCatalogInstallDatapanRegistryAcceptsGitHubReleasePageURL(t *testing.T) 
 	if len(urls) != 2 || urls[0] != "https://api.github.com/repos/StatPan/datapan-registry/releases/tags/vtest" || urls[1] != "https://example.test/release-page.zip" {
 		t.Fatalf("unexpected URLs: %#v", urls)
 	}
-	if !strings.Contains(stdout, `"specs": 1`) {
+	if !strings.Contains(stdout, `"specs": 1`) || !strings.Contains(stdout, `"pin_mode": "pinned"`) || !strings.Contains(stdout, `"release_tag": "vtest"`) {
 		t.Fatalf("expected install success output: %s", stdout)
 	}
 }
 
 func TestCatalogInstallDatapanRegistryUsesDirectURL(t *testing.T) {
+	t.Chdir(t.TempDir())
 	output := filepath.Join(t.TempDir(), "registry.json")
 	registry := `[{"id":"200","title":"직접 URL API","provider":"data.go.kr","priority":"P2","operations":[]}]`
 	zipData := zipBytesForTest(t, datapanRegistryZipRegistryPath, registry)
@@ -2940,8 +5032,15 @@ func TestCatalogInstallDatapanRegistryUsesDirectURL(t *testing.T) {
 	if len(urls) != 1 || urls[0] != "https://example.test/direct.zip" {
 		t.Fatalf("unexpected URLs: %#v", urls)
 	}
-	if !strings.Contains(stdout, `"url": "https://example.test/direct.zip"`) {
+	if !strings.Contains(stdout, `"url": "https://example.test/direct.zip"`) || !strings.Contains(stdout, `"pin_mode": "direct_url"`) {
 		t.Fatalf("expected direct URL in output: %s", stdout)
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.ReleaseTag != "" || provenance.PinMode != "direct_url" {
+		t.Fatalf("unexpected direct install provenance: %#v", provenance)
 	}
 }
 
@@ -5503,6 +7602,9 @@ func TestGetRequestFailureJSON(t *testing.T) {
 		`"error": "request_failed"`,
 		`"dataset": "15084084"`,
 		`"message": "network down"`,
+		`"category": "external_provider"`,
+		`"reason": "provider_transport_temporarily_failed"`,
+		`"retryable": true`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -5536,10 +7638,111 @@ func TestGetProviderErrorJSONReturnsRequestExit(t *testing.T) {
 		`"source": "resultCode/resultMsg"`,
 		`"code": "30"`,
 		`"message": "SERVICE KEY IS NOT REGISTERED ERROR."`,
+		`"category": "authentication"`,
+		`"reason": "provider_rejected_credential"`,
+		`"retryable": false`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
+	}
+}
+
+func TestGetTransportFailureRedactsCredentialFromError(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("request %s failed with secret-value", req.URL.String())
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, "secret-value") || strings.Contains(stderr, "secret-value") {
+		t.Fatalf("credential leaked in failure output: stdout=%s stderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "REDACTED") {
+		t.Fatalf("expected redacted failure output: %s", stdout)
+	}
+}
+
+func TestGetHTTPServiceFailureClassifiesExternalProvider(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Body:       io.NopCloser(strings.NewReader(`temporarily unavailable`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"},
+		client,
+	)
+	if code != exitRequest {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"category": "external_provider"`,
+		`"reason": "provider_temporarily_unavailable"`,
+		`"retryable": true`,
+		`"next_steps":`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestHumanProviderFailureIncludesClassificationAndEveryNextAction(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Body:       io.NopCloser(strings.NewReader(`temporarily unavailable`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"get", "15084084", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || !strings.Contains(stdout, "temporarily unavailable") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"failure: external_provider (provider_temporarily_unavailable)",
+		"next: retry with backoff",
+		"next: check the provider service status before changing credentials",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in human failure: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stdout+stderr, "secret-value") {
+		t.Fatalf("credential leaked: stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestClassifyResponseFailureCategories(t *testing.T) {
+	tests := []struct {
+		name     string
+		envelope datago.ResponseEnvelope
+		category string
+		reason   string
+	}{
+		{name: "approval", envelope: datago.ResponseEnvelope{StatusCode: http.StatusForbidden, SemanticStatus: "http_error"}, category: "approval", reason: "provider_access_not_approved"},
+		{name: "input", envelope: datago.ResponseEnvelope{StatusCode: http.StatusBadRequest, SemanticStatus: "http_error"}, category: "input", reason: "provider_rejected_input"},
+		{name: "adapter", envelope: datago.ResponseEnvelope{StatusCode: http.StatusOK, SemanticStatus: "html_response"}, category: "adapter", reason: "unexpected_provider_response_shape"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			failure := classifyResponseFailure(tt.envelope)
+			if failure.Category != tt.category || failure.Reason != tt.reason || len(failure.NextSteps) == 0 {
+				t.Fatalf("failure=%+v", failure)
+			}
+		})
 	}
 }
 
@@ -5645,6 +7848,78 @@ func TestSaveWritesCSVFromGet(t *testing.T) {
 	}
 }
 
+func TestSavePreservesRegistryTrustAndVerificationInJSONAndHumanOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"저장 테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	})
+	env := fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}
+
+	code, stdout, stderr := runTest([]string{"save", "100", "--operation", "목록", "--output", "rows.csv", "--json"}, env, client)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		`"dataset": "100"`, `"operation": "목록"`, `"registry_trust":`,
+		`"status": "manual_review"`, `"integrity": "verified"`,
+		`"verification":`, `"status": "verified"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in save summary: %s", want, stdout)
+		}
+	}
+
+	code, stdout, stderr = runTest([]string{"save", "100", "--operation", "목록", "--output", "human.csv"}, env, client)
+	if code != exitOK || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"registry trust: manual_review (v1)", "verification: verified"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in human save context: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stdout+stderr, "secret-value") {
+		t.Fatalf("credential leaked: stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestHumanSaveFailurePreservesFailureClassificationAndNextActions(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Body:       io.NopCloser(strings.NewReader(`temporarily unavailable`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	output := filepath.Join(t.TempDir(), "rows.csv")
+	code, stdout, stderr := runTest(
+		[]string{"save", "15084084", "--output", output, "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"save failed: HTTP 503",
+		"failure: external_provider (provider_temporarily_unavailable)",
+		"next: retry with backoff",
+		"next: check the provider service status before changing credentials",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in save failure: %s", want, stderr)
+		}
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("failed save should not create output: %v", err)
+	}
+}
+
 func TestAccessJSONIncludesGuidedNextSteps(t *testing.T) {
 	code, stdout, stderr := runTest([]string{"access", "15126469", "--json"}, nil, nil)
 	if code != exitOK {
@@ -5708,6 +7983,107 @@ func TestAccessCopyFailureJSON(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("expected no stderr for JSON failure, got %s", stderr)
+	}
+}
+
+func TestAccessOpenBlocksUntrustedRegistryBeforeBrowser(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.RegistrySHA256 = strings.Repeat("0", 64)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	original := openURLFunc
+	openURLFunc = func(string) error {
+		called = true
+		return nil
+	}
+	defer func() { openURLFunc = original }()
+
+	code, stdout, stderr := runTest([]string{"access", "100", "--open", "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" || called {
+		t.Fatalf("code=%d called=%t stdout=%s stderr=%s", code, called, stdout, stderr)
+	}
+	for _, want := range []string{`"error": "registry_untrusted"`, `"registry_digest_mismatch"`, `"category": "compatibility"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestAccessRequestBlocksUntrustedRegistryBeforeBrowserForDryRunAndApply(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.RegistrySHA256 = strings.Repeat("0", 64)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	original := runBrowserWorkflowFunc
+	runBrowserWorkflowFunc = func(browserWorkflowOptions, io.Writer, io.Writer) int {
+		called = true
+		return exitOK
+	}
+	defer func() { runBrowserWorkflowFunc = original }()
+
+	for _, mode := range []string{"--dry-run", "--apply"} {
+		called = false
+		code, stdout, stderr := runTest([]string{"access", "request", "100", mode, "--json"}, nil, nil)
+		if code != exitRequest || stderr != "" || called {
+			t.Fatalf("mode=%s code=%d called=%t stdout=%s stderr=%s", mode, code, called, stdout, stderr)
+		}
+		if !strings.Contains(stdout, `"error": "registry_untrusted"`) || !strings.Contains(stdout, `"registry_trust"`) {
+			t.Fatalf("mode=%s missing trust failure: %s", mode, stdout)
+		}
+	}
+}
+
+func TestAccessPurposeRemainsAvailableWithUntrustedRegistry(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	provenance := writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	provenance.RegistrySHA256 = strings.Repeat("0", 64)
+	if err := writeJSONFile(defaultRegistryInstallProvenancePath, provenance); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := runTest([]string{"access", "100", "--purpose", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"purpose_text":`, `"registry_trust":`, `"execution_allowed": false`, `"registry_digest_mismatch"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestAccessRequestBrowserResultIncludesRegistryTrust(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	original := runBrowserWorkflowFunc
+	runBrowserWorkflowFunc = func(opts browserWorkflowOptions, stdout, _ io.Writer) int {
+		if opts.RegistryTrust == nil || !opts.RegistryTrust.ExecutionAllowed {
+			t.Fatalf("trusted Registry context was not passed to browser workflow: %#v", opts.RegistryTrust)
+		}
+		return writeWorkflowResultForOptions(stdout, browserResult{
+			OK: true, Command: "submit", Provider: "data.go.kr", Status: "inspected", DryRun: true,
+		}, opts)
+	}
+	defer func() { runBrowserWorkflowFunc = original }()
+
+	code, stdout, stderr := runTest([]string{"access", "request", "100", "--dry-run", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"status": "inspected"`, `"registry_trust":`, `"execution_allowed": true`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
 	}
 }
 
@@ -5851,6 +8227,83 @@ func TestCallPreservesEncodedServiceKey(t *testing.T) {
 	}
 }
 
+func TestProviderEchoedCredentialIsRedactedFromCallSaveAndSync(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "registry.json")
+	registry := `[{"id":"999","title":"응답 마스킹 API","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	if err := osWriteFile(registryPath, []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	credential := "abc+def/ghi="
+	encodedCredential := "abc%2Bdef%2Fghi%3D"
+	body := `{"response":{"header":{"resultCode":"00","resultMsg":"credential abc+def/ghi="},"body":{"items":{"item":[{"raw":"abc+def/ghi=","encoded":"abc%2Bdef%2Fghi%3D"}]}}}}`
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Query().Get("serviceKey"); got != credential {
+			t.Fatalf("serviceKey=%q", got)
+		}
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})
+	env := fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": credential}
+	assertNoLeak := func(label, text string) {
+		t.Helper()
+		if strings.Contains(text, credential) || strings.Contains(text, encodedCredential) {
+			t.Fatalf("%s leaked provider-echoed credential: %s", label, text)
+		}
+	}
+	assertRedacted := func(label, text string) {
+		t.Helper()
+		assertNoLeak(label, text)
+		if !strings.Contains(text, "REDACTED") {
+			t.Fatalf("%s did not preserve an explicit redaction marker: %s", label, text)
+		}
+	}
+
+	for _, args := range [][]string{{"get", "999", "--operation", "목록", "--json"}, {"get", "999", "--operation", "목록"}} {
+		code, stdout, stderr := runTest(args, env, client)
+		if code != exitOK {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
+		}
+		if hasAnyArg(args, "--json") && stderr != "" {
+			t.Fatalf("JSON get wrote diagnostics to stderr: %s", stderr)
+		}
+		if !hasAnyArg(args, "--json") && (!strings.Contains(stderr, "registry trust: untracked") || !strings.Contains(stderr, "verification: unknown")) {
+			t.Fatalf("human get omitted trust diagnostics: %s", stderr)
+		}
+		assertRedacted(strings.Join(args, " "), stdout)
+		assertNoLeak(strings.Join(args, " ")+" stderr", stderr)
+	}
+
+	csvPath := filepath.Join(dir, "rows.csv")
+	code, stdout, stderr := runTest([]string{"save", "999", "--operation", "목록", "--format", "csv", "--output", csvPath, "--json"}, env, client)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	assertNoLeak("save summary", stdout)
+	csvData, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRedacted("saved CSV", string(csvData))
+
+	cacheDir := filepath.Join(dir, "cache")
+	code, stdout, stderr = runTest([]string{"sync", "999", "--operation", "목록", "--output-dir", cacheDir, "--json"}, env, client)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	assertNoLeak("sync summary", stdout)
+	for _, name := range []string{"response.json", "rows.json", "rows.csv", "manifest.json"} {
+		data, err := os.ReadFile(filepath.Join(cacheDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRedacted("sync "+name, string(data))
+	}
+}
+
 func TestCallHTTPFailureKeepsJSONAndExitRequest(t *testing.T) {
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -5963,6 +8416,9 @@ func TestSyncCachesResponseRowsParamsAndManifest(t *testing.T) {
 		`"preview_command": "datapan preview --input`,
 		`"label": "preview"`,
 		`"label": "export csv"`,
+		`"registry_trust":`,
+		`"status": "untracked"`,
+		`"registry_provenance_missing"`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in sync output: %s", want, stdout)
@@ -5995,6 +8451,244 @@ func TestSyncCachesResponseRowsParamsAndManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(csvData), "count,name") || !strings.Contains(string(csvData), "2,beta") {
 		t.Fatalf("unexpected rows csv: %s", csvData)
+	}
+	manifest, err := osReadFile(filepath.Join(cacheDir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifest), `"registry_trust":`) || !strings.Contains(string(manifest), `"execution_allowed": true`) {
+		t.Fatalf("sync manifest should preserve registry trust: %s", manifest)
+	}
+	var syncManifest struct {
+		Verification operationVerificationContext `json:"verification"`
+		Files        []syncCacheFile              `json:"files"`
+	}
+	if err := json.Unmarshal(manifest, &syncManifest); err != nil {
+		t.Fatal(err)
+	}
+	if syncManifest.Verification.Status != "unknown" || len(syncManifest.Files) != 4 {
+		t.Fatalf("sync manifest omitted verification or artifact inventory: %#v", syncManifest)
+	}
+	for _, file := range syncManifest.Files {
+		data, err := os.ReadFile(file.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantSHA := fmt.Sprintf("%x", sha256.Sum256(data))
+		if file.Bytes != len(data) || file.SHA256 != wantSHA {
+			t.Fatalf("sync manifest integrity mismatch for %s: %#v", file.Path, file)
+		}
+	}
+}
+
+func TestSyncManifestPreservesStaleOperationEvidenceWarning(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	writeTrustedRegistryEvidenceForTest(t, defaultRegistryPath, registry, "100", "목록")
+	writeFreshnessPolicyForTest(t, "2026-07-11T00:00:00Z", 30, 90)
+	verificationData, err := os.ReadFile(defaultReleaseVerificationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationData = bytes.ReplaceAll(verificationData, []byte("2026-07-11T00:00:00Z"), []byte("2026-05-11T00:00:00Z"))
+	if err := os.WriteFile(defaultReleaseVerificationPath, verificationData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`))}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"sync", "100", "--operation", "목록", "--output-dir", "cache", "--json"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"category": "stale_verification"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	manifest, err := os.ReadFile("cache/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"verification":`, `"freshness": "stale"`, `"evidence_warning":`, `"category": "stale_verification"`, `"sha256":`} {
+		if !strings.Contains(string(manifest), want) {
+			t.Fatalf("expected %q in sync manifest: %s", want, manifest)
+		}
+	}
+	if strings.Contains(string(manifest), "secret-value") {
+		t.Fatalf("credential leaked: %s", manifest)
+	}
+}
+
+func TestSyncCacheCommitFailureRestoresPreviousGeneration(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"999","title":"동기화 테스트 API","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	if err := osWriteFile("registry.json", []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := "cache"
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldFiles := map[string]string{"response.json": "old response", "manifest.json": "old manifest", "old-only.txt": "old only"}
+	for name, data := range oldFiles {
+		if err := os.WriteFile(filepath.Join(cacheDir, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"value":"new"}]}`)),
+		}, nil
+	})
+	originalRename := registryInstallRename
+	registryInstallRename = func(oldPath, newPath string) error {
+		if sameFilePath(newPath, cacheDir) && strings.HasPrefix(filepath.Base(oldPath), ".cache.stage-") {
+			return errors.New("injected sync cache commit failure")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	defer func() { registryInstallRename = originalRename }()
+
+	code, stdout, stderr := runTest(
+		[]string{"sync", "999", "--operation", "목록", "--output-dir", cacheDir, "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": "registry.json", "DATA_PORTAL_API_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"error": "sync_cache_write_failed"`, "injected sync cache commit failure", `"registry_trust":`, `"verification":`, `"next_steps":`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in sync failure: %s", want, stdout)
+		}
+	}
+	for name, want := range oldFiles {
+		data, err := os.ReadFile(filepath.Join(cacheDir, name))
+		if err != nil || string(data) != want {
+			t.Fatalf("previous sync generation was not restored for %s: err=%v data=%s", name, err, data)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "rows.json")); !os.IsNotExist(err) {
+		t.Fatalf("partial new sync file survived rollback: %v", err)
+	}
+	staged, _ := filepath.Glob(".cache.stage-*")
+	backups, _ := filepath.Glob(".cache.backup-*")
+	if len(staged) != 0 || len(backups) != 0 {
+		t.Fatalf("sync rollback left temporary directories: staged=%v backups=%v", staged, backups)
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked: %s", stdout)
+	}
+}
+
+func TestSuccessfulSyncReplacesWholePreviousGeneration(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"999","title":"동기화 테스트 API","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	if err := osWriteFile("registry.json", []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("cache", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("cache/stale-only.txt", []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`))}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"sync", "999", "--operation", "목록", "--output-dir", "cache", "--json"},
+		fakeEnv{"DATAPAN_REGISTRY_PATH": "registry.json", "DATA_PORTAL_API_KEY": "secret-value"}, client,
+	)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := os.Stat("cache/stale-only.txt"); !os.IsNotExist(err) {
+		t.Fatalf("stale file from previous generation survived: %v", err)
+	}
+	for _, name := range []string{"params.json", "response.json", "rows.json", "rows.csv", "manifest.json"} {
+		if _, err := os.Stat(filepath.Join("cache", name)); err != nil {
+			t.Fatalf("new sync generation missing %s: %v", name, err)
+		}
+	}
+}
+
+func TestPreviewAndExportVerifySyncCacheArtifactBeforeUse(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"999","title":"동기화 테스트 API","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	if err := osWriteFile("registry.json", []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"value":1}]}`))}, nil
+	})
+	env := fakeEnv{"DATAPAN_REGISTRY_PATH": "registry.json", "DATA_PORTAL_API_KEY": "secret-value"}
+	code, stdout, stderr := runTest([]string{"sync", "999", "--operation", "목록", "--output-dir", "cache", "--json"}, env, client)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+
+	for _, args := range [][]string{
+		{"preview", "--input", "cache/response.json", "--json"},
+		{"export", "--input", "cache/response.json", "--format", "csv", "--json"},
+		{"preview", "--input", "cache/rows.csv", "--json"},
+	} {
+		code, stdout, stderr = runTest(args, nil, nil)
+		if code != exitOK || stderr != "" {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
+		}
+		for _, want := range []string{`"cache_integrity":`, `"status": "verified"`, `"expected_sha256":`, `"actual_sha256":`} {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("args=%v expected %q: %s", args, want, stdout)
+			}
+		}
+	}
+
+	response, err := os.ReadFile("cache/response.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("cache/response.json", append(response, ' '), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runTest([]string{"preview", "--input", "cache/response.json", "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"error": "cache_integrity_failed"`, `"status": "mismatch"`, `"expected_sha256":`, `"actual_sha256":`, `"next_steps":`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in integrity failure: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, `"rows":`) {
+		t.Fatalf("tampered cache data was emitted: %s", stdout)
+	}
+
+	code, stdout, stderr = runTest([]string{"export", "--input", "cache/response.json", "--format", "csv"}, nil, nil)
+	if code != exitRequest || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"cache integrity: mismatch", "next: run datapan sync again"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("expected %q in human integrity failure: %s", want, stderr)
+		}
+	}
+}
+
+func TestPreviewFailsClosedForInvalidSyncManifest(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("cache", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("cache/response.json", []byte(`{"data":[{"value":1}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("cache/manifest.json", []byte(`{"files":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runTest([]string{"preview", "--input", "cache/response.json", "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, `"status": "manifest_invalid"`) || !strings.Contains(stdout, `"error": "cache_integrity_failed"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
 

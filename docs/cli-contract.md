@@ -89,13 +89,48 @@ datapan search "실거래" --org 국토교통부 --json
 command when callers only want to download and write the released registry.
 When it installs to a file rather than `--registry -`, it also preserves key
 release evidence artifacts under `.datapan/release` for follow-up coverage
-commands.
+commands and writes `.datapan/registry-install.json` using the
+`datapan.registry-install.v1` contract. Provenance includes the registry path
+and SHA-256, release tag and source URLs when available, latest/pinned/direct
+install mode, preserved evidence, validated shard metadata, and the CLI
+consumer compatibility state observed during installation.
+When a manifest is present, provenance also records its SHA-256 so runtime
+policy evaluation can re-establish the provenance-to-manifest-to-artifact
+integrity chain before trusting preserved freshness rules.
+The installer also preserves the manifest-bound
+`reports/release-consumer-decision.json` and its schema when supplied. Status,
+doctor, discovery, planning, execution, sync, and generated provenance expose
+the release decision and the exact `datapan-cli` action and reason.
+Registry data, the complete local release evidence directory, and provenance
+must be staged before replacement. If any commit step fails, the installer must
+restore all previous targets and return exit code 4. Successful replacement
+must remove evidence files that belonged only to the previous Registry so
+status and execution cannot combine a new registry with stale trust evidence.
+Before the first target is renamed, the installer must durably write
+`.datapan/registry-install.transaction.json` with every staged target, previous
+target state, and reserved backup path. Removing that journal after all three
+new targets are present is the transaction commit point. If a process or host
+stops earlier, the next non-help command must restore the previous complete set
+before Registry discovery. It must remove newly created targets that had no
+pre-install predecessor. An invalid journal must be preserved for inspection,
+produce `error:"registry_install_recovery_failed"`, and stop with exit code 4;
+the CLI must not load a potentially mixed state. Status and doctor expose
+`registry_install_recovery.recovered_interrupted_transaction` for the command
+that performed recovery.
 `datapan status --json` and `datapan doctor --json` report the active registry source, default registry
 path, spec and operation counts, data.go.kr credential presence, registered
 provider adapters, installed release evidence status, and next-step hints. The
 `release_evidence` object should expose the release directory, present files,
 verification totals, route-disposition counts, coverage headline metrics, and a
-coverage command that reuses installed evidence. It should not print credential values.
+coverage command that reuses installed evidence. The `registry_release` object
+must report provenance presence, active path and digest matches, installed and
+latest release tags, current or stale status, shard asset metadata, CLI
+consumer compatibility, runtime manual-review boundaries, explicit reason
+codes, and recovery steps. Latest metadata lookup is non-destructive. Network
+failure leaves an intact installed registry usable and is reported separately
+as `latest_fetch_failed`. An active env or custom registry must not be compared
+against unrelated default-install provenance. It should not print credential
+values.
 
 `datapan search --json`, `datapan list --json`, and `datapan ls --json` must
 include per-result `examples` for immediate next steps: `show`, `use`, `kit`,
@@ -135,6 +170,18 @@ paging and response-format parameters such as `pageNo=1`, `numOfRows=10`,
 `_type=json`, `dataType=json`, and `resultType=json`. Unknown required
 parameters should remain `VALUE`.
 
+Discovery JSON must also include a top-level `registry_trust` object. Each
+result's default operation includes the latest locally preserved verification
+record when available. When a manifest-bound Registry release includes
+`policy/sustainable-coverage.json`, the CLI applies its `fresh_days`,
+`expire_days`, missing-timestamp classification, and
+`evaluation_time_source:"manifest.generated_at"` exactly. Per-operation
+freshness is `fresh`, `stale`, `expired`, `unknown_timestamp`, or
+`invalid_timestamp`; a missing operation record is `no_evidence`. Older
+releases without that contract remain
+`freshness:"not_evaluated_by_cli"`. Human discovery output shows the same
+classification and warning boundary.
+
 `datapan try [query] KEY=VALUE --json` is the lowest-friction path from a human
 query to reusable client commands. It applies the same source metadata filters
 as `search`, treats positional `KEY=VALUE` tokens and repeated `--param k=v`
@@ -146,6 +193,8 @@ parameters as `VALUE`, and never include credential parameters in generated
 params or commands. `--any` may widen selection to callable but not-yet-ready
 routes; without `--any`, a no-match result must return `ok:false`,
 `error:"not_found"`, and exit code 2.
+Successful `try` output includes `registry_trust` and the selected operation's
+verification status, reason, timestamp, and explicit freshness boundary.
 
 `next_steps` should use the shared `{label, command}` shape and order the
 normal workflow: write params, dry-run, call, save CSV, curl/Postman/OpenAPI
@@ -156,11 +205,33 @@ require users or agents to infer command order from the raw `commands` map.
 `datapan kit <ref>` should generate a portable starter kit for one selected
 operation under `<dataset-id>-kit` by default. `--output-dir DIR` may override
 that location. The kit includes params JSON, a curl script, Postman collection,
-OpenAPI document, Go/Node/Python clients, and a README. Generated files must
+OpenAPI document, Go/Node/Python clients, `datapan-provenance.json`, and a
+README. The provenance file uses
+`datapan.generated-artifact-provenance.v1` and binds the selected dataset and
+operation to local Registry trust and verification evidence without copying
+credentials. Generated files must
 use environment-variable placeholders for credentials and must not write actual
 service-key material to disk. `datapan use <ref> --output-dir DIR` remains a
 compatible lower-level path for callers that already build around the planning
 command.
+
+Standalone Postman, OpenAPI, Go, Node, and Python generation with file
+`--output` must create `<output>.datapan-provenance.json` unless
+`--provenance-output PATH` selects another path. The sidecar uses
+`datapan.generated-artifact-provenance.v1` and binds artifact kind, path, byte
+count, SHA-256, dataset, operation, generation time, Registry trust, and exact
+operation verification evidence. It must not contain params, credentials, or
+response data. JSON command output reports both `provenance` and
+`verification`. A sidecar path equal to the artifact path is rejected before
+the artifact is written. Artifact and provenance files are staged as a pair;
+if either replacement fails, both previous files are restored. Raw stdout
+retains the existing artifact-only contract and does not write a sidecar.
+For curl and every standalone generator, JSON summaries use one common evidence
+contract containing `registry_trust`, operation `verification`, and an
+`evidence_warning` when verification is stale or expired. Non-JSON generation
+keeps only the command or artifact on stdout and prints the same trust,
+verification freshness, warning, and remediation context to stderr, including
+when `--output` writes the artifact to a file.
 
 `datapan sync <ref> [KEY=VALUE ...] --json` is the first local cache/sync
 surface. It should execute one approved API call with the same planning,
@@ -176,7 +247,31 @@ upstream count fields such as `currentCount`, `totalCount`, `perPage`, and
 `numOfRows` when present, plus stable warning identifiers such as
 `row_count_mismatch_current_count` and `row_count_exceeds_total_count`. No cache
 file may contain actual API key material; request URLs must be redacted and
-params snapshots must omit auth parameters.
+params snapshots must omit auth parameters. Sync output and its cache manifest
+must preserve `registry_trust` so cached results remain attributable to the
+Registry state used for execution. The manifest also preserves the exact
+operation `verification` and any stale or expired `evidence_warning`. Its file
+inventory records byte count and SHA-256 for params, response, rows JSON, and
+rows CSV artifacts so later consumers can compare cached bytes with the
+generation manifest; the manifest does not recursively hash itself.
+All files for one sync are built in a sibling staging directory and committed
+as one cache generation. Reusing `--output-dir` replaces the previous complete
+generation, so stale files cannot survive into a new manifest. A command-time
+commit failure restores the previous directory and removes staged and backup
+directories. Under `--json`, local commit failures return exit code 4 with
+`error:"sync_cache_write_failed"`, Registry trust, verification, cache path,
+and filesystem remediation steps rather than writing diagnostic prose to
+stderr. This command-time rollback does not claim power-loss recovery.
+
+`preview --input` and CSV or JSON `export --input` must recognize sync
+`response.json`, `rows.json`, and `rows.csv` files that have a sibling
+`manifest.json`. Before parsing or emitting rows, they compare actual bytes and
+SHA-256 with the manifest inventory. Verified context appears as
+`cache_integrity` in JSON and on stderr for human CSV output. A digest mismatch,
+invalid manifest, or missing inventory entry fails closed with exit code 4,
+`error:"cache_integrity_failed"`, expected and actual evidence, and resync or
+inspection actions; no rows are emitted. Stdin and ordinary files without a
+sibling sync manifest retain their prior offline behavior.
 
 ## Registry Import
 
@@ -532,10 +627,20 @@ decodes as a Datapan registry, and writes it to `PATH` without calling
 data.go.kr. Use `--url URL` to install from an explicit release zip and skip
 release metadata lookup. Use `--release-url URL` to point at a different
 compatible GitHub release API endpoint. JSON output reports `ok`, `provider`,
-`registry`, `url`, `bytes`, `specs`, `installed`, and `release`. `release`
+`registry`, `url`, `bytes`, `specs`, `installed`, `release_tag`, `release_url`,
+`pin_mode`, `provenance`, and `release` when those fields are available. The
+provenance file is not written for `--registry -`. `release`
 must report whether the downloaded zip included `manifest.json`,
 `RELEASE_NOTES.md`, release verification, and release readiness artifacts, plus
 parsed readiness/verification summaries when those files are present. When the
+release contains `reports/release-consumer-compatibility.json`, installation
+must preserve that report and expose its schema version, the `datapan-cli`
+consumer status and compatibility mode, runtime manual-review boundary,
+blocking and warning counts, and canonical-registry/shard requirements under
+`install.release`. A manual-review runtime boundary is evidence about call
+confidence; it does not by itself make an otherwise proven registry consumer
+installation fail. Human output shows the CLI compatibility status and warns
+when runtime evidence still requires manual review. When the
 zip includes `reports/route-disposition.json`, `release` also reports route
 disposition counts so first-run tooling can see how many missing external
 routes are stale, transient, parameter-blocked, or remaining adapter
@@ -604,6 +709,19 @@ addition to the normalized `spec`, it returns:
   parameter counts, and a generated `datapan get ...` example when callable.
 - `examples`: top-level `access`, `params`, `get`, export, and codegen commands
   for the selected dataset when those commands can be generated.
+- `registry_trust`: local provenance, integrity, readiness, compatibility,
+  manual-review, and execution decision without an online freshness request.
+- `verification`: the exact locally preserved status for each operation, or
+  `unknown` when the installed release has no matching evidence.
+
+Human `show` must expose the same decision boundary without collapsing all
+operations into the first one. It prints upstream development and production
+approval, registration, charge, data format, source URL, accepted credential
+environment variables, non-auth and auth parameter names, defaults, response
+field counts, and for every operation its endpoint host, call-ready decision,
+exact route and adapter/provider owner, and operation-specific verification and
+freshness. An external URL without a call-capable adapter must remain visibly
+not ready even though the endpoint field is present.
 
 `datapan use <ref> [KEY=VALUE ...] [--param k=v] [--params-file PATH|-]
 --json` is the stable planning handoff from a resolved dataset to concrete
@@ -616,13 +734,16 @@ selected operation is callable. The merge order is operation defaults, smoke
 values, `--params-file`, positional `KEY=VALUE`, and `--param k=v`, with later
 sources overriding earlier sources. The command must preserve exact upstream
 parameter names and must never include credential values or auth parameters in
-the params object or generated commands.
+the params object or generated commands. Planning output includes the same
+`registry_trust` and selected-operation verification context as `try`.
 
 `datapan kit <ref> [KEY=VALUE ...] [--param k=v] [--params-file PATH|-]
 [--output-dir DIR] --json` is the shorter human-facing starter-kit command. It
 must reuse the same parameter merge, operation resolution, credential redaction,
 and generated file set as `datapan use --output-dir`, while defaulting
 `--output-dir` to `<dataset-id>-kit` when the caller omits it.
+Both commands write `datapan-provenance.json` alongside generated artifacts so
+later regeneration and review can identify the Registry trust boundary used.
 
 `datapan params <ref> [KEY=VALUE ...] [--param k=v] --output params.json`
 writes a JSON object that can be passed directly to
@@ -630,14 +751,110 @@ writes a JSON object that can be passed directly to
 upstream parameter names, omit auth parameters such as `serviceKey`, preserve
 operation default or smoke values where known, apply user-supplied overrides,
 and use `VALUE` for unknown user-editable fields. With `--json`, it must
-require `--output PATH` and return `params`, field labels, `next_get`, and
-`next_dry_run` without mixing the raw params object into stdout.
+require `--output PATH` and return `params`, field labels, `next_get`,
+`next_dry_run`, Registry trust, verification, evidence warnings, and the
+provenance path without mixing the raw params object into stdout. File output
+creates `<output>.datapan-provenance.json` as a transactionally paired,
+SHA-bound `params` artifact; `--provenance-output PATH` may select another
+sidecar. The provenance must not copy parameter names or values. Raw stdout
+remains a pure params object, creates no sidecar, and places trust and
+verification diagnostics on stderr.
 
 `datapan get` and its calling aliases (`call`, `save`, and CSV/JSON
 `export`) accept `--timeout DURATION`. Durations follow Go-style values such as
 `5s` and `500ms`; a bare integer is interpreted as seconds. The default is
 `30s`. Dry-run JSON must include the selected `timeout`, and actual provider
 calls must cancel through the request context when the timeout expires.
+Actual provider execution must stop before HTTP with exit code 4 and
+`error:"registry_untrusted"` when local provenance proves a digest mismatch,
+release readiness failure, or blocked/incompatible CLI consumer state. Dry-run
+remains available and reports the blocking trust context without calling the
+provider. Missing legacy provenance or an unrelated explicit Registry is
+reported as untracked rather than silently treated as verified. Successful and
+failed call JSON includes `registry_trust`; `save --json` must carry the same
+dataset, operation, Registry trust, verification, and evidence warning into its
+file summary rather than reducing the result to a row count. Manual review is
+preserved as a warning and is not reinterpreted as an automatic block.
+Call-based CSV and JSON export must likewise reuse the complete calling app
+context and carry dataset, operation, Registry trust, verification, and
+evidence warning in `--json` summaries. Non-JSON CSV and JSON keep exported rows
+on stdout and place trust and verification on stderr. A failed human export
+prints the captured failure classification and every next action instead of
+silently returning the internal call's exit code.
+
+Provider execution failures also include a stable `failure` object with
+`category`, `reason`, `retryable`, and `next_steps`. The initial runtime
+categories are `authentication`, `approval`, `input`, `adapter`, and
+`external_provider`. Classification uses preserved HTTP, semantic, and
+provider-status evidence; the original `provider_status` remains available so
+clients do not have to trust a lossy summary. Transport and 5xx failures are
+identified as provider-side retry candidates, while credential rejection,
+missing approval, invalid input, and unexpected response shapes provide
+category-specific remediation. Error text is redacted against the active
+credential before being emitted. Registry compatibility and integrity blocks
+remain represented by `error:"registry_untrusted"` and exact
+`registry_trust.reason_codes`. A stale or expired operation record adds an
+`evidence_warning` with category `stale_verification` and actionable next
+steps, but does not block a fresh provider call because the current Registry
+policy classifies evidence age without declaring an execution prohibition.
+Invalid policy contracts become an explicit manual-review trust state. The CLI
+never substitutes wall-clock time for the policy's manifest evaluation time.
+Non-JSON execution failures must print the same category, reason, and every
+next step to stderr while preserving the provider body or generated data on
+stdout. Registry trust blocks use the same compatibility classification and
+exit code 4 in both modes. Human dry-run keeps the copyable redacted GET line
+on stdout and prints Registry trust, verification freshness, stale-evidence
+warnings, and remediation to stderr. Successful human get, save, and sync also
+print the same trust and verification context to stderr so response bodies,
+CSV or JSON data, and sync summaries remain clean on stdout. A failed save must
+render the captured failure and next actions instead of failing silently.
+
+For `datapan.release-consumer-decision.v1`, `safe_to_consume` with the
+`datapan-cli` action `consume_canonical_registry` permits execution.
+`manual_review_required` with the same CLI action preserves a manual-review
+trust state but does not reinterpret the release-operator boundary as a CLI
+execution ban. `blocked`, a missing or unsupported CLI action, or a decision
+artifact that fails the provenance-manifest-artifact integrity chain blocks
+provider execution before HTTP. JSON uses `error:"registry_untrusted"`, a
+`failure` object with category `compatibility`, the exact decision fields and
+reason codes, and exit code 4. Older releases without the decision artifact
+remain usable under their existing compatibility report and explicitly report
+`release_consumer_decision_missing`.
+
+When present, the installer preserves and manifest-verifies
+`reports/data-go-kr/error-action-catalog.json`,
+`reports/source-runtime-remediation-map.json`, and their schemas. Provider
+failure routing evaluates only `status:"verified"` rules, in catalog order,
+and honors optional host, dataset, operation, and dependency-class scopes.
+Supported signatures are HTTP status, provider field equality or containment,
+message containment, timeout, DNS, TLS, and parse error. A match retains the
+CLI's stable top-level category while adding `failure.registry_routing` with
+the exact Registry rule ID, classification, severity, actions, reasons,
+impact categories, and source runtime boundary. Registry classifications map
+to CLI categories only as follows: credential to authentication, approval to
+approval, bad request to input, parser, adapter, or provider contract to
+adapter, and rate limit, not found, upstream outage, or maintenance to external
+provider. Registry action reasons are placed before generic fallback next
+steps without being rewritten. Rate limit, upstream outage, and maintenance
+remain retryable. If routing evidence is locally modified or invalid, it is
+not applied; `registry_routing_error` exposes the integrity failure while the
+conservative built-in classification remains available.
+
+The cross-platform Registry journey smoke test must build the current CLI,
+install the latest public Registry release, verify provenance and digest
+status, select a call-ready operation without relying on a fixed dataset ID,
+and exercise show, try, redacted dry-run, and kit generation without making a
+credentialed provider request. Its retained evidence consists of the journey
+summary and generated artifact provenance, not the downloaded Registry or
+provider response bodies.
+
+A tagged CLI release must not publish until `go test ./...`, `go vet ./...`,
+and both command builds pass on Linux, macOS, and Windows. The post-publication
+release smoke must install the public archive and checksum through the normal
+platform installer on all three operating systems, confirm that `datapan` and
+`dp` report the same version, execute the Registry journey, and retain its
+summary and generated provenance as workflow evidence. Unix checksum parsing
+must accept filenames with or without the conventional `./` prefix.
 
 ## Verification Evidence
 
@@ -647,6 +864,15 @@ pure evidence-accumulation command: provider failures and skipped results remain
 in the merged report, and the command itself succeeds when the input reports
 are valid JSON and the output is written. `--json` must not be combined with
 `--output -`.
+
+Live `datapan verify` and `datapan catalog verify` runs use the same Registry
+execution gate as get and sync. Proven digest, readiness, compatibility, or
+consumer-decision blocks return `registry_untrusted` with exit code 4 before
+adapter, probe, or provider HTTP. JSON live-verification output includes
+`registry_trust`; human output prints the same trust boundary. Offline report
+inspection, summary, merge, and verification planning remain available when
+execution is blocked. Transport and adapter verification evidence must redact
+the raw and URL-encoded active credential before it is written or printed.
 
 ## Exit Codes
 
@@ -732,6 +958,12 @@ DATA_GO_KR_SERVICE_KEY
 Credential values must never be printed. Request URLs shown in dry-run and JSON
 output must redact `serviceKey`; curl exports must use an environment-variable
 placeholder instead of the raw key.
+Provider responses must cross the same credential boundary before any human or
+JSON output or file write. If the active credential is reflected in the body,
+message, URL, or structured provider status, both its raw and URL-encoded forms
+must become `REDACTED`. Save and sync must derive CSV, rows, response files, and
+integrity metadata from that redacted envelope so cached artifacts cannot
+reintroduce the credential.
 
 When using the real OS environment, Datapan may read a local `.env` file from
 the current working directory. Process environment variables take precedence
@@ -753,10 +985,19 @@ datapan access <list-id> --start
 
 `--start` is equivalent to opening the application page and copying/showing the
 purpose text. JSON output should expose `application_url`, `purpose_text`,
-`next_steps`, and `smoke_command` so an agent can guide the user without scraping
-human prose. `smoke_command` may come from curated smoke metadata or be
+`next_steps`, `smoke_command`, and `registry_trust` so an agent can guide the
+user without scraping human prose. `smoke_command` may come from curated smoke metadata or be
 synthesized from the selected operation in the imported registry. `datapan
 apply` is a compatibility alias; `datapan access` is the canonical command.
+
+Any action that navigates to a Registry-provided application URL must enforce
+the local Registry execution decision before opening or starting a browser.
+This includes `--open`, `--start`, browser-backed dry-run inspection, and
+`--apply`. A blocked decision returns the common `registry_untrusted`
+compatibility failure without browser or provider navigation. Purpose display
+and clipboard copying remain offline diagnostic actions and must expose the
+blocked trust context instead of hiding it. `access login` is independent of
+this gate because it navigates only to the provider's fixed login page.
 
 Browser-backed application automation is an explicit advanced flow:
 
@@ -773,5 +1014,8 @@ gate manually. Browser-backed `access <list-id>` must default to inspection and
 must submit only when `--apply` is present. It must reuse the saved profile,
 fill visible purpose/usage fields, accept visible checkboxes, and stop with a
 machine-readable status if the session is expired or a human gate appears.
+Every browser-backed dataset result, including browser start and navigation
+failures, must preserve the same `registry_trust` context that authorized the
+workflow.
 When Chrome/Chromium is not discoverable, the user may provide `--browser-path`
 or `DATAPAN_BROWSER_PATH`.

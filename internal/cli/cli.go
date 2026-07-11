@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,8 @@ var version = "0.1.0-dev"
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
+const defaultRegistryInstallProvenancePath = ".datapan/registry-install.json"
+const defaultRegistryInstallTransactionPath = ".datapan/registry-install.transaction.json"
 const defaultReleaseDir = ".datapan/release"
 const defaultReleaseManifestPath = ".datapan/release/manifest.json"
 const defaultReleaseNotesPath = ".datapan/release/RELEASE_NOTES.md"
@@ -53,6 +56,16 @@ const defaultReleaseVerificationSummaryPath = ".datapan/release/reports/latest-v
 const defaultReleaseReadinessPath = ".datapan/release/reports/latest-release-readiness.json"
 const defaultReleaseManifestVerificationPath = ".datapan/release/reports/latest-release-verification.json"
 const defaultReleaseRouteDispositionPath = ".datapan/release/reports/route-disposition.json"
+const defaultReleaseConsumerCompatibilityPath = ".datapan/release/reports/release-consumer-compatibility.json"
+const defaultReleaseSustainableCoveragePath = ".datapan/release/reports/sustainable-coverage.json"
+const defaultReleaseSustainableCoveragePolicyPath = ".datapan/release/policy/sustainable-coverage.json"
+const defaultReleaseSustainableCoverageSchemaPath = ".datapan/release/schemas/datapan.sustainable-coverage-policy.v1.schema.json"
+const defaultReleaseConsumerDecisionPath = ".datapan/release/reports/release-consumer-decision.json"
+const defaultReleaseConsumerDecisionSchemaPath = ".datapan/release/schemas/datapan.release-consumer-decision.v1.schema.json"
+const defaultReleaseErrorActionCatalogPath = ".datapan/release/reports/data-go-kr/error-action-catalog.json"
+const defaultReleaseErrorActionCatalogSchemaPath = ".datapan/release/schemas/datapan.error-action-catalog.v1.schema.json"
+const defaultReleaseRuntimeRemediationPath = ".datapan/release/reports/source-runtime-remediation-map.json"
+const defaultReleaseRuntimeRemediationSchemaPath = ".datapan/release/schemas/datapan.source-runtime-remediation-map.v1.schema.json"
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
@@ -61,6 +74,7 @@ const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
 const datapanRegistryShardsAssetName = "data-go-kr-shards.tar.gz"
 const datapanRegistryShardsInventoryPath = "registry-shards.json"
 const datapanRegistryShardsReleaseDir = "registry-shards"
+const datapanRegistryConsumerCompatibilityPath = "reports/release-consumer-compatibility.json"
 const coverageGoalCallablePercent = 99.0
 const coverageGoalExternalAdapterPercent = 98.0
 const coverageGoalEvidenceOperationPercent = 10.0
@@ -100,23 +114,49 @@ func (RealHTTPClient) Do(req *http.Request) (*http.Response, error) {
 }
 
 var (
-	openURLFunc         = openURL
-	copyToClipboardFunc = copyToClipboard
+	openURLFunc            = openURL
+	copyToClipboardFunc    = copyToClipboard
+	runBrowserWorkflowFunc = runBrowserWorkflow
+	registryInstallRename  = os.Rename
 )
 
 type app struct {
-	args           []string
-	stdout         io.Writer
-	stderr         io.Writer
-	env            Env
-	http           HTTPClient
-	reg            datago.Registry
-	registryPath   string
-	registrySource string
+	args             []string
+	stdout           io.Writer
+	stderr           io.Writer
+	env              Env
+	http             HTTPClient
+	reg              datago.Registry
+	registryPath     string
+	registrySource   string
+	installRecovered bool
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
 	env = maybeLoadDotEnv(env)
+	installRecovered := false
+	if !isHelpInvocation(args) {
+		if recovered, err := recoverRegistryInstallTransaction(defaultRegistryInstallTransactionPath); err != nil {
+			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: datago.DefaultRegistry()}
+			jsonOut, _ := consumeBool(args, "--json")
+			if jsonOut {
+				if code := a.writeJSON(map[string]any{
+					"ok":         false,
+					"error":      "registry_install_recovery_failed",
+					"message":    err.Error(),
+					"next_steps": []string{"preserve .datapan and inspect the install transaction before retrying"},
+				}); code != exitOK {
+					return code
+				}
+				return exitRequest
+			}
+			return a.fail(exitRequest, "recover interrupted Registry install: %v", err)
+		} else if recovered {
+			// Recovery intentionally completes before registry discovery so this
+			// process never loads a mixed registry/evidence/provenance state.
+			installRecovered = true
+		}
+	}
 	reg := datago.DefaultRegistry()
 	registrySource := "embedded"
 	registryEnvPath, registryEnvSet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
@@ -145,14 +185,15 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg = loaded
 	}
 	a := app{
-		args:           args,
-		stdout:         stdout,
-		stderr:         stderr,
-		env:            env,
-		http:           httpClient,
-		reg:            reg,
-		registryPath:   registryPath,
-		registrySource: registrySource,
+		args:             args,
+		stdout:           stdout,
+		stderr:           stderr,
+		env:              env,
+		http:             httpClient,
+		reg:              reg,
+		registryPath:     registryPath,
+		registrySource:   registrySource,
+		installRecovered: installRecovered,
 	}
 	return a.run()
 }
@@ -165,7 +206,7 @@ func shouldLoadDefaultRegistry(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "status", "show", "use", "params", "get", "curl", "save", "sync", "call", "apply", "export", "codegen", "doctor":
+	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "list", "ls", "status", "info", "show", "use", "kit", "params", "get", "curl", "save", "sync", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
 		return len(args) < 2 || args[1] != "login"
@@ -515,6 +556,8 @@ func (a app) try(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "usage: datapan try [query] [KEY=VALUE ...] [--org NAME] [--category NAME] [--provider NAME] [--priority P0] [--operation NAME] [--any] [--params-output PATH] [--output-dir DIR] [--json]")
 	}
 	candidates := a.reg.Search(query, 0, filters)
+	trust := a.localRegistryTrust()
+	verificationIndex := installedOperationVerificationIndex()
 	if anyCallable {
 		candidates = filterCallableSpecs(candidates)
 	} else {
@@ -530,6 +573,7 @@ func (a app) try(args []string, jsonOut bool) int {
 				"filters":         filters,
 				"call_ready_only": !anyCallable,
 				"message":         "no matching call-ready data.go.kr operation; use datapan search or datapan try --any to inspect callable but not-ready routes",
+				"registry_trust":  trust,
 			}); code != exitOK {
 				return code
 			}
@@ -552,7 +596,7 @@ func (a app) try(args []string, jsonOut bool) int {
 	commands := useCommandsForOperation(spec, op, params, paramsOutput, outputDir)
 	nextSteps := operationWorkflowNextSteps(spec, op, commands, paramsOutput, outputDir, a.registryPath)
 	route := operationCallRoute(spec, op)
-	selected := specSummaries([]datago.Spec{spec})[0]
+	selected := specSummariesWithVerification([]datago.Spec{spec}, verificationIndex)[0]
 	addCallRouteFields(selected, route)
 	payload := map[string]any{
 		"ok":                 true,
@@ -571,7 +615,9 @@ func (a app) try(args []string, jsonOut bool) int {
 		"fields":             fields,
 		"commands":           commands,
 		"next_steps":         nextSteps,
-		"alternatives":       specSummaries(limitSpecs(candidates[1:], alternativeLimit)),
+		"alternatives":       specSummariesWithVerification(limitSpecs(candidates[1:], alternativeLimit), verificationIndex),
+		"verification":       verificationContextForOperation(verificationIndex, spec, op),
+		"registry_trust":     trust,
 		"registry_source":    a.registrySource,
 		"registry_path":      a.registryPath,
 		"provided_overrides": len(overrides),
@@ -587,6 +633,8 @@ func (a app) try(args []string, jsonOut bool) int {
 	}
 	fmt.Fprintf(a.stdout, "  operation: %s\n", op.Name)
 	fmt.Fprintf(a.stdout, "  route: %s\n", formatCallRoute(route))
+	printRegistryTrustBrief(a.stdout, trust)
+	printVerificationBrief(a.stdout, verificationContextForOperation(verificationIndex, spec, op))
 	if len(fields) > 0 {
 		fmt.Fprintln(a.stdout, "  params:")
 		for _, field := range fields {
@@ -819,6 +867,8 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 		sortReadySpecs(results)
 	}
 	results = limitSpecs(results, limit)
+	trust := a.localRegistryTrust()
+	verificationIndex := installedOperationVerificationIndex()
 	if jsonOut {
 		return a.writeJSON(map[string]any{
 			"ok":              true,
@@ -827,13 +877,15 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 			"callable_only":   callableOnly,
 			"call_ready_only": callReadyOnly,
 			"count":           len(results),
-			"results":         specSummaries(results),
+			"results":         specSummariesWithVerification(results, verificationIndex),
+			"registry_trust":  trust,
 		})
 	}
 	if len(results) == 0 {
 		fmt.Fprintf(a.stdout, "No matching data.go.kr specs for %q.\n", query)
 		return exitOK
 	}
+	printRegistryTrustBrief(a.stdout, trust)
 	for _, spec := range results {
 		fmt.Fprintf(a.stdout, "%s  %s  [%s]\n", spec.ID, spec.Title, spec.Priority)
 		if spec.Organization != "" {
@@ -844,6 +896,7 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 		}
 		if len(spec.Operations) > 0 {
 			fmt.Fprintf(a.stdout, "  default operation: %s\n", spec.Operations[0].Name)
+			printVerificationBrief(a.stdout, verificationContextForOperation(verificationIndex, spec, spec.Operations[0]))
 		}
 		callRoute := specCallRoute(spec)
 		fmt.Fprintf(a.stdout, "  callable: %s\n", yesNo(specHasCallableOperation(spec)))
@@ -1407,6 +1460,7 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 	if install.Release.ReadinessReady != nil {
 		fmt.Fprintf(a.stdout, "  release readiness: %t\n", *install.Release.ReadinessReady)
 	}
+	printConsumerCompatibility(a.stdout, install.Release)
 	if install.Release.RouteDispositionPresent {
 		fmt.Fprintf(a.stdout, "  route disposition: %d routes (%d dead-route, %d transient, %d adapter candidates)\n",
 			install.Release.RouteDispositionRoutes,
@@ -1428,13 +1482,19 @@ func (a app) catalogInstall(args []string, jsonOut bool) int {
 }
 
 type datapanRegistryInstall struct {
-	RegistryPath string
-	AssetURL     string
-	RegistryData []byte
-	Specs        []datago.Spec
-	Release      datapanRegistryInstallRelease
-	ReleaseDir   string
-	ReleaseFiles []string
+	RegistryPath          string
+	AssetURL              string
+	ShardsAssetURL        string
+	ReleaseURL            string
+	ReleaseTag            string
+	PinMode               string
+	RegistryData          []byte
+	Specs                 []datago.Spec
+	Release               datapanRegistryInstallRelease
+	ReleaseDir            string
+	ReleaseFiles          []string
+	ReleaseManifestSHA256 string
+	Provenance            *registryInstallProvenance
 }
 
 type datapanRegistryInstallRelease struct {
@@ -1444,6 +1504,7 @@ type datapanRegistryInstallRelease struct {
 	ReadinessPresent                  bool   `json:"readiness_present"`
 	ManifestGeneratedAt               string `json:"manifest_generated_at,omitempty"`
 	ManifestArtifacts                 int    `json:"manifest_artifacts,omitempty"`
+	ManifestRegistryVerified          *bool  `json:"manifest_registry_verified,omitempty"`
 	VerificationOK                    *bool  `json:"verification_ok,omitempty"`
 	VerificationChecked               int    `json:"verification_checked,omitempty"`
 	VerificationFailed                int    `json:"verification_failed,omitempty"`
@@ -1464,6 +1525,23 @@ type datapanRegistryInstallRelease struct {
 	ShardsCount                       int    `json:"shards_count,omitempty"`
 	ShardsRecords                     int    `json:"shards_records,omitempty"`
 	ShardsBytes                       int    `json:"shards_bytes,omitempty"`
+	ConsumerCompatibilityPresent      bool   `json:"consumer_compatibility_present"`
+	ConsumerCompatibilitySchema       string `json:"consumer_compatibility_schema,omitempty"`
+	CLIConsumerStatus                 string `json:"cli_consumer_status,omitempty"`
+	CLICompatibilityMode              string `json:"cli_compatibility_mode,omitempty"`
+	RuntimeManualReviewRequired       *bool  `json:"runtime_manual_review_required,omitempty"`
+	RuntimeCompatibilityEffect        string `json:"runtime_compatibility_effect,omitempty"`
+	RuntimeBlockingCount              int    `json:"runtime_blocking_count,omitempty"`
+	RuntimeWarningCount               int    `json:"runtime_warning_count,omitempty"`
+	CanonicalRegistryRequired         *bool  `json:"canonical_registry_required,omitempty"`
+	ShardAssetsRequired               *bool  `json:"shard_assets_required,omitempty"`
+	ConsumerDecisionPresent           bool   `json:"consumer_decision_present"`
+	ConsumerDecisionSchema            string `json:"consumer_decision_schema,omitempty"`
+	ConsumerReleaseDecision           string `json:"consumer_release_decision,omitempty"`
+	ConsumerManualReviewRequired      *bool  `json:"consumer_manual_review_required,omitempty"`
+	ConsumerManualReviewAccepted      *bool  `json:"consumer_manual_review_accepted,omitempty"`
+	CLIConsumerAction                 string `json:"cli_consumer_action,omitempty"`
+	CLIConsumerActionReason           string `json:"cli_consumer_action_reason,omitempty"`
 }
 
 func (i datapanRegistryInstall) Payload() map[string]any {
@@ -1483,10 +1561,24 @@ func (i datapanRegistryInstall) Payload() map[string]any {
 	if len(i.ReleaseFiles) > 0 {
 		payload["release_files"] = i.ReleaseFiles
 	}
+	if i.ReleaseTag != "" {
+		payload["release_tag"] = i.ReleaseTag
+	}
+	if i.ReleaseURL != "" {
+		payload["release_url"] = i.ReleaseURL
+	}
+	if i.PinMode != "" {
+		payload["pin_mode"] = i.PinMode
+	}
+	if i.Provenance != nil {
+		payload["provenance"] = defaultRegistryInstallProvenancePath
+	}
 	return payload
 }
 
 func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (datapanRegistryInstall, error) {
+	requestedAssetURL := strings.TrimSpace(assetURL)
+	normalizedReleaseURL := normalizeGitHubReleaseURL(releaseURL)
 	var release datapanRegistryRelease
 	if assetURL == "" {
 		var err error
@@ -1507,6 +1599,23 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 	if err != nil {
 		return datapanRegistryInstall{}, err
 	}
+	if snapshot.Release.VerificationOK != nil && !*snapshot.Release.VerificationOK {
+		return datapanRegistryInstall{}, fmt.Errorf("registry release verification reports failure")
+	}
+	if snapshot.Release.ReadinessReady != nil && !*snapshot.Release.ReadinessReady {
+		return datapanRegistryInstall{}, fmt.Errorf("registry release readiness reports not ready")
+	}
+	if strings.EqualFold(snapshot.Release.CLIConsumerStatus, "blocked") || strings.EqualFold(snapshot.Release.CLIConsumerStatus, "incompatible") {
+		return datapanRegistryInstall{}, fmt.Errorf("registry release reports datapan-cli consumer status %s", snapshot.Release.CLIConsumerStatus)
+	}
+	if snapshot.Release.ConsumerDecisionPresent {
+		if snapshot.Release.ConsumerReleaseDecision == "blocked" {
+			return datapanRegistryInstall{}, fmt.Errorf("registry release consumer decision is blocked")
+		}
+		if snapshot.Release.CLIConsumerAction != "consume_canonical_registry" {
+			return datapanRegistryInstall{}, fmt.Errorf("registry release has unsupported datapan-cli consumer action %s", snapshot.Release.CLIConsumerAction)
+		}
+	}
 	specs, err := decodeRegistryBytes(snapshot.RegistryData)
 	if err != nil {
 		return datapanRegistryInstall{}, err
@@ -1525,28 +1634,143 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 			snapshot.ReleaseFiles[name] = data
 		}
 	}
-	if err := writeOutput(registryPath, snapshot.RegistryData, a.stdout); err != nil {
-		return datapanRegistryInstall{}, err
-	}
-	releaseDir := ""
-	releaseFiles := []string(nil)
-	if registryPath != "-" {
-		var err error
-		releaseDir = defaultReleaseDir
-		releaseFiles, err = writeDatapanRegistryReleaseFiles(releaseDir, snapshot.ReleaseFiles)
-		if err != nil {
+	if registryPath == "-" {
+		if err := writeOutput(registryPath, snapshot.RegistryData, a.stdout); err != nil {
 			return datapanRegistryInstall{}, err
 		}
+		return datapanRegistryInstall{
+			RegistryPath: registryPath,
+			AssetURL:     assetURL,
+			ReleaseURL:   normalizedReleaseURL,
+			PinMode:      registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
+			RegistryData: snapshot.RegistryData,
+			Specs:        specs,
+			Release:      snapshot.Release,
+		}, nil
 	}
-	return datapanRegistryInstall{
-		RegistryPath: registryPath,
-		AssetURL:     assetURL,
-		RegistryData: snapshot.RegistryData,
-		Specs:        specs,
-		Release:      snapshot.Release,
-		ReleaseDir:   releaseDir,
-		ReleaseFiles: releaseFiles,
-	}, nil
+	releaseDir := defaultReleaseDir
+	releaseFiles, err := datapanRegistryReleaseFilePaths(releaseDir, snapshot.ReleaseFiles)
+	if err != nil {
+		return datapanRegistryInstall{}, err
+	}
+	install := datapanRegistryInstall{
+		RegistryPath:   registryPath,
+		AssetURL:       assetURL,
+		ShardsAssetURL: release.ShardsAssetURL,
+		ReleaseURL:     normalizedReleaseURL,
+		ReleaseTag:     release.TagName,
+		PinMode:        registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
+		RegistryData:   snapshot.RegistryData,
+		Specs:          specs,
+		Release:        snapshot.Release,
+		ReleaseDir:     releaseDir,
+		ReleaseFiles:   releaseFiles,
+	}
+	if manifestData, ok := snapshot.ReleaseFiles["manifest.json"]; ok {
+		sum := sha256.Sum256(manifestData)
+		install.ReleaseManifestSHA256 = fmt.Sprintf("%x", sum)
+	}
+	provenance := newRegistryInstallProvenance(install)
+	provenanceData, err := jsonIndentedBytes(provenance)
+	if err != nil {
+		return datapanRegistryInstall{}, fmt.Errorf("encode registry install provenance: %w", err)
+	}
+	if err := commitRegistryInstall(registryPath, snapshot.RegistryData, releaseDir, snapshot.ReleaseFiles, defaultRegistryInstallProvenancePath, provenanceData); err != nil {
+		return datapanRegistryInstall{}, err
+	}
+	install.Provenance = &provenance
+	return install, nil
+}
+
+type registryInstallProvenance struct {
+	SchemaVersion                string   `json:"schema_version"`
+	InstalledAt                  string   `json:"installed_at"`
+	Provider                     string   `json:"provider"`
+	RegistryPath                 string   `json:"registry_path"`
+	RegistrySHA256               string   `json:"registry_sha256"`
+	ReleaseTag                   string   `json:"release_tag,omitempty"`
+	ReleaseAPIURL                string   `json:"release_api_url,omitempty"`
+	AssetURL                     string   `json:"asset_url"`
+	ShardsAssetURL               string   `json:"shards_asset_url,omitempty"`
+	PinMode                      string   `json:"pin_mode"`
+	SourceMode                   string   `json:"source_mode"`
+	ReleaseDir                   string   `json:"release_dir,omitempty"`
+	ReleaseManifestPath          string   `json:"release_manifest,omitempty"`
+	ReleaseManifestSHA256        string   `json:"release_manifest_sha256,omitempty"`
+	ReleaseFiles                 []string `json:"release_files,omitempty"`
+	ManifestRegistryVerified     *bool    `json:"manifest_registry_verified,omitempty"`
+	ShardsValidated              bool     `json:"shards_validated"`
+	ShardsStrategy               string   `json:"shards_strategy,omitempty"`
+	ShardsCount                  int      `json:"shards_count,omitempty"`
+	ShardsRecords                int      `json:"shards_records,omitempty"`
+	CLIConsumerStatus            string   `json:"cli_consumer_status,omitempty"`
+	CLICompatibilityMode         string   `json:"cli_compatibility_mode,omitempty"`
+	RuntimeManualReview          *bool    `json:"runtime_manual_review_required,omitempty"`
+	RuntimeCompatibilityRisk     string   `json:"runtime_compatibility_effect,omitempty"`
+	ConsumerReleaseDecision      string   `json:"consumer_release_decision,omitempty"`
+	ConsumerManualReviewAccepted *bool    `json:"consumer_manual_review_accepted,omitempty"`
+	CLIConsumerAction            string   `json:"cli_consumer_action,omitempty"`
+	CLIConsumerActionReason      string   `json:"cli_consumer_action_reason,omitempty"`
+}
+
+func newRegistryInstallProvenance(install datapanRegistryInstall) registryInstallProvenance {
+	sum := sha256.Sum256(install.RegistryData)
+	sourceMode := "default_installed"
+	if !sameFilePath(install.RegistryPath, defaultRegistryPath) {
+		sourceMode = "explicit_path"
+	}
+	provenance := registryInstallProvenance{
+		SchemaVersion:                "datapan.registry-install.v1",
+		InstalledAt:                  time.Now().UTC().Format(time.RFC3339),
+		Provider:                     "datapan-registry",
+		RegistryPath:                 install.RegistryPath,
+		RegistrySHA256:               fmt.Sprintf("%x", sum),
+		ReleaseTag:                   install.ReleaseTag,
+		ReleaseAPIURL:                install.ReleaseURL,
+		AssetURL:                     install.AssetURL,
+		ShardsAssetURL:               install.ShardsAssetURL,
+		PinMode:                      install.PinMode,
+		SourceMode:                   sourceMode,
+		ReleaseDir:                   install.ReleaseDir,
+		ReleaseFiles:                 append([]string(nil), install.ReleaseFiles...),
+		ReleaseManifestSHA256:        install.ReleaseManifestSHA256,
+		ManifestRegistryVerified:     install.Release.ManifestRegistryVerified,
+		ShardsValidated:              install.Release.ShardsValidated,
+		ShardsStrategy:               install.Release.ShardsStrategy,
+		ShardsCount:                  install.Release.ShardsCount,
+		ShardsRecords:                install.Release.ShardsRecords,
+		CLIConsumerStatus:            install.Release.CLIConsumerStatus,
+		CLICompatibilityMode:         install.Release.CLICompatibilityMode,
+		RuntimeManualReview:          install.Release.RuntimeManualReviewRequired,
+		RuntimeCompatibilityRisk:     install.Release.RuntimeCompatibilityEffect,
+		ConsumerReleaseDecision:      install.Release.ConsumerReleaseDecision,
+		ConsumerManualReviewAccepted: install.Release.ConsumerManualReviewAccepted,
+		CLIConsumerAction:            install.Release.CLIConsumerAction,
+		CLIConsumerActionReason:      install.Release.CLIConsumerActionReason,
+	}
+	if install.Release.ManifestPresent {
+		provenance.ReleaseManifestPath = defaultReleaseManifestPath
+	}
+	return provenance
+}
+
+func registryInstallPinMode(requestedAssetURL, releaseURL string) string {
+	if strings.TrimSpace(requestedAssetURL) != "" {
+		return "direct_url"
+	}
+	if strings.Contains(releaseURL, "/releases/tags/") {
+		return "pinned"
+	}
+	return "latest"
+}
+
+func sameFilePath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(filepath.Clean(left))
+	rightAbs, rightErr := filepath.Abs(filepath.Clean(right))
+	if leftErr == nil && rightErr == nil {
+		return leftAbs == rightAbs
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
 }
 
 func (a app) init(args []string, jsonOut bool) int {
@@ -1613,6 +1837,7 @@ func (a app) init(args []string, jsonOut bool) int {
 	if install.Release.ReadinessReady != nil {
 		fmt.Fprintf(a.stdout, "  release readiness: %t\n", *install.Release.ReadinessReady)
 	}
+	printConsumerCompatibility(a.stdout, install.Release)
 	if install.Release.RouteDispositionPresent {
 		fmt.Fprintf(a.stdout, "  route disposition: %d routes (%d dead-route, %d transient, %d adapter candidates)\n",
 			install.Release.RouteDispositionRoutes,
@@ -1802,11 +2027,87 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 	if !ok {
 		return datapanRegistryZipSnapshot{}, fmt.Errorf("zip does not contain %s", datapanRegistryZipRegistryPath)
 	}
+	release, err := installReleaseEvidenceFromZip(entries)
+	if err != nil {
+		return datapanRegistryZipSnapshot{}, err
+	}
+	if data, ok := entries["manifest.json"]; ok {
+		if err := verifyInstalledRegistryManifestArtifact(data, registryData); err != nil {
+			return datapanRegistryZipSnapshot{}, err
+		}
+		for _, path := range []string{
+			"policy/sustainable-coverage.json",
+			"schemas/datapan.sustainable-coverage-policy.v1.schema.json",
+			"reports/sustainable-coverage.json",
+			"reports/release-consumer-decision.json",
+			"schemas/datapan.release-consumer-decision.v1.schema.json",
+			"reports/data-go-kr/error-action-catalog.json",
+			"schemas/datapan.error-action-catalog.v1.schema.json",
+			"reports/source-runtime-remediation-map.json",
+			"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
+		} {
+			if artifact, present := entries[path]; present {
+				if err := verifyInstalledManifestArtifact(data, path, artifact); err != nil {
+					return datapanRegistryZipSnapshot{}, err
+				}
+			}
+		}
+		verified := true
+		release.ManifestRegistryVerified = &verified
+	}
 	return datapanRegistryZipSnapshot{
 		RegistryData: registryData,
-		Release:      installReleaseEvidenceFromZip(entries),
+		Release:      release,
 		ReleaseFiles: installReleaseFilesFromZip(entries),
 	}, nil
+}
+
+func verifyInstalledManifestArtifact(manifestData []byte, path string, artifactData []byte) error {
+	var manifest releaseManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return fmt.Errorf("decode registry release manifest: %w", err)
+	}
+	path = filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	for _, artifact := range manifest.Artifacts {
+		if filepath.ToSlash(filepath.Clean(filepath.FromSlash(artifact.Path))) != path {
+			continue
+		}
+		if artifact.Bytes != int64(len(artifactData)) {
+			return fmt.Errorf("registry release manifest byte count mismatch for %s", path)
+		}
+		sum := sha256.Sum256(artifactData)
+		if !strings.EqualFold(artifact.SHA256, fmt.Sprintf("%x", sum)) {
+			return fmt.Errorf("registry release manifest checksum mismatch for %s", path)
+		}
+		return nil
+	}
+	return fmt.Errorf("registry release manifest does not bind %s", path)
+}
+
+func verifyInstalledRegistryManifestArtifact(manifestData, registryData []byte) error {
+	var manifest releaseManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return fmt.Errorf("decode registry release manifest: %w", err)
+	}
+	var registryArtifact *releaseManifestArtifact
+	for idx := range manifest.Artifacts {
+		artifact := &manifest.Artifacts[idx]
+		if filepath.ToSlash(filepath.Clean(filepath.FromSlash(artifact.Path))) == datapanRegistryZipRegistryPath && artifact.Kind == "registry" {
+			registryArtifact = artifact
+			break
+		}
+	}
+	if registryArtifact == nil {
+		return fmt.Errorf("registry release manifest does not bind %s", datapanRegistryZipRegistryPath)
+	}
+	if registryArtifact.Bytes != int64(len(registryData)) {
+		return fmt.Errorf("registry release manifest byte count mismatch for %s", datapanRegistryZipRegistryPath)
+	}
+	sum := sha256.Sum256(registryData)
+	if !strings.EqualFold(registryArtifact.SHA256, fmt.Sprintf("%x", sum)) {
+		return fmt.Errorf("registry release manifest checksum mismatch for %s", datapanRegistryZipRegistryPath)
+	}
+	return nil
 }
 
 func datapanRegistryInstallKeepsZipEntry(name string) bool {
@@ -1814,12 +2115,22 @@ func datapanRegistryInstallKeepsZipEntry(name string) bool {
 	case datapanRegistryZipRegistryPath,
 		"manifest.json",
 		"RELEASE_NOTES.md",
+		"policy/sustainable-coverage.json",
+		"schemas/datapan.sustainable-coverage-policy.v1.schema.json",
+		"schemas/datapan.release-consumer-decision.v1.schema.json",
+		"schemas/datapan.error-action-catalog.v1.schema.json",
+		"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
+		datapanRegistryConsumerCompatibilityPath,
 		"reports/latest-release-verification.json",
 		"reports/latest-release-readiness.json",
 		"reports/latest-verification.json",
 		"reports/latest-verification-summary.json",
 		"reports/coverage.json",
-		"reports/route-disposition.json":
+		"reports/route-disposition.json",
+		"reports/sustainable-coverage.json",
+		"reports/release-consumer-decision.json",
+		"reports/data-go-kr/error-action-catalog.json",
+		"reports/source-runtime-remediation-map.json":
 		return true
 	default:
 		return false
@@ -1843,7 +2154,7 @@ func readZipFile(file *zip.File) ([]byte, error) {
 	return io.ReadAll(rc)
 }
 
-func installReleaseEvidenceFromZip(entries map[string][]byte) datapanRegistryInstallRelease {
+func installReleaseEvidenceFromZip(entries map[string][]byte) (datapanRegistryInstallRelease, error) {
 	var evidence datapanRegistryInstallRelease
 	if data, ok := entries["manifest.json"]; ok {
 		evidence.ManifestPresent = true
@@ -1888,7 +2199,88 @@ func installReleaseEvidenceFromZip(entries map[string][]byte) datapanRegistryIns
 			evidence.RouteDispositionAdapterCandidates = report.Summary.AdapterCandidates
 		}
 	}
-	return evidence
+	if data, ok := entries[datapanRegistryConsumerCompatibilityPath]; ok {
+		applyConsumerCompatibilityEvidence(&evidence, data)
+	}
+	if data, ok := entries["reports/release-consumer-decision.json"]; ok {
+		decision, err := parseReleaseConsumerDecision(data)
+		if err != nil {
+			return datapanRegistryInstallRelease{}, fmt.Errorf("decode release consumer decision: %w", err)
+		}
+		evidence.ConsumerDecisionPresent = true
+		evidence.ConsumerDecisionSchema = "datapan.release-consumer-decision.v1"
+		evidence.ConsumerReleaseDecision = decision.ReleaseDecision
+		evidence.ConsumerManualReviewRequired = decision.ManualReviewRequired
+		evidence.ConsumerManualReviewAccepted = decision.ManualReviewAccepted
+		evidence.CLIConsumerAction = decision.CLIAction
+		evidence.CLIConsumerActionReason = decision.CLIActionReason
+	}
+	return evidence, nil
+}
+
+func applyConsumerCompatibilityEvidence(evidence *datapanRegistryInstallRelease, data []byte) {
+	if evidence == nil {
+		return
+	}
+	var report struct {
+		SchemaVersion string `json:"schema_version"`
+		Summary       struct {
+			CanonicalRegistryRequired *bool `json:"canonical_registry_required"`
+			ShardAssetsRequired       *bool `json:"shard_assets_required"`
+		} `json:"summary"`
+		RuntimeRiskEvidence struct {
+			ManualReviewRequired *bool  `json:"manual_review_required"`
+			CompatibilityEffect  string `json:"compatibility_effect"`
+			BlockingCount        int    `json:"blocking_count"`
+			WarningCount         int    `json:"warning_count"`
+		} `json:"runtime_risk_evidence"`
+		Consumers []struct {
+			Consumer          string `json:"consumer"`
+			CompatibilityMode string `json:"compatibility_mode"`
+			Status            string `json:"status"`
+		} `json:"consumers"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return
+	}
+	evidence.ConsumerCompatibilityPresent = true
+	evidence.ConsumerCompatibilitySchema = report.SchemaVersion
+	evidence.RuntimeManualReviewRequired = report.RuntimeRiskEvidence.ManualReviewRequired
+	evidence.RuntimeCompatibilityEffect = report.RuntimeRiskEvidence.CompatibilityEffect
+	evidence.RuntimeBlockingCount = report.RuntimeRiskEvidence.BlockingCount
+	evidence.RuntimeWarningCount = report.RuntimeRiskEvidence.WarningCount
+	evidence.CanonicalRegistryRequired = report.Summary.CanonicalRegistryRequired
+	evidence.ShardAssetsRequired = report.Summary.ShardAssetsRequired
+	for _, consumer := range report.Consumers {
+		if consumer.Consumer == "datapan-cli" {
+			evidence.CLIConsumerStatus = consumer.Status
+			evidence.CLICompatibilityMode = consumer.CompatibilityMode
+			break
+		}
+	}
+}
+
+func printConsumerCompatibility(w io.Writer, release datapanRegistryInstallRelease) {
+	if release.ConsumerCompatibilityPresent {
+		status := release.CLIConsumerStatus
+		if status == "" {
+			status = "unknown"
+		}
+		if release.CLICompatibilityMode != "" {
+			fmt.Fprintf(w, "  CLI compatibility: %s (%s)\n", status, release.CLICompatibilityMode)
+		} else {
+			fmt.Fprintf(w, "  CLI compatibility: %s\n", status)
+		}
+		if release.RuntimeManualReviewRequired != nil && *release.RuntimeManualReviewRequired {
+			fmt.Fprintln(w, "  runtime evidence: manual review required")
+		}
+	}
+	if release.ConsumerDecisionPresent {
+		fmt.Fprintf(w, "  release consumer decision: %s; datapan-cli %s\n", release.ConsumerReleaseDecision, release.CLIConsumerAction)
+		if release.CLIConsumerActionReason != "" {
+			fmt.Fprintf(w, "    reason: %s\n", release.CLIConsumerActionReason)
+		}
+	}
 }
 
 func installReleaseFilesFromZip(entries map[string][]byte) map[string][]byte {
@@ -1896,12 +2288,22 @@ func installReleaseFilesFromZip(entries map[string][]byte) map[string][]byte {
 	for _, name := range []string{
 		"manifest.json",
 		"RELEASE_NOTES.md",
+		"policy/sustainable-coverage.json",
+		"schemas/datapan.sustainable-coverage-policy.v1.schema.json",
+		"schemas/datapan.release-consumer-decision.v1.schema.json",
+		"schemas/datapan.error-action-catalog.v1.schema.json",
+		"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
+		datapanRegistryConsumerCompatibilityPath,
 		"reports/latest-release-verification.json",
 		"reports/latest-release-readiness.json",
 		"reports/latest-verification.json",
 		"reports/latest-verification-summary.json",
 		"reports/coverage.json",
 		"reports/route-disposition.json",
+		"reports/sustainable-coverage.json",
+		"reports/release-consumer-decision.json",
+		"reports/data-go-kr/error-action-catalog.json",
+		"reports/source-runtime-remediation-map.json",
 	} {
 		if data, ok := entries[name]; ok {
 			files[name] = data
@@ -2104,6 +2506,351 @@ func writeDatapanRegistryReleaseFiles(releaseDir string, files map[string][]byte
 		written = append(written, filepath.ToSlash(path))
 	}
 	return written, nil
+}
+
+func datapanRegistryReleaseFilePaths(releaseDir string, files map[string][]byte) ([]string, error) {
+	root := filepath.Clean(releaseDir)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	paths := make([]string, 0, len(names))
+	for _, name := range names {
+		cleanName := filepath.Clean(filepath.FromSlash(name))
+		if strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) || filepath.IsAbs(cleanName) || cleanName == ".." {
+			return nil, fmt.Errorf("release file path escapes release dir: %s", name)
+		}
+		paths = append(paths, filepath.ToSlash(filepath.Join(root, cleanName)))
+	}
+	return paths, nil
+}
+
+type registryInstallTarget struct {
+	Target    string
+	Staged    string
+	Backup    string
+	HadTarget bool
+	BackedUp  bool
+	Committed bool
+}
+
+type registryInstallTransaction struct {
+	SchemaVersion string                             `json:"schema_version"`
+	CreatedAt     string                             `json:"created_at"`
+	Targets       []registryInstallTransactionTarget `json:"targets"`
+}
+
+type registryInstallTransactionTarget struct {
+	Target    string `json:"target"`
+	Staged    string `json:"staged"`
+	Backup    string `json:"backup,omitempty"`
+	HadTarget bool   `json:"had_target"`
+}
+
+func commitRegistryInstall(registryPath string, registryData []byte, releaseDir string, releaseFiles map[string][]byte, provenancePath string, provenanceData []byte) error {
+	registryTarget, err := stageRegistryInstallFile(registryPath, registryData, 0o600)
+	if err != nil {
+		return fmt.Errorf("stage registry: %w", err)
+	}
+	releaseTarget, err := stageRegistryInstallDirectory(releaseDir, releaseFiles)
+	if err != nil {
+		_ = os.Remove(registryTarget.Staged)
+		return fmt.Errorf("stage release evidence: %w", err)
+	}
+	provenanceTarget, err := stageRegistryInstallFile(provenancePath, provenanceData, 0o600)
+	if err != nil {
+		_ = os.Remove(registryTarget.Staged)
+		_ = os.RemoveAll(releaseTarget.Staged)
+		return fmt.Errorf("stage registry provenance: %w", err)
+	}
+	targets := []*registryInstallTarget{&releaseTarget, &registryTarget, &provenanceTarget}
+	defer func() {
+		for _, target := range targets {
+			if target.Staged != "" {
+				_ = os.RemoveAll(target.Staged)
+			}
+		}
+	}()
+
+	for _, target := range targets {
+		if _, err := os.Lstat(target.Target); err == nil {
+			backup, err := registryInstallBackupPath(target.Target)
+			if err != nil {
+				return rollbackRegistryInstallTargets(targets, fmt.Errorf("reserve backup for %s: %w", target.Target, err))
+			}
+			target.Backup = backup
+			target.HadTarget = true
+		} else if !os.IsNotExist(err) {
+			return rollbackRegistryInstallTargets(targets, fmt.Errorf("inspect %s: %w", target.Target, err))
+		}
+	}
+	if err := writeRegistryInstallTransaction(defaultRegistryInstallTransactionPath, targets); err != nil {
+		return rollbackRegistryInstallTargets(targets, fmt.Errorf("write install transaction: %w", err))
+	}
+	for _, target := range targets {
+		if target.HadTarget {
+			if err := registryInstallRename(target.Target, target.Backup); err != nil {
+				return rollbackRegistryInstallWithJournal(targets, fmt.Errorf("backup %s: %w", target.Target, err))
+			}
+			target.BackedUp = true
+			syncParentDirectory(target.Target)
+		}
+	}
+	for _, target := range targets {
+		if err := registryInstallRename(target.Staged, target.Target); err != nil {
+			return rollbackRegistryInstallWithJournal(targets, fmt.Errorf("commit %s: %w", target.Target, err))
+		}
+		target.Committed = true
+		target.Staged = ""
+		syncParentDirectory(target.Target)
+	}
+	if err := os.Remove(defaultRegistryInstallTransactionPath); err != nil {
+		return rollbackRegistryInstallWithJournal(targets, fmt.Errorf("commit install transaction: %w", err))
+	}
+	syncParentDirectory(defaultRegistryInstallTransactionPath)
+	for _, target := range targets {
+		if target.Backup != "" {
+			if err := os.RemoveAll(target.Backup); err == nil {
+				target.Backup = ""
+			}
+		}
+	}
+	return nil
+}
+
+func rollbackRegistryInstallWithJournal(targets []*registryInstallTarget, cause error) error {
+	result := rollbackRegistryInstallTargets(targets, cause)
+	complete := true
+	for _, target := range targets {
+		if target.Committed || target.BackedUp {
+			complete = false
+			break
+		}
+	}
+	if complete {
+		if err := os.Remove(defaultRegistryInstallTransactionPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("%w; remove completed transaction journal: %v", result, err)
+		}
+		syncParentDirectory(defaultRegistryInstallTransactionPath)
+	}
+	return result
+}
+
+func writeRegistryInstallTransaction(path string, targets []*registryInstallTarget) error {
+	transaction := registryInstallTransaction{
+		SchemaVersion: "datapan.registry-install-transaction.v1",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		Targets:       make([]registryInstallTransactionTarget, 0, len(targets)),
+	}
+	for _, target := range targets {
+		transaction.Targets = append(transaction.Targets, registryInstallTransactionTarget{
+			Target: target.Target, Staged: target.Staged, Backup: target.Backup, HadTarget: target.HadTarget,
+		})
+	}
+	data, err := jsonIndentedBytes(transaction)
+	if err != nil {
+		return err
+	}
+	staged, err := stageRegistryInstallFile(path, data, 0o600)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(staged.Staged)
+	if err := os.Rename(staged.Staged, path); err != nil {
+		return err
+	}
+	syncParentDirectory(path)
+	return nil
+}
+
+func recoverRegistryInstallTransaction(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var transaction registryInstallTransaction
+	if err := json.Unmarshal(data, &transaction); err != nil {
+		return false, fmt.Errorf("decode %s: %w", path, err)
+	}
+	if transaction.SchemaVersion != "datapan.registry-install-transaction.v1" || len(transaction.Targets) != 3 {
+		return false, fmt.Errorf("unsupported or invalid Registry install transaction")
+	}
+	if !sameFilePath(transaction.Targets[0].Target, defaultReleaseDir) || !sameFilePath(transaction.Targets[2].Target, defaultRegistryInstallProvenancePath) {
+		return false, fmt.Errorf("Registry install transaction contains unexpected release or provenance targets")
+	}
+	if sameFilePath(transaction.Targets[1].Target, transaction.Targets[0].Target) || sameFilePath(transaction.Targets[1].Target, transaction.Targets[2].Target) {
+		return false, fmt.Errorf("Registry install transaction contains duplicate targets")
+	}
+	for _, target := range transaction.Targets {
+		if err := validateRegistryInstallTransactionTarget(target); err != nil {
+			return false, err
+		}
+	}
+	var recoveryErrors []string
+	for idx := len(transaction.Targets) - 1; idx >= 0; idx-- {
+		target := transaction.Targets[idx]
+		backupExists := pathExists(target.Backup)
+		stagedExists := pathExists(target.Staged)
+		if backupExists {
+			if err := os.RemoveAll(target.Target); err != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Sprintf("remove interrupted target %s: %v", target.Target, err))
+				continue
+			}
+			if err := os.Rename(target.Backup, target.Target); err != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Sprintf("restore %s: %v", target.Target, err))
+				continue
+			}
+			syncParentDirectory(target.Target)
+		} else if !target.HadTarget && !stagedExists && pathExists(target.Target) {
+			if err := os.RemoveAll(target.Target); err != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Sprintf("remove new interrupted target %s: %v", target.Target, err))
+			} else {
+				syncParentDirectory(target.Target)
+			}
+		}
+		if err := os.RemoveAll(target.Staged); err != nil {
+			recoveryErrors = append(recoveryErrors, fmt.Sprintf("remove staged target %s: %v", target.Staged, err))
+		}
+	}
+	if len(recoveryErrors) > 0 {
+		return false, fmt.Errorf("Registry install recovery failed: %s", strings.Join(recoveryErrors, "; "))
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	syncParentDirectory(path)
+	return true, nil
+}
+
+func validateRegistryInstallTransactionTarget(target registryInstallTransactionTarget) error {
+	if strings.TrimSpace(target.Target) == "" || strings.TrimSpace(target.Staged) == "" {
+		return fmt.Errorf("Registry install transaction contains an empty target or staged path")
+	}
+	parent := filepath.Dir(filepath.Clean(target.Target))
+	if !sameFilePath(parent, filepath.Dir(filepath.Clean(target.Staged))) || !strings.HasPrefix(filepath.Base(target.Staged), "."+filepath.Base(target.Target)+".stage-") {
+		return fmt.Errorf("Registry install transaction has invalid staged path for %s", target.Target)
+	}
+	if target.HadTarget {
+		if strings.TrimSpace(target.Backup) == "" || !sameFilePath(parent, filepath.Dir(filepath.Clean(target.Backup))) || !strings.HasPrefix(filepath.Base(target.Backup), "."+filepath.Base(target.Target)+".backup-") {
+			return fmt.Errorf("Registry install transaction has invalid backup path for %s", target.Target)
+		}
+	} else if target.Backup != "" {
+		return fmt.Errorf("Registry install transaction has unexpected backup path for %s", target.Target)
+	}
+	return nil
+}
+
+func pathExists(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+func syncParentDirectory(path string) {
+	dir, err := os.Open(filepath.Dir(filepath.Clean(path)))
+	if err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
+	}
+}
+
+func stageRegistryInstallFile(target string, data []byte, mode os.FileMode) (registryInstallTarget, error) {
+	dir := filepath.Dir(filepath.Clean(target))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return registryInstallTarget{}, err
+	}
+	file, err := os.CreateTemp(dir, "."+filepath.Base(target)+".stage-*")
+	if err != nil {
+		return registryInstallTarget{}, err
+	}
+	staged := file.Name()
+	cleanup := func() {
+		_ = file.Close()
+		_ = os.Remove(staged)
+	}
+	if err := file.Chmod(mode); err != nil {
+		cleanup()
+		return registryInstallTarget{}, err
+	}
+	if _, err := file.Write(data); err != nil {
+		cleanup()
+		return registryInstallTarget{}, err
+	}
+	if err := file.Sync(); err != nil {
+		cleanup()
+		return registryInstallTarget{}, err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(staged)
+		return registryInstallTarget{}, err
+	}
+	return registryInstallTarget{Target: target, Staged: staged}, nil
+}
+
+func stageRegistryInstallDirectory(target string, files map[string][]byte) (registryInstallTarget, error) {
+	parent := filepath.Dir(filepath.Clean(target))
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return registryInstallTarget{}, err
+	}
+	staged, err := os.MkdirTemp(parent, "."+filepath.Base(target)+".stage-*")
+	if err != nil {
+		return registryInstallTarget{}, err
+	}
+	if _, err := writeDatapanRegistryReleaseFiles(staged, files); err != nil {
+		_ = os.RemoveAll(staged)
+		return registryInstallTarget{}, err
+	}
+	return registryInstallTarget{Target: target, Staged: staged}, nil
+}
+
+func registryInstallBackupPath(target string) (string, error) {
+	parent := filepath.Dir(filepath.Clean(target))
+	file, err := os.CreateTemp(parent, "."+filepath.Base(target)+".backup-*")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := os.Remove(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func rollbackRegistryInstallTargets(targets []*registryInstallTarget, cause error) error {
+	var rollbackErrors []string
+	for idx := len(targets) - 1; idx >= 0; idx-- {
+		target := targets[idx]
+		if target.Committed {
+			if err := os.RemoveAll(target.Target); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("remove %s: %v", target.Target, err))
+			} else {
+				target.Committed = false
+			}
+		}
+		if target.BackedUp && target.Backup != "" {
+			if err := registryInstallRename(target.Backup, target.Target); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore %s: %v", target.Target, err))
+			} else {
+				target.Backup = ""
+				target.BackedUp = false
+				syncParentDirectory(target.Target)
+			}
+		}
+	}
+	if len(rollbackErrors) > 0 {
+		return fmt.Errorf("%w; rollback failed: %s", cause, strings.Join(rollbackErrors, "; "))
+	}
+	return cause
 }
 
 func decodeRegistryBytes(data []byte) ([]datago.Spec, error) {
@@ -4344,12 +5091,21 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	reg := a.reg
+	verificationTrustApp := a
 	if registryPath != "" {
 		loaded, err := datago.LoadRegistry(registryPath)
 		if err != nil {
 			return a.catalogDiffFailure(jsonOut, "registry", registryPath, err)
 		}
 		reg = loaded
+		if a.registryPath == "" || !sameFilePath(registryPath, a.registryPath) {
+			verificationTrustApp.registryPath = registryPath
+			verificationTrustApp.registrySource = "explicit"
+		}
+	}
+	registryTrust := verificationTrustApp.localRegistryTrust()
+	if !registryTrust.ExecutionAllowed {
+		return verificationTrustApp.rejectBlockedRegistryExecution(jsonOut, registryTrust)
 	}
 	candidateLimit := limit
 	if len(excludeSeen) > 0 {
@@ -4387,6 +5143,9 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				VerifiedAt:    generatedAt,
 			})
 			cancel()
+			result.Reason = redactCredentialText(result.Reason, key)
+			result.URL = redactCredentialText(result.URL, key)
+			result.Params = publicProbeParams(result.Params)
 			if result.Reason == "missing_auth" {
 				authMissing = true
 			}
@@ -4410,6 +5169,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		}
 		plan, _, err := a.requestPlanForOperation(candidate.Spec, candidate.Operation, candidate.Params)
 		if err != nil {
+			_, key, _ := a.resolveKeyValue()
 			results = append(results, datago.VerificationResult{
 				DatasetID:       candidate.Spec.ID,
 				Title:           candidate.Spec.Title,
@@ -4418,7 +5178,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				EndpointHost:    candidate.EndpointHost,
 				DependencyClass: candidate.DependencyClass,
 				Status:          "failed",
-				Reason:          err.Error(),
+				Reason:          safeExecutionError(err, requestPlan{Credential: providers.Credential{Value: key}}),
 				VerifiedAt:      generatedAt,
 				Params:          candidate.Params,
 			})
@@ -4435,7 +5195,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				EndpointHost:    candidate.EndpointHost,
 				DependencyClass: candidate.DependencyClass,
 				Status:          "failed",
-				Reason:          err.Error(),
+				Reason:          safeExecutionError(err, plan),
 				VerifiedAt:      generatedAt,
 				URL:             plan.RedactedURL,
 				Params:          candidate.Params,
@@ -4496,15 +5256,17 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	}
 	if jsonOut {
 		if code := a.writeJSON(map[string]any{
-			"ok":     !authMissing && report.Summary.Failed == 0,
-			"output": output,
-			"report": report,
+			"ok":             !authMissing && report.Summary.Failed == 0,
+			"output":         output,
+			"report":         report,
+			"registry_trust": registryTrust,
 		}); code != exitOK {
 			return code
 		}
 		return verificationExitCode(report.Summary, authMissing)
 	}
 	fmt.Fprintln(a.stdout, "Catalog verification")
+	printRegistryTrustBrief(a.stdout, registryTrust)
 	if registryPath != "" {
 		fmt.Fprintf(a.stdout, "  registry: %s\n", registryPath)
 	}
@@ -5462,8 +6224,10 @@ func (a app) info(args []string, jsonOut bool) int {
 	if !ok {
 		return code
 	}
+	trust := a.localRegistryTrust()
+	verificationIndex := installedOperationVerificationIndex()
 	if jsonOut {
-		return a.writeJSON(showPayload(spec))
+		return a.writeJSON(showPayload(spec, trust, verificationIndex))
 	}
 	fmt.Fprintf(a.stdout, "%s\n", spec.Title)
 	fmt.Fprintf(a.stdout, "  list id: %s\n", spec.ID)
@@ -5477,10 +6241,11 @@ func (a app) info(args []string, jsonOut bool) int {
 	fmt.Fprintf(a.stdout, "  priority: %s\n", spec.Priority)
 	fmt.Fprintf(a.stdout, "  application: %s\n", spec.ApplicationURL())
 	fmt.Fprintf(a.stdout, "  env vars: %s\n", strings.Join(datago.KeyEnvNames, ", "))
+	printRegistryTrustBrief(a.stdout, trust)
 	access := showAccessSummary(spec)
 	if len(access) > 1 {
 		fmt.Fprintln(a.stdout, "  access:")
-		for _, key := range []string{"dev_approval", "prod_approval", "charge", "register_status", "request_count", "data_format", "updated_at"} {
+		for _, key := range []string{"dev_approval", "prod_approval", "charge", "register_status", "request_count", "data_format", "updated_at", "source_url"} {
 			if value, ok := access[key]; ok && fmt.Sprint(value) != "" {
 				fmt.Fprintf(a.stdout, "    %s: %v\n", key, value)
 			}
@@ -5488,7 +6253,8 @@ func (a app) info(args []string, jsonOut bool) int {
 	}
 	if len(spec.Operations) > 0 {
 		fmt.Fprintln(a.stdout, "  operations:")
-		for _, summary := range showOperationSummaries(spec) {
+		for index, summary := range showOperationSummaries(spec) {
+			op := spec.Operations[index]
 			opName := fmt.Sprint(summary["name"])
 			fmt.Fprintf(a.stdout, "    - %s", opName)
 			if endpoint, ok := summary["endpoint"].(string); ok && endpoint != "" {
@@ -5498,6 +6264,15 @@ func (a app) info(args []string, jsonOut bool) int {
 				fmt.Fprint(a.stdout, " [not callable yet]")
 			}
 			fmt.Fprintln(a.stdout)
+			route := operationCallRoute(spec, op)
+			fmt.Fprintf(a.stdout, "      call ready: %s (%s)\n", yesNo(route.Ready), formatCallRoute(route))
+			if route.Provider != "" {
+				fmt.Fprintf(a.stdout, "      call provider: %s\n", route.Provider)
+			}
+			if route.Host != "" {
+				fmt.Fprintf(a.stdout, "      endpoint host: %s\n", route.Host)
+			}
+			printVerificationBriefIndented(a.stdout, verificationContextForOperation(verificationIndex, spec, op), "      ")
 			if params, ok := summary["request_params"].([]map[string]string); ok && len(params) > 0 {
 				fmt.Fprint(a.stdout, "      params:")
 				for _, param := range params {
@@ -5509,8 +6284,18 @@ func (a app) info(args []string, jsonOut bool) int {
 				}
 				fmt.Fprintln(a.stdout)
 			}
+			if authParams, ok := summary["auth_params"].([]map[string]string); ok && len(authParams) > 0 {
+				fmt.Fprint(a.stdout, "      auth params:")
+				for _, param := range authParams {
+					fmt.Fprintf(a.stdout, " %s", param["name"])
+				}
+				fmt.Fprintf(a.stdout, " via %s\n", strings.Join(datago.KeyEnvNames, ", "))
+			}
 			if defaults, ok := summary["default_params"].(map[string]string); ok && len(defaults) > 0 {
 				fmt.Fprintf(a.stdout, "      defaults: %s\n", formatParamMap(defaults))
+			}
+			if count, ok := summary["response_params_count"].(int); ok {
+				fmt.Fprintf(a.stdout, "      response fields: %d\n", count)
 			}
 			if example, ok := summary["example"].(string); ok && example != "" {
 				fmt.Fprintf(a.stdout, "      example: %s\n", example)
@@ -5523,13 +6308,15 @@ func (a app) info(args []string, jsonOut bool) int {
 	return exitOK
 }
 
-func showPayload(spec datago.Spec) map[string]any {
+func showPayload(spec datago.Spec, trust registryTrustContext, verificationIndex operationVerificationIndex) map[string]any {
 	return map[string]any{
-		"ok":         true,
-		"spec":       spec,
-		"access":     showAccessSummary(spec),
-		"operations": showOperationSummaries(spec),
-		"examples":   specExampleCommands(spec),
+		"ok":             true,
+		"spec":           spec,
+		"access":         showAccessSummary(spec),
+		"operations":     showOperationSummaries(spec),
+		"verification":   verificationContextsForSpec(verificationIndex, spec),
+		"registry_trust": trust,
+		"examples":       specExampleCommands(spec),
 	}
 }
 
@@ -5596,9 +6383,11 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 	}
 	commands := useCommandsForOperation(spec, op, params, paramsOutput, outputDir)
 	nextSteps := operationWorkflowNextSteps(spec, op, commands, paramsOutput, outputDir, a.registryPath)
+	trust := a.localRegistryTrust()
+	verificationIndex := installedOperationVerificationIndex()
 	var kit *useKit
 	if strings.TrimSpace(outputDir) != "" {
-		written, err := a.writeUseKit(outputDir, spec, op, params, commands)
+		written, err := a.writeUseKit(outputDir, spec, op, params, commands, trust, verificationContextForOperation(verificationIndex, spec, op))
 		if err != nil {
 			return a.fail(exitRequest, "%v", err)
 		}
@@ -5617,6 +6406,8 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 		"fields":             fields,
 		"commands":           commands,
 		"next_steps":         nextSteps,
+		"verification":       verificationContextForOperation(verificationIndex, spec, op),
+		"registry_trust":     trust,
 		"registry_source":    a.registrySource,
 		"registry_path":      a.registryPath,
 		"uses_params_file":   paramsOutput,
@@ -5636,6 +6427,8 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 	}
 	fmt.Fprintf(a.stdout, "  operation: %s\n", op.Name)
 	fmt.Fprintf(a.stdout, "  application: %s\n", spec.ApplicationURL())
+	printRegistryTrustBrief(a.stdout, trust)
+	printVerificationBrief(a.stdout, verificationContextForOperation(verificationIndex, spec, op))
 	if len(fields) > 0 {
 		fmt.Fprintln(a.stdout, "  params:")
 		for _, field := range fields {
@@ -5739,8 +6532,15 @@ func (a app) params(args []string, jsonOut bool) int {
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes params JSON to stdout")
 	}
+	provenanceOutput, args, err := consumeString(args, "--provenance-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if output == "-" && provenanceOutput != "" {
+		return a.fail(exitUsage, "--provenance-output requires file --output")
+	}
 	if len(args) < 1 {
-		return a.fail(exitUsage, "usage: datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--provenance-output PATH] [--json]")
 	}
 	positionalParams, err := parseKeyValueArgs(args[1:])
 	if err != nil {
@@ -5766,22 +6566,26 @@ func (a app) params(args []string, jsonOut bool) int {
 	if err := enc.Encode(template); err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
-	if err := writeOutput(output, out.Bytes(), a.stdout); err != nil {
-		return a.fail(exitRequest, "%v", err)
+	plan := curlExportPlan{Spec: spec, Operation: op}
+	provenancePath, err := a.writeStandaloneGeneratedArtifact(output, provenanceOutput, "params", plan, out.Bytes())
+	if err != nil {
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
+		return a.writePlannedArtifactJSON(map[string]any{
 			"ok":           true,
 			"dataset":      spec.ID,
 			"title":        spec.Title,
 			"operation":    op.Name,
 			"output":       output,
+			"provenance":   provenancePath,
 			"params":       template,
 			"fields":       fields,
 			"next_get":     paramsNextCommand(spec.ID, op.Name, output, false),
 			"next_dry_run": paramsNextCommand(spec.ID, op.Name, output, true),
-		})
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	return exitOK
 }
 
@@ -6103,7 +6907,7 @@ type useKitFile struct {
 	Path string `json:"path"`
 }
 
-func (a app) writeUseKit(outputDir string, spec datago.Spec, op datago.Operation, params map[string]string, commands map[string]string) (useKit, error) {
+func (a app) writeUseKit(outputDir string, spec datago.Spec, op datago.Operation, params map[string]string, commands map[string]string, trust registryTrustContext, verification operationVerificationContext) (useKit, error) {
 	outputDir = strings.TrimSpace(outputDir)
 	if outputDir == "" {
 		return useKit{}, fmt.Errorf("--output-dir is empty")
@@ -6168,11 +6972,129 @@ func (a app) writeUseKit(outputDir string, spec datago.Spec, op datago.Operation
 	if err := write("codegen_python", pythonPath, []byte(pythonClientForPlan(plan)), 0o600); err != nil {
 		return useKit{}, err
 	}
+	provenancePath := useOutputPath(outputDir, "datapan-provenance.json")
+	provenanceJSON, err := jsonIndentedBytes(map[string]any{
+		"schema_version":  "datapan.generated-artifact-provenance.v1",
+		"datapan_version": version,
+		"generated_at":    time.Now().UTC().Format(time.RFC3339),
+		"dataset":         spec.ID,
+		"operation":       op.Name,
+		"registry_trust":  trust,
+		"verification":    verification,
+	})
+	if err != nil {
+		return useKit{}, err
+	}
+	if err := write("provenance", provenancePath, provenanceJSON, 0o600); err != nil {
+		return useKit{}, err
+	}
 	readmePath := useOutputPath(outputDir, "README.md")
 	if err := write("readme", readmePath, []byte(useKitReadme(spec, op, commands, files)), 0o600); err != nil {
 		return useKit{}, err
 	}
 	return useKit{OutputDir: outputDir, Files: files}, nil
+}
+
+func (a app) writeStandaloneGeneratedArtifact(output, provenanceOutput, kind string, plan curlExportPlan, data []byte) (string, error) {
+	if output == "-" {
+		if err := writeOutput(output, data, a.stdout); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	if strings.TrimSpace(provenanceOutput) == "" {
+		provenanceOutput = output + ".datapan-provenance.json"
+	}
+	if sameFilePath(output, provenanceOutput) {
+		return "", fmt.Errorf("provenance output must differ from artifact output")
+	}
+	trust := a.localRegistryTrust()
+	verification := verificationContextForOperation(installedOperationVerificationIndex(), plan.Spec, plan.Operation)
+	sum := sha256.Sum256(data)
+	payload := map[string]any{
+		"schema_version":  "datapan.generated-artifact-provenance.v1",
+		"datapan_version": version,
+		"generated_at":    time.Now().UTC().Format(time.RFC3339),
+		"dataset":         plan.Spec.ID,
+		"operation":       plan.Operation.Name,
+		"registry_trust":  trust,
+		"verification":    verification,
+		"artifact": map[string]any{
+			"kind": kind, "path": output, "bytes": len(data), "sha256": fmt.Sprintf("%x", sum),
+		},
+	}
+	provenanceData, err := jsonIndentedBytes(payload)
+	if err != nil {
+		return "", err
+	}
+	if err := commitGeneratedArtifactPair(output, data, provenanceOutput, provenanceData); err != nil {
+		return "", err
+	}
+	return provenanceOutput, nil
+}
+
+func commitGeneratedArtifactPair(artifactPath string, artifactData []byte, provenancePath string, provenanceData []byte) error {
+	artifactTarget, err := stageRegistryInstallFile(artifactPath, artifactData, 0o600)
+	if err != nil {
+		return fmt.Errorf("stage generated artifact: %w", err)
+	}
+	provenanceTarget, err := stageRegistryInstallFile(provenancePath, provenanceData, 0o600)
+	if err != nil {
+		_ = os.Remove(artifactTarget.Staged)
+		return fmt.Errorf("stage generated provenance: %w", err)
+	}
+	targets := []*registryInstallTarget{&artifactTarget, &provenanceTarget}
+	defer func() {
+		for _, target := range targets {
+			if target.Staged != "" {
+				_ = os.RemoveAll(target.Staged)
+			}
+		}
+	}()
+	for _, target := range targets {
+		if _, err := os.Lstat(target.Target); err == nil {
+			target.Backup, err = registryInstallBackupPath(target.Target)
+			if err != nil {
+				return rollbackRegistryInstallTargets(targets, fmt.Errorf("reserve generated artifact backup: %w", err))
+			}
+			target.HadTarget = true
+			if err := registryInstallRename(target.Target, target.Backup); err != nil {
+				return rollbackRegistryInstallTargets(targets, fmt.Errorf("backup generated artifact %s: %w", target.Target, err))
+			}
+			target.BackedUp = true
+		} else if !os.IsNotExist(err) {
+			return rollbackRegistryInstallTargets(targets, fmt.Errorf("inspect generated artifact %s: %w", target.Target, err))
+		}
+	}
+	for _, target := range targets {
+		if err := registryInstallRename(target.Staged, target.Target); err != nil {
+			return rollbackRegistryInstallTargets(targets, fmt.Errorf("commit generated artifact %s: %w", target.Target, err))
+		}
+		target.Committed = true
+		target.Staged = ""
+		syncParentDirectory(target.Target)
+	}
+	for _, target := range targets {
+		if target.Backup != "" {
+			_ = os.RemoveAll(target.Backup)
+			target.Backup = ""
+			target.BackedUp = false
+		}
+	}
+	return nil
+}
+
+func (a app) generatedArtifactFailure(jsonOut bool, err error) int {
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok": false, "error": "artifact_generation_failed", "message": err.Error(),
+			"registry_trust": a.localRegistryTrust(),
+		}); code != exitOK {
+			return code
+		}
+		return exitRequest
+	}
+	return a.fail(exitRequest, "%v", err)
 }
 
 func jsonIndentedBytes(payload any) ([]byte, error) {
@@ -6420,6 +7342,242 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 		}
 		item["examples"] = specExampleCommands(spec)
 		out = append(out, item)
+	}
+	return out
+}
+
+type operationVerificationContext struct {
+	DatasetID         string `json:"dataset_id"`
+	Operation         string `json:"operation"`
+	Status            string `json:"status"`
+	Reason            string `json:"reason,omitempty"`
+	SemanticStatus    string `json:"semantic_status,omitempty"`
+	HTTPStatus        int    `json:"http_status,omitempty"`
+	VerifiedAt        string `json:"verified_at,omitempty"`
+	ReportGeneratedAt string `json:"report_generated_at,omitempty"`
+	Freshness         string `json:"freshness"`
+	FreshnessAsOf     string `json:"freshness_as_of,omitempty"`
+	FreshDays         int    `json:"fresh_days,omitempty"`
+	ExpireDays        int    `json:"expire_days,omitempty"`
+}
+
+type operationVerificationIndex struct {
+	GeneratedAt     string
+	FreshnessPolicy verificationFreshnessPolicy
+	Results         map[string]operationVerificationContext
+}
+
+type verificationFreshnessPolicy struct {
+	Present    bool
+	Valid      bool
+	AsOf       time.Time
+	AsOfText   string
+	FreshDays  int
+	ExpireDays int
+	Error      string
+}
+
+type sustainableCoveragePolicy struct {
+	SchemaVersion string `json:"schema_version"`
+	Freshness     struct {
+		FreshDays                      int    `json:"fresh_days"`
+		ExpireDays                     int    `json:"expire_days"`
+		MissingTimestampClassification string `json:"missing_timestamp_classification"`
+		EvaluationTimeSource           string `json:"evaluation_time_source"`
+	} `json:"freshness"`
+}
+
+func installedOperationVerificationIndex() operationVerificationIndex {
+	index := operationVerificationIndex{Results: map[string]operationVerificationContext{}, FreshnessPolicy: installedVerificationFreshnessPolicy()}
+	report, err := readVerificationReport(defaultReleaseVerificationPath)
+	if err != nil {
+		return index
+	}
+	index.GeneratedAt = report.GeneratedAt
+	for _, result := range report.Results {
+		context := operationVerificationContext{
+			DatasetID:         result.DatasetID,
+			Operation:         result.Operation,
+			Status:            defaultIfEmpty(result.Status, "unknown"),
+			Reason:            result.Reason,
+			SemanticStatus:    result.SemanticStatus,
+			HTTPStatus:        result.HTTPStatus,
+			VerifiedAt:        result.VerifiedAt,
+			ReportGeneratedAt: report.GeneratedAt,
+		}
+		applyVerificationFreshness(&context, index.FreshnessPolicy)
+		index.Results[verificationContextKey(result.DatasetID, result.Operation)] = context
+	}
+	return index
+}
+
+func installedVerificationFreshnessPolicy() verificationFreshnessPolicy {
+	policy := verificationFreshnessPolicy{Present: fileExists(defaultReleaseSustainableCoveragePolicyPath)}
+	if !policy.Present {
+		return policy
+	}
+	data, err := os.ReadFile(defaultReleaseSustainableCoveragePolicyPath)
+	if err != nil {
+		policy.Error = err.Error()
+		return policy
+	}
+	var contract sustainableCoveragePolicy
+	if err := json.Unmarshal(data, &contract); err != nil {
+		policy.Error = err.Error()
+		return policy
+	}
+	if contract.SchemaVersion != "datapan.sustainable-coverage-policy.v1" ||
+		contract.Freshness.FreshDays < 1 || contract.Freshness.ExpireDays <= contract.Freshness.FreshDays ||
+		contract.Freshness.MissingTimestampClassification != "unknown_timestamp" ||
+		contract.Freshness.EvaluationTimeSource != "manifest.generated_at" {
+		policy.Error = "unsupported sustainable coverage freshness contract"
+		return policy
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		policy.Error = "read install provenance: " + err.Error()
+		return policy
+	}
+	if provenance.ReleaseManifestSHA256 == "" {
+		policy.Error = "install provenance does not bind the release manifest digest"
+		return policy
+	}
+	manifestData, err := os.ReadFile(defaultReleaseManifestPath)
+	if err != nil {
+		policy.Error = "read release manifest: " + err.Error()
+		return policy
+	}
+	manifestSum := sha256.Sum256(manifestData)
+	if !strings.EqualFold(provenance.ReleaseManifestSHA256, fmt.Sprintf("%x", manifestSum)) {
+		policy.Error = "release manifest digest does not match install provenance"
+		return policy
+	}
+	if err := verifyInstalledManifestArtifact(manifestData, "policy/sustainable-coverage.json", data); err != nil {
+		policy.Error = err.Error()
+		return policy
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		policy.Error = "decode release manifest: " + err.Error()
+		return policy
+	}
+	asOf, err := time.Parse(time.RFC3339, manifest.GeneratedAt)
+	if err != nil {
+		policy.Error = "parse manifest.generated_at: " + err.Error()
+		return policy
+	}
+	policy.Valid = true
+	policy.AsOf = asOf
+	policy.AsOfText = manifest.GeneratedAt
+	policy.FreshDays = contract.Freshness.FreshDays
+	policy.ExpireDays = contract.Freshness.ExpireDays
+	return policy
+}
+
+func readManifestBoundReleaseArtifact(path, releasePath string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		return nil, fmt.Errorf("read install provenance: %w", err)
+	}
+	if provenance.ReleaseManifestSHA256 == "" {
+		return nil, fmt.Errorf("install provenance does not bind the release manifest digest")
+	}
+	manifestData, err := os.ReadFile(defaultReleaseManifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read release manifest: %w", err)
+	}
+	manifestSum := sha256.Sum256(manifestData)
+	if !strings.EqualFold(provenance.ReleaseManifestSHA256, fmt.Sprintf("%x", manifestSum)) {
+		return nil, fmt.Errorf("release manifest digest does not match install provenance")
+	}
+	if err := verifyInstalledManifestArtifact(manifestData, releasePath, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func applyVerificationFreshness(context *operationVerificationContext, policy verificationFreshnessPolicy) {
+	if !policy.Present {
+		context.Freshness = "not_evaluated_by_cli"
+		return
+	}
+	if !policy.Valid {
+		context.Freshness = "policy_invalid"
+		return
+	}
+	context.FreshnessAsOf = policy.AsOfText
+	context.FreshDays = policy.FreshDays
+	context.ExpireDays = policy.ExpireDays
+	if strings.TrimSpace(context.VerifiedAt) == "" {
+		context.Freshness = "unknown_timestamp"
+		return
+	}
+	verifiedAt, err := time.Parse(time.RFC3339, context.VerifiedAt)
+	if err != nil || verifiedAt.After(policy.AsOf) {
+		context.Freshness = "invalid_timestamp"
+		return
+	}
+	freshBoundary := policy.AsOf.AddDate(0, 0, -policy.FreshDays)
+	expireBoundary := policy.AsOf.AddDate(0, 0, -policy.ExpireDays)
+	switch {
+	case !verifiedAt.Before(freshBoundary):
+		context.Freshness = "fresh"
+	case !verifiedAt.Before(expireBoundary):
+		context.Freshness = "stale"
+	default:
+		context.Freshness = "expired"
+	}
+}
+
+func verificationContextKey(datasetID, operation string) string {
+	return strings.TrimSpace(datasetID) + "\x00" + strings.TrimSpace(operation)
+}
+
+func verificationContextForOperation(index operationVerificationIndex, spec datago.Spec, op datago.Operation) operationVerificationContext {
+	if context, ok := index.Results[verificationContextKey(spec.ID, op.Name)]; ok {
+		return context
+	}
+	return operationVerificationContext{
+		DatasetID:         spec.ID,
+		Operation:         op.Name,
+		Status:            "unknown",
+		ReportGeneratedAt: index.GeneratedAt,
+		Freshness:         verificationMissingFreshness(index.FreshnessPolicy),
+		FreshnessAsOf:     index.FreshnessPolicy.AsOfText,
+		FreshDays:         index.FreshnessPolicy.FreshDays,
+		ExpireDays:        index.FreshnessPolicy.ExpireDays,
+	}
+}
+
+func verificationMissingFreshness(policy verificationFreshnessPolicy) string {
+	if !policy.Present {
+		return "not_evaluated_by_cli"
+	}
+	if !policy.Valid {
+		return "policy_invalid"
+	}
+	return "no_evidence"
+}
+
+func specSummariesWithVerification(specs []datago.Spec, index operationVerificationIndex) []map[string]any {
+	summaries := specSummaries(specs)
+	for idx, spec := range specs {
+		if len(spec.Operations) == 0 {
+			continue
+		}
+		summaries[idx]["verification"] = verificationContextForOperation(index, spec, spec.Operations[0])
+	}
+	return summaries
+}
+
+func verificationContextsForSpec(index operationVerificationIndex, spec datago.Spec) []operationVerificationContext {
+	out := make([]operationVerificationContext, 0, len(spec.Operations))
+	for _, op := range spec.Operations {
+		out = append(out, verificationContextForOperation(index, spec, op))
 	}
 	return out
 }
@@ -7045,12 +8203,28 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		defaultExists = true
 	}
 	releaseEvidence := installedReleaseEvidenceStatus(a.registryPath)
+	registryRelease := a.registryReleaseStatus(a.registrySource, a.registryPath)
+	registryTrust := a.localRegistryTrust()
+	readyForSearch := len(specs) > 0
+	if registryRelease.RegistryDigestMatches != nil && !*registryRelease.RegistryDigestMatches {
+		readyForSearch = false
+	}
+	readyForCalls := keyOK && readyForSearch
+	if releaseEvidence.ReadinessReady != nil && !*releaseEvidence.ReadinessReady {
+		readyForCalls = false
+	}
+	if strings.EqualFold(registryRelease.CLIConsumerStatus, "blocked") || strings.EqualFold(registryRelease.CLIConsumerStatus, "incompatible") {
+		readyForCalls = false
+	}
+	if !registryTrust.ExecutionAllowed {
+		readyForCalls = false
+	}
 	nextSteps := doctorNextSteps(a.registrySource, keyOK)
 	payload := map[string]any{
 		"ok":               true,
 		"version":          version,
-		"ready_for_search": len(specs) > 0,
-		"ready_for_calls":  keyOK && len(specs) > 0,
+		"ready_for_search": readyForSearch,
+		"ready_for_calls":  readyForCalls,
 		"registry": map[string]any{
 			"source":         a.registrySource,
 			"path":           a.registryPath,
@@ -7068,7 +8242,13 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		},
 		"providers":        providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
 		"release_evidence": releaseEvidence,
-		"next_steps":       nextSteps,
+		"registry_release": registryRelease,
+		"registry_trust":   registryTrust,
+		"registry_install_recovery": map[string]any{
+			"recovered_interrupted_transaction": a.installRecovered,
+			"journal_path":                      defaultRegistryInstallTransactionPath,
+		},
+		"next_steps": nextSteps,
 	}
 	if jsonOut {
 		return a.writeJSON(payload)
@@ -7092,10 +8272,28 @@ func (a app) doctor(args []string, jsonOut bool) int {
 	}
 	index := providerRegistry.IndexReport("", version)
 	fmt.Fprintf(a.stdout, "  provider adapters: %d adapters, %d hosts\n", index.AdapterCount, index.HostCount)
+	if a.installRecovered {
+		fmt.Fprintln(a.stdout, "  registry install recovery: restored previous complete installation")
+	}
 	if releaseEvidence.Present {
 		fmt.Fprintf(a.stdout, "  release evidence: %s (%d files)\n", releaseEvidence.ReleaseDir, releaseEvidence.FileCount)
 		if releaseEvidence.VerificationPresent {
 			fmt.Fprintf(a.stdout, "    verification: %d verified / %d total\n", releaseEvidence.VerificationVerified, releaseEvidence.VerificationTotal)
+			if releaseEvidence.FreshnessPolicyValid {
+				fmt.Fprintf(a.stdout, "    freshness: %d fresh, %d stale, %d expired, %d unknown timestamp (as of %s; %d/%d day policy)\n",
+					releaseEvidence.FreshnessFresh,
+					releaseEvidence.FreshnessStale,
+					releaseEvidence.FreshnessExpired,
+					releaseEvidence.FreshnessUnknownTimestamp,
+					releaseEvidence.FreshnessEvaluationAt,
+					releaseEvidence.FreshnessFreshDays,
+					releaseEvidence.FreshnessExpireDays,
+				)
+			} else if releaseEvidence.FreshnessPolicyPresent {
+				fmt.Fprintln(a.stdout, "    freshness: Registry policy invalid; manual review required")
+			} else {
+				fmt.Fprintln(a.stdout, "    freshness: not evaluated; Registry policy missing")
+			}
 		}
 		if releaseEvidence.RouteDispositionPresent {
 			fmt.Fprintf(a.stdout, "    route disposition: %d routes, %d remaining adapter candidates\n", releaseEvidence.RouteDispositionRoutes, releaseEvidence.RouteDispositionAdapterCandidates)
@@ -7103,9 +8301,31 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		if releaseEvidence.CoveragePresent {
 			fmt.Fprintf(a.stdout, "    coverage: %.1f%% callable, %.1f%% external adapter coverage\n", releaseEvidence.CallableOperationPercent, releaseEvidence.ExternalAdapterCoveragePercent)
 		}
+		if releaseEvidence.ConsumerDecisionPresent {
+			if releaseEvidence.ConsumerDecisionValid {
+				fmt.Fprintf(a.stdout, "    consumer decision: %s; datapan-cli %s\n", releaseEvidence.ConsumerReleaseDecision, releaseEvidence.CLIConsumerAction)
+				if releaseEvidence.CLIConsumerActionReason != "" {
+					fmt.Fprintf(a.stdout, "      reason: %s\n", releaseEvidence.CLIConsumerActionReason)
+				}
+			} else {
+				fmt.Fprintln(a.stdout, "    consumer decision: invalid; execution blocked")
+			}
+		}
+		if releaseEvidence.ErrorActionCatalogPresent {
+			fmt.Fprintf(a.stdout, "    error routing: valid=%t, %d rules\n", releaseEvidence.ErrorActionCatalogValid, releaseEvidence.ErrorActionRules)
+		}
+		if releaseEvidence.RuntimeRemediationPresent {
+			fmt.Fprintf(a.stdout, "    runtime remediation: valid=%t, %d blockers, %d warnings, manual review=%t\n",
+				releaseEvidence.RuntimeRemediationValid,
+				releaseEvidence.RuntimeRemediationBlocking,
+				releaseEvidence.RuntimeRemediationWarnings,
+				releaseEvidence.RuntimeRemediationManualReview,
+			)
+		}
 	} else {
 		fmt.Fprintf(a.stdout, "  release evidence: missing\n")
 	}
+	printRegistryReleaseStatus(a.stdout, registryRelease)
 	for _, step := range nextSteps {
 		fmt.Fprintf(a.stdout, "  next: %s\n", step)
 	}
@@ -7121,6 +8341,8 @@ type releaseEvidenceStatus struct {
 	ReleaseNotesPresent                  bool     `json:"release_notes_present"`
 	ManifestVerificationPresent          bool     `json:"manifest_verification_present"`
 	ReadinessPresent                     bool     `json:"readiness_present"`
+	ReadinessReady                       *bool    `json:"readiness_ready,omitempty"`
+	ReadinessFailedGates                 int      `json:"readiness_failed_gates,omitempty"`
 	VerificationPresent                  bool     `json:"verification_present"`
 	VerificationPath                     string   `json:"verification,omitempty"`
 	VerificationGeneratedAt              string   `json:"verification_generated_at,omitempty"`
@@ -7130,6 +8352,34 @@ type releaseEvidenceStatus struct {
 	VerificationSkipped                  int      `json:"verification_skipped,omitempty"`
 	VerificationUnknown                  int      `json:"verification_unknown,omitempty"`
 	VerificationEvidenceOperationPercent float64  `json:"verification_evidence_operation_percent,omitempty"`
+	FreshnessPolicyPresent               bool     `json:"freshness_policy_present"`
+	FreshnessPolicyValid                 bool     `json:"freshness_policy_valid"`
+	FreshnessEvaluationAt                string   `json:"freshness_evaluation_at,omitempty"`
+	FreshnessFreshDays                   int      `json:"freshness_fresh_days,omitempty"`
+	FreshnessExpireDays                  int      `json:"freshness_expire_days,omitempty"`
+	FreshnessReportPresent               bool     `json:"freshness_report_present"`
+	FreshnessFresh                       int      `json:"freshness_fresh,omitempty"`
+	FreshnessStale                       int      `json:"freshness_stale,omitempty"`
+	FreshnessExpired                     int      `json:"freshness_expired,omitempty"`
+	FreshnessUnknownTimestamp            int      `json:"freshness_unknown_timestamp,omitempty"`
+	ConsumerDecisionPresent              bool     `json:"consumer_decision_present"`
+	ConsumerDecisionValid                bool     `json:"consumer_decision_valid"`
+	ConsumerDecisionGeneratedAt          string   `json:"consumer_decision_generated_at,omitempty"`
+	ConsumerReleaseDecision              string   `json:"consumer_release_decision,omitempty"`
+	CanonicalRegistryConsumption         string   `json:"canonical_registry_consumption,omitempty"`
+	ConsumerManualReviewRequired         *bool    `json:"consumer_manual_review_required,omitempty"`
+	ConsumerManualReviewAccepted         *bool    `json:"consumer_manual_review_accepted,omitempty"`
+	CLIConsumerAction                    string   `json:"cli_consumer_action,omitempty"`
+	CLIConsumerActionReason              string   `json:"cli_consumer_action_reason,omitempty"`
+	ErrorActionCatalogPresent            bool     `json:"error_action_catalog_present"`
+	ErrorActionCatalogValid              bool     `json:"error_action_catalog_valid"`
+	ErrorActionCatalogGeneratedAt        string   `json:"error_action_catalog_generated_at,omitempty"`
+	ErrorActionRules                     int      `json:"error_action_rules,omitempty"`
+	RuntimeRemediationPresent            bool     `json:"runtime_remediation_present"`
+	RuntimeRemediationValid              bool     `json:"runtime_remediation_valid"`
+	RuntimeRemediationManualReview       bool     `json:"runtime_remediation_manual_review_required"`
+	RuntimeRemediationBlocking           int      `json:"runtime_remediation_blocking_count,omitempty"`
+	RuntimeRemediationWarnings           int      `json:"runtime_remediation_warning_count,omitempty"`
 	RouteDispositionPresent              bool     `json:"route_disposition_present"`
 	RouteDispositionPath                 string   `json:"route_disposition,omitempty"`
 	RouteDispositionRoutes               int      `json:"route_disposition_routes,omitempty"`
@@ -7146,6 +8396,1079 @@ type releaseEvidenceStatus struct {
 	Errors                               []string `json:"errors,omitempty"`
 }
 
+type registryReleaseStatus struct {
+	ProvenancePath             string                    `json:"provenance_path"`
+	ProvenancePresent          bool                      `json:"provenance_present"`
+	ActiveSource               string                    `json:"active_source"`
+	ActiveRegistry             string                    `json:"active_registry,omitempty"`
+	ActiveRegistryMatches      *bool                     `json:"active_registry_matches,omitempty"`
+	RegistryDigestMatches      *bool                     `json:"registry_digest_matches,omitempty"`
+	Installed                  registryInstallProvenance `json:"installed,omitempty"`
+	LatestTag                  string                    `json:"latest_version,omitempty"`
+	LatestAssetURL             string                    `json:"latest_asset_url,omitempty"`
+	LatestShardsAssetURL       string                    `json:"latest_shards_asset_url,omitempty"`
+	Stale                      *bool                     `json:"stale,omitempty"`
+	Current                    *bool                     `json:"current,omitempty"`
+	ConsumerCompatibilityFound bool                      `json:"consumer_compatibility_present"`
+	CLIConsumerStatus          string                    `json:"cli_consumer_status,omitempty"`
+	CLICompatibilityMode       string                    `json:"cli_compatibility_mode,omitempty"`
+	RuntimeManualReview        *bool                     `json:"runtime_manual_review_required,omitempty"`
+	RuntimeCompatibilityEffect string                    `json:"runtime_compatibility_effect,omitempty"`
+	Reason                     string                    `json:"reason,omitempty"`
+	LatestFetchError           string                    `json:"latest_fetch_error,omitempty"`
+	NextSteps                  []string                  `json:"next_steps,omitempty"`
+}
+
+type registryTrustContext struct {
+	Status                       string   `json:"status"`
+	RegistrySource               string   `json:"registry_source"`
+	RegistryPath                 string   `json:"registry_path,omitempty"`
+	ProvenancePresent            bool     `json:"provenance_present"`
+	ReleaseTag                   string   `json:"release_tag,omitempty"`
+	Integrity                    string   `json:"integrity"`
+	ManifestBinding              string   `json:"manifest_binding"`
+	RegistryDigestMatches        *bool    `json:"registry_digest_matches,omitempty"`
+	ReleaseReadiness             string   `json:"release_readiness"`
+	CLIConsumerStatus            string   `json:"cli_consumer_status,omitempty"`
+	CLICompatibilityMode         string   `json:"cli_compatibility_mode,omitempty"`
+	RuntimeManualReview          *bool    `json:"runtime_manual_review_required,omitempty"`
+	RuntimeCompatibilityEffect   string   `json:"runtime_compatibility_effect,omitempty"`
+	VerificationEvidence         string   `json:"verification_evidence"`
+	VerificationGeneratedAt      string   `json:"verification_generated_at,omitempty"`
+	VerificationFreshness        string   `json:"verification_freshness"`
+	FreshnessPolicyPath          string   `json:"freshness_policy,omitempty"`
+	FreshnessEvaluationAt        string   `json:"freshness_evaluation_at,omitempty"`
+	FreshnessFreshDays           int      `json:"freshness_fresh_days,omitempty"`
+	FreshnessExpireDays          int      `json:"freshness_expire_days,omitempty"`
+	ConsumerDecision             string   `json:"consumer_decision,omitempty"`
+	CLIConsumerAction            string   `json:"cli_consumer_action,omitempty"`
+	CLIConsumerActionReason      string   `json:"cli_consumer_action_reason,omitempty"`
+	ConsumerManualReviewAccepted *bool    `json:"consumer_manual_review_accepted,omitempty"`
+	ExecutionAllowed             bool     `json:"execution_allowed"`
+	ReasonCodes                  []string `json:"reason_codes,omitempty"`
+	NextSteps                    []string `json:"next_steps,omitempty"`
+}
+
+type executionFailure struct {
+	Category             string                  `json:"category"`
+	Reason               string                  `json:"reason"`
+	Retryable            bool                    `json:"retryable"`
+	NextSteps            []string                `json:"next_steps"`
+	RegistryRouting      *registryFailureRouting `json:"registry_routing,omitempty"`
+	RegistryRoutingError string                  `json:"registry_routing_error,omitempty"`
+}
+
+type registryErrorActionCatalog struct {
+	SchemaVersion string                    `json:"schema_version"`
+	GeneratedAt   string                    `json:"generated_at"`
+	Provider      string                    `json:"provider"`
+	SourceID      string                    `json:"source_id"`
+	Rules         []registryErrorActionRule `json:"rules"`
+}
+
+type registryErrorActionRule struct {
+	RuleID string `json:"rule_id"`
+	Status string `json:"status"`
+	Scope  struct {
+		Hosts             []string `json:"hosts"`
+		DatasetIDs        []string `json:"dataset_ids"`
+		OperationIDs      []string `json:"operation_ids"`
+		DependencyClasses []string `json:"dependency_classes"`
+	} `json:"scope"`
+	Match struct {
+		Kind          string `json:"kind"`
+		HTTPStatus    int    `json:"http_status"`
+		Field         string `json:"field"`
+		Value         string `json:"value"`
+		Contains      string `json:"contains"`
+		CaseSensitive bool   `json:"case_sensitive"`
+	} `json:"match"`
+	Classification   string                `json:"classification"`
+	Severity         string                `json:"severity"`
+	Actions          []registryErrorAction `json:"actions"`
+	ImpactCategories []string              `json:"impact_categories,omitempty"`
+}
+
+type registryErrorAction struct {
+	Target     string `json:"target"`
+	Action     string `json:"action"`
+	Automation string `json:"automation"`
+	Reason     string `json:"reason"`
+	IssueHint  string `json:"issue_hint,omitempty"`
+}
+
+type registryRuntimeBoundary struct {
+	SourceID             string   `json:"source_id"`
+	ManualReviewRequired bool     `json:"manual_review_required"`
+	CompatibilityEffect  string   `json:"compatibility_effect,omitempty"`
+	BlockingCount        int      `json:"blocking_count"`
+	WarningCount         int      `json:"warning_count"`
+	Findings             []string `json:"findings,omitempty"`
+}
+
+type registryFailureRouting struct {
+	SchemaVersion    string                   `json:"schema_version"`
+	GeneratedAt      string                   `json:"generated_at"`
+	SourceID         string                   `json:"source_id"`
+	RuleID           string                   `json:"rule_id"`
+	Classification   string                   `json:"classification"`
+	Severity         string                   `json:"severity"`
+	Actions          []registryErrorAction    `json:"actions"`
+	ImpactCategories []string                 `json:"impact_categories,omitempty"`
+	RuntimeBoundary  *registryRuntimeBoundary `json:"runtime_boundary,omitempty"`
+}
+
+func (a app) localRegistryTrust() registryTrustContext {
+	trust := registryTrustContext{
+		Status:                "untracked",
+		RegistrySource:        a.registrySource,
+		RegistryPath:          a.registryPath,
+		Integrity:             "unknown",
+		ManifestBinding:       "unknown",
+		ReleaseReadiness:      "unknown",
+		VerificationEvidence:  "missing",
+		VerificationFreshness: "not_evaluated",
+		ExecutionAllowed:      true,
+	}
+	if a.registrySource == "embedded" {
+		trust.Status = "embedded"
+		trust.ReasonCodes = append(trust.ReasonCodes, "embedded_registry")
+		trust.NextSteps = append(trust.NextSteps, "datapan init --json")
+		return trust
+	}
+
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			trust.ReasonCodes = append(trust.ReasonCodes, "registry_provenance_missing")
+		} else {
+			trust.ReasonCodes = append(trust.ReasonCodes, "registry_provenance_invalid")
+			if sameFilePath(a.registryPath, defaultRegistryPath) {
+				trust.Status = "blocked"
+				trust.ExecutionAllowed = false
+			}
+		}
+		trust.NextSteps = append(trust.NextSteps, "datapan init --json")
+		return trust
+	}
+	trust.ProvenancePresent = true
+	trust.ReleaseTag = provenance.ReleaseTag
+	trust.CLIConsumerStatus = provenance.CLIConsumerStatus
+	trust.CLICompatibilityMode = provenance.CLICompatibilityMode
+	trust.RuntimeManualReview = provenance.RuntimeManualReview
+	trust.RuntimeCompatibilityEffect = provenance.RuntimeCompatibilityRisk
+	trust.ConsumerDecision = provenance.ConsumerReleaseDecision
+	trust.CLIConsumerAction = provenance.CLIConsumerAction
+	trust.CLIConsumerActionReason = provenance.CLIConsumerActionReason
+	trust.ConsumerManualReviewAccepted = provenance.ConsumerManualReviewAccepted
+	if provenance.ManifestRegistryVerified != nil && *provenance.ManifestRegistryVerified {
+		trust.ManifestBinding = "verified"
+	} else {
+		trust.ManifestBinding = "missing"
+		trust.ReasonCodes = append(trust.ReasonCodes, "registry_manifest_binding_missing")
+	}
+	if !sameFilePath(a.registryPath, provenance.RegistryPath) {
+		trust.ReasonCodes = append(trust.ReasonCodes, "active_registry_differs_from_provenance")
+		trust.NextSteps = append(trust.NextSteps, "install provenance for the active registry path")
+		return trust
+	}
+
+	matches, err := registryDigestMatches(a.registryPath, provenance.RegistrySHA256)
+	if err != nil {
+		trust.Status = "blocked"
+		trust.Integrity = "check_failed"
+		trust.ExecutionAllowed = false
+		trust.ReasonCodes = append(trust.ReasonCodes, "registry_integrity_check_failed")
+		trust.NextSteps = append(trust.NextSteps, "datapan init --json")
+		return trust
+	}
+	trust.RegistryDigestMatches = &matches
+	if !matches {
+		trust.Status = "blocked"
+		trust.Integrity = "mismatch"
+		trust.ExecutionAllowed = false
+		trust.ReasonCodes = append(trust.ReasonCodes, "registry_digest_mismatch")
+		trust.NextSteps = append(trust.NextSteps, "datapan init --json")
+		return trust
+	}
+	trust.Integrity = "verified"
+	trust.Status = "trusted"
+	if trust.ManifestBinding != "verified" {
+		trust.Status = "unverified"
+	}
+
+	releaseEvidence := installedReleaseEvidenceStatus(a.registryPath)
+	if releaseEvidence.ErrorActionCatalogPresent && !releaseEvidence.ErrorActionCatalogValid {
+		if trust.Status == "trusted" {
+			trust.Status = "manual_review"
+		}
+		trust.ReasonCodes = append(trust.ReasonCodes, "error_action_catalog_invalid")
+		trust.NextSteps = append(trust.NextSteps, "reinstall the Registry release to restore manifest-bound error routing")
+	}
+	if releaseEvidence.RuntimeRemediationPresent && !releaseEvidence.RuntimeRemediationValid {
+		if trust.Status == "trusted" {
+			trust.Status = "manual_review"
+		}
+		trust.ReasonCodes = append(trust.ReasonCodes, "runtime_remediation_invalid")
+		trust.NextSteps = append(trust.NextSteps, "reinstall the Registry release to restore runtime remediation evidence")
+	}
+	if releaseEvidence.ReadinessReady != nil {
+		if *releaseEvidence.ReadinessReady {
+			trust.ReleaseReadiness = "ready"
+		} else {
+			trust.ReleaseReadiness = "not_ready"
+			trust.Status = "blocked"
+			trust.ExecutionAllowed = false
+			trust.ReasonCodes = append(trust.ReasonCodes, "release_readiness_failed")
+			trust.NextSteps = append(trust.NextSteps, "datapan status --json")
+		}
+	} else {
+		trust.ReasonCodes = append(trust.ReasonCodes, "release_readiness_unknown")
+	}
+	if releaseEvidence.VerificationPresent {
+		trust.VerificationEvidence = "present"
+		trust.VerificationGeneratedAt = releaseEvidence.VerificationGeneratedAt
+		if releaseEvidence.FreshnessPolicyPresent && releaseEvidence.FreshnessPolicyValid {
+			trust.VerificationFreshness = "policy_evaluated"
+			trust.FreshnessPolicyPath = defaultReleaseSustainableCoveragePolicyPath
+			trust.FreshnessEvaluationAt = releaseEvidence.FreshnessEvaluationAt
+			trust.FreshnessFreshDays = releaseEvidence.FreshnessFreshDays
+			trust.FreshnessExpireDays = releaseEvidence.FreshnessExpireDays
+		} else if releaseEvidence.FreshnessPolicyPresent {
+			trust.VerificationFreshness = "policy_invalid"
+			if trust.Status == "trusted" {
+				trust.Status = "manual_review"
+			}
+			trust.ReasonCodes = append(trust.ReasonCodes, "verification_freshness_policy_invalid")
+			trust.NextSteps = append(trust.NextSteps, "reinstall a Registry release with a valid sustainable coverage policy")
+		} else {
+			trust.VerificationFreshness = "not_evaluated_by_cli"
+			trust.ReasonCodes = append(trust.ReasonCodes, "verification_freshness_policy_missing")
+		}
+	} else {
+		trust.ReasonCodes = append(trust.ReasonCodes, "verification_evidence_missing")
+	}
+	if releaseEvidence.ConsumerDecisionPresent {
+		trust.ConsumerDecision = releaseEvidence.ConsumerReleaseDecision
+		trust.CLIConsumerAction = releaseEvidence.CLIConsumerAction
+		trust.CLIConsumerActionReason = releaseEvidence.CLIConsumerActionReason
+		trust.ConsumerManualReviewAccepted = releaseEvidence.ConsumerManualReviewAccepted
+		switch {
+		case !releaseEvidence.ConsumerDecisionValid:
+			trust.Status = "blocked"
+			trust.ExecutionAllowed = false
+			trust.ReasonCodes = append(trust.ReasonCodes, "release_consumer_decision_invalid")
+			trust.NextSteps = append(trust.NextSteps, "reinstall a manifest-bound Registry release and inspect status --json")
+		case releaseEvidence.ConsumerReleaseDecision == "blocked":
+			trust.Status = "blocked"
+			trust.ExecutionAllowed = false
+			trust.ReasonCodes = append(trust.ReasonCodes, "release_consumer_decision_blocked")
+			trust.NextSteps = append(trust.NextSteps, "inspect release_evidence consumer decision and adopt a safe Registry release")
+		case releaseEvidence.CLIConsumerAction != "consume_canonical_registry":
+			trust.Status = "blocked"
+			trust.ExecutionAllowed = false
+			trust.ReasonCodes = append(trust.ReasonCodes, "cli_consumer_action_unsupported")
+			trust.NextSteps = append(trust.NextSteps, "inspect the Registry datapan-cli consumer action before execution")
+		case releaseEvidence.ConsumerReleaseDecision == "manual_review_required" || (releaseEvidence.ConsumerManualReviewRequired != nil && *releaseEvidence.ConsumerManualReviewRequired):
+			if releaseEvidence.ConsumerManualReviewAccepted != nil && *releaseEvidence.ConsumerManualReviewAccepted {
+				trust.ReasonCodes = append(trust.ReasonCodes, "release_manual_review_boundary_accepted")
+			} else {
+				if trust.Status == "trusted" {
+					trust.Status = "manual_review"
+				}
+				trust.ReasonCodes = append(trust.ReasonCodes, "release_manual_review_required")
+				trust.NextSteps = append(trust.NextSteps, "inspect the Registry release consumer decision before relying on runtime evidence")
+			}
+		}
+	} else if provenance.ConsumerReleaseDecision != "" || provenance.CLIConsumerAction != "" {
+		trust.Status = "blocked"
+		trust.ExecutionAllowed = false
+		trust.ReasonCodes = append(trust.ReasonCodes, "release_consumer_decision_missing_from_install")
+		trust.NextSteps = append(trust.NextSteps, "reinstall the Registry release to restore its consumer decision artifact")
+	} else {
+		trust.ReasonCodes = append(trust.ReasonCodes, "release_consumer_decision_missing")
+	}
+	if compatibility, ok := installedConsumerCompatibilityStatus(); ok {
+		trust.CLIConsumerStatus = compatibility.CLIConsumerStatus
+		trust.CLICompatibilityMode = compatibility.CLICompatibilityMode
+		trust.RuntimeManualReview = compatibility.RuntimeManualReviewRequired
+		trust.RuntimeCompatibilityEffect = compatibility.RuntimeCompatibilityEffect
+	}
+	if strings.EqualFold(trust.CLIConsumerStatus, "blocked") || strings.EqualFold(trust.CLIConsumerStatus, "incompatible") {
+		trust.Status = "blocked"
+		trust.ExecutionAllowed = false
+		trust.ReasonCodes = append(trust.ReasonCodes, "cli_consumer_"+strings.ToLower(trust.CLIConsumerStatus))
+		trust.NextSteps = append(trust.NextSteps, "datapan status --json")
+	}
+	if trust.RuntimeManualReview != nil && *trust.RuntimeManualReview {
+		if trust.Status == "trusted" {
+			trust.Status = "manual_review"
+		}
+		trust.ReasonCodes = append(trust.ReasonCodes, "runtime_manual_review_required")
+	}
+	trust.ReasonCodes = uniqueStrings(trust.ReasonCodes)
+	trust.NextSteps = uniqueStrings(trust.NextSteps)
+	return trust
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func printRegistryTrustBrief(w io.Writer, trust registryTrustContext) {
+	fmt.Fprintf(w, "  registry trust: %s", trust.Status)
+	if trust.ReleaseTag != "" {
+		fmt.Fprintf(w, " (%s)", trust.ReleaseTag)
+	}
+	fmt.Fprintln(w)
+	if trust.RuntimeManualReview != nil && *trust.RuntimeManualReview {
+		fmt.Fprintln(w, "    runtime evidence: manual review required")
+	}
+	if !trust.ExecutionAllowed {
+		fmt.Fprintf(w, "    execution blocked: %s\n", strings.Join(trust.ReasonCodes, ", "))
+	}
+}
+
+func printVerificationBrief(w io.Writer, verification operationVerificationContext) {
+	printVerificationBriefIndented(w, verification, "  ")
+}
+
+func printVerificationBriefIndented(w io.Writer, verification operationVerificationContext, indent string) {
+	fmt.Fprintf(w, "%sverification: %s", indent, verification.Status)
+	if verification.VerifiedAt != "" {
+		fmt.Fprintf(w, " at %s", verification.VerifiedAt)
+	}
+	if verification.Freshness != "" {
+		fmt.Fprintf(w, "; freshness %s", verification.Freshness)
+	}
+	if verification.FreshnessAsOf != "" {
+		fmt.Fprintf(w, " as of %s", verification.FreshnessAsOf)
+	}
+	fmt.Fprintln(w)
+	if warning := verificationEvidenceWarning(verification); warning != nil {
+		fmt.Fprintf(w, "%s  evidence warning: %s; %s\n", indent, warning.Reason, strings.Join(warning.NextSteps, "; "))
+	}
+}
+
+func (a app) rejectBlockedRegistryExecution(jsonOut bool, trust registryTrustContext) int {
+	message := "registry trust does not allow provider execution"
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{
+			"ok":             false,
+			"error":          "registry_untrusted",
+			"message":        message,
+			"reason_codes":   trust.ReasonCodes,
+			"registry_trust": trust,
+			"failure":        classifyRegistryTrustFailure(trust),
+			"next_steps":     trust.NextSteps,
+		}); code != exitOK {
+			return code
+		}
+		return exitRequest
+	}
+	fmt.Fprintf(a.stderr, "%s: %s\n", message, strings.Join(trust.ReasonCodes, ", "))
+	printExecutionFailureBrief(a.stderr, classifyRegistryTrustFailure(trust))
+	return exitRequest
+}
+
+func classifyRegistryTrustFailure(trust registryTrustContext) executionFailure {
+	reason := "registry_compatibility_blocked"
+	steps := append([]string(nil), trust.NextSteps...)
+	if len(steps) == 0 {
+		steps = []string{"run datapan status --json and inspect registry_trust.reason_codes"}
+	}
+	for _, code := range trust.ReasonCodes {
+		switch code {
+		case "release_consumer_decision_blocked", "release_consumer_decision_invalid", "cli_consumer_action_unsupported", "cli_consumer_blocked", "cli_consumer_incompatible":
+			reason = code
+			return executionFailure{Category: "compatibility", Reason: reason, Retryable: false, NextSteps: steps}
+		case "registry_digest_mismatch", "registry_integrity_check_failed":
+			reason = code
+		}
+	}
+	return executionFailure{Category: "compatibility", Reason: reason, Retryable: false, NextSteps: steps}
+}
+
+func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryTrustContext, verification operationVerificationContext, plan requestPlan) map[string]any {
+	payload := map[string]any{
+		"ok":              envelope.OK,
+		"provider":        envelope.Provider,
+		"dataset":         envelope.Dataset,
+		"operation":       envelope.Operation,
+		"status_code":     envelope.StatusCode,
+		"semantic_status": envelope.SemanticStatus,
+		"url":             envelope.URL,
+		"body":            envelope.Body,
+		"registry_trust":  trust,
+		"verification":    verification,
+	}
+	if envelope.ContentType != "" {
+		payload["content_type"] = envelope.ContentType
+	}
+	if envelope.Message != "" {
+		payload["message"] = envelope.Message
+	}
+	if envelope.ProviderStatus != nil {
+		payload["provider_status"] = envelope.ProviderStatus
+	}
+	if !envelope.OK {
+		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), plan, &envelope, nil)
+		payload["failure"] = failure
+	}
+	if warning := verificationEvidenceWarning(verification); warning != nil {
+		payload["evidence_warning"] = warning
+	}
+	return payload
+}
+
+func verificationEvidenceWarning(verification operationVerificationContext) *executionFailure {
+	switch verification.Freshness {
+	case "stale":
+		return &executionFailure{
+			Category: "stale_verification", Reason: "verification_evidence_stale", Retryable: false,
+			NextSteps: []string{"inspect the Registry verification timestamp and freshness policy", "install a newer Registry release when available"},
+		}
+	case "expired":
+		return &executionFailure{
+			Category: "stale_verification", Reason: "verification_evidence_expired", Retryable: false,
+			NextSteps: []string{"do not treat the preserved verification result as current", "install a newer Registry release or run a bounded verification"},
+		}
+	default:
+		return nil
+	}
+}
+
+func classifyResponseFailure(envelope datago.ResponseEnvelope) executionFailure {
+	message := strings.ToLower(strings.Join([]string{
+		envelope.Message,
+		providerStatusText(envelope.ProviderStatus),
+	}, " "))
+	switch {
+	case envelope.StatusCode == http.StatusUnauthorized || containsAny(message,
+		"service key", "service_key", "api key", "apikey", "unauthorized", "인증"):
+		return executionFailure{
+			Category:  "authentication",
+			Reason:    "provider_rejected_credential",
+			Retryable: false,
+			NextSteps: []string{"confirm the credential environment variable and encoding", "confirm that the credential is registered for this provider"},
+		}
+	case envelope.StatusCode == http.StatusForbidden || containsAny(message,
+		"access denied", "access_denied", "not approved", "approval", "활용신청", "승인"):
+		return executionFailure{
+			Category:  "approval",
+			Reason:    "provider_access_not_approved",
+			Retryable: false,
+			NextSteps: []string{"check the dataset approval status", "run datapan access <dataset> --dry-run --json"},
+		}
+	case envelope.StatusCode == http.StatusBadRequest || envelope.StatusCode == http.StatusUnprocessableEntity || containsAny(message,
+		"missing parameter", "invalid parameter", "required parameter", "필수 파라미터", "잘못된 요청"):
+		return executionFailure{
+			Category:  "input",
+			Reason:    "provider_rejected_input",
+			Retryable: false,
+			NextSteps: []string{"run datapan show <dataset> --json and check required parameters", "run the same command with --dry-run --json"},
+		}
+	case envelope.SemanticStatus == "html_response" || envelope.SemanticStatus == "html_landing_page":
+		return executionFailure{
+			Category:  "adapter",
+			Reason:    "unexpected_provider_response_shape",
+			Retryable: false,
+			NextSteps: []string{"inspect the Registry operation endpoint and adapter status", "report the response shape without including credentials or response data"},
+		}
+	case envelope.StatusCode == http.StatusTooManyRequests || envelope.StatusCode >= 500:
+		return executionFailure{
+			Category:  "external_provider",
+			Reason:    "provider_temporarily_unavailable",
+			Retryable: true,
+			NextSteps: []string{"retry with backoff", "check the provider service status before changing credentials"},
+		}
+	default:
+		return executionFailure{
+			Category:  "external_provider",
+			Reason:    "provider_rejected_request",
+			Retryable: false,
+			NextSteps: []string{"inspect provider_status and semantic_status", "run datapan show <dataset> --json to review Registry constraints"},
+		}
+	}
+}
+
+func classifyExecutionError(err error) executionFailure {
+	retryable := errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || containsAny(strings.ToLower(err.Error()),
+		"timeout", "deadline exceeded", "connection refused", "connection reset", "network down", "no such host", "temporary")
+	reason := "provider_transport_failed"
+	steps := []string{"check network connectivity and the provider service status"}
+	if retryable {
+		reason = "provider_transport_temporarily_failed"
+		steps = append(steps, "retry with backoff")
+	}
+	return executionFailure{Category: "external_provider", Reason: reason, Retryable: retryable, NextSteps: steps}
+}
+
+func applyRegistryFailureRouting(failure executionFailure, plan requestPlan, envelope *datago.ResponseEnvelope, executionErr error) executionFailure {
+	catalog, present, err := installedRegistryErrorActionCatalog()
+	if err != nil {
+		failure.RegistryRoutingError = err.Error()
+		return failure
+	}
+	if !present {
+		return failure
+	}
+	for _, rule := range catalog.Rules {
+		if rule.Status != "verified" || !registryErrorRuleScopeMatches(rule, plan) || !registryErrorRuleMatches(rule, envelope, executionErr) {
+			continue
+		}
+		routing := &registryFailureRouting{
+			SchemaVersion:    catalog.SchemaVersion,
+			GeneratedAt:      catalog.GeneratedAt,
+			SourceID:         catalog.SourceID,
+			RuleID:           rule.RuleID,
+			Classification:   rule.Classification,
+			Severity:         rule.Severity,
+			Actions:          append([]registryErrorAction(nil), rule.Actions...),
+			ImpactCategories: append([]string(nil), rule.ImpactCategories...),
+		}
+		if boundary, ok, boundaryErr := installedRegistryRuntimeBoundary(catalog.SourceID); boundaryErr != nil {
+			failure.RegistryRoutingError = boundaryErr.Error()
+		} else if ok {
+			routing.RuntimeBoundary = &boundary
+		}
+		failure.RegistryRouting = routing
+		failure.Category = registryClassificationCategory(rule.Classification, failure.Category)
+		failure.Reason = rule.RuleID
+		failure.Retryable = rule.Classification == "rate_limit" || rule.Classification == "upstream_outage" || rule.Classification == "maintenance"
+		steps := make([]string, 0, len(rule.Actions)+len(failure.NextSteps))
+		for _, action := range rule.Actions {
+			steps = append(steps, fmt.Sprintf("%s %s: %s", action.Target, action.Action, action.Reason))
+		}
+		failure.NextSteps = uniqueStrings(append(steps, failure.NextSteps...))
+		return failure
+	}
+	return failure
+}
+
+func installedRegistryErrorActionCatalog() (registryErrorActionCatalog, bool, error) {
+	if !fileExists(defaultReleaseErrorActionCatalogPath) {
+		return registryErrorActionCatalog{}, false, nil
+	}
+	data, err := readManifestBoundReleaseArtifact(defaultReleaseErrorActionCatalogPath, "reports/data-go-kr/error-action-catalog.json")
+	if err != nil {
+		return registryErrorActionCatalog{}, true, err
+	}
+	var catalog registryErrorActionCatalog
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return registryErrorActionCatalog{}, true, err
+	}
+	if catalog.SchemaVersion != "datapan.error-action-catalog.v1" || catalog.Provider != "data.go.kr" || catalog.SourceID != "data_go_kr" || len(catalog.Rules) == 0 {
+		return registryErrorActionCatalog{}, true, fmt.Errorf("unsupported or empty data.go.kr error-action catalog")
+	}
+	for _, rule := range catalog.Rules {
+		if strings.TrimSpace(rule.RuleID) == "" || strings.TrimSpace(rule.Match.Kind) == "" || strings.TrimSpace(rule.Classification) == "" || len(rule.Actions) == 0 {
+			return registryErrorActionCatalog{}, true, fmt.Errorf("invalid data.go.kr error-action rule")
+		}
+	}
+	return catalog, true, nil
+}
+
+func installedRegistryRuntimeBoundary(sourceID string) (registryRuntimeBoundary, bool, error) {
+	if !fileExists(defaultReleaseRuntimeRemediationPath) {
+		return registryRuntimeBoundary{}, false, nil
+	}
+	data, err := readManifestBoundReleaseArtifact(defaultReleaseRuntimeRemediationPath, "reports/source-runtime-remediation-map.json")
+	if err != nil {
+		return registryRuntimeBoundary{}, true, err
+	}
+	var report struct {
+		SchemaVersion string `json:"schema_version"`
+		Summary       struct {
+			ManualReviewRequired bool   `json:"manual_review_required"`
+			CompatibilityEffect  string `json:"compatibility_effect"`
+		} `json:"summary"`
+		Sources []struct {
+			SourceID      string `json:"source_id"`
+			BlockingCount int    `json:"blocking_count"`
+			WarningCount  int    `json:"warning_count"`
+			Findings      []struct {
+				ID string `json:"id"`
+			} `json:"findings"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return registryRuntimeBoundary{}, true, err
+	}
+	if report.SchemaVersion != "datapan.source-runtime-remediation-map.v1" {
+		return registryRuntimeBoundary{}, true, fmt.Errorf("unsupported source runtime remediation contract")
+	}
+	for _, source := range report.Sources {
+		if source.SourceID != sourceID {
+			continue
+		}
+		boundary := registryRuntimeBoundary{
+			SourceID: source.SourceID, ManualReviewRequired: report.Summary.ManualReviewRequired,
+			CompatibilityEffect: report.Summary.CompatibilityEffect,
+			BlockingCount:       source.BlockingCount, WarningCount: source.WarningCount,
+		}
+		for _, finding := range source.Findings {
+			boundary.Findings = append(boundary.Findings, finding.ID)
+		}
+		return boundary, true, nil
+	}
+	return registryRuntimeBoundary{}, false, nil
+}
+
+func registryErrorRuleScopeMatches(rule registryErrorActionRule, plan requestPlan) bool {
+	endpoint, _ := url.Parse(plan.URL)
+	return matchesOptionalFold(rule.Scope.Hosts, endpoint.Host) &&
+		matchesOptional(rule.Scope.DatasetIDs, plan.Spec.ID) &&
+		matchesOptional(rule.Scope.OperationIDs, plan.Operation.Name) &&
+		matchesOptional(rule.Scope.DependencyClasses, datago.OperationDependencyClass(plan.Spec, plan.Operation))
+}
+
+func matchesOptional(values []string, candidate string) bool {
+	if len(values) == 0 {
+		return true
+	}
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesOptionalFold(values []string, candidate string) bool {
+	if len(values) == 0 {
+		return true
+	}
+	for _, value := range values {
+		if strings.EqualFold(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func registryErrorRuleMatches(rule registryErrorActionRule, envelope *datago.ResponseEnvelope, executionErr error) bool {
+	switch rule.Match.Kind {
+	case "http_status":
+		return envelope != nil && envelope.StatusCode == rule.Match.HTTPStatus
+	case "field_equals":
+		return envelope != nil && compareRegistryRuleText(providerStatusField(envelope.ProviderStatus, rule.Match.Field), rule.Match.Value, rule.Match.CaseSensitive, false)
+	case "field_contains":
+		return envelope != nil && compareRegistryRuleText(providerStatusField(envelope.ProviderStatus, rule.Match.Field), rule.Match.Contains, rule.Match.CaseSensitive, true)
+	case "message_contains":
+		return envelope != nil && compareRegistryRuleText(envelope.Message+" "+providerStatusText(envelope.ProviderStatus), rule.Match.Contains, rule.Match.CaseSensitive, true)
+	case "timeout":
+		return executionErr != nil && (errors.Is(executionErr, context.DeadlineExceeded) || containsAny(strings.ToLower(executionErr.Error()), "timeout", "deadline exceeded"))
+	case "dns_error":
+		return executionErr != nil && containsAny(strings.ToLower(executionErr.Error()), "no such host", "name resolution", "dns")
+	case "tls_error":
+		return executionErr != nil && containsAny(strings.ToLower(executionErr.Error()), "tls", "certificate")
+	case "parse_error":
+		return envelope != nil && containsAny(envelope.SemanticStatus, "html_response", "html_landing_page", "unclassified_response")
+	default:
+		return false
+	}
+}
+
+func providerStatusField(status *datago.ProviderStatus, field string) string {
+	if status == nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "resultcode", "code":
+		return status.Code
+	case "resultmsg", "message":
+		return status.Message
+	case "returnreasoncode", "reasoncode":
+		return status.ReasonCode
+	case "returnauthmsg", "authmessage":
+		return status.AuthMessage
+	case "errmsg", "errormessage":
+		return status.ErrorMessage
+	default:
+		return ""
+	}
+}
+
+func compareRegistryRuleText(value, expected string, caseSensitive, contains bool) bool {
+	if !caseSensitive {
+		value = strings.ToLower(value)
+		expected = strings.ToLower(expected)
+	}
+	if contains {
+		return expected != "" && strings.Contains(value, expected)
+	}
+	return value == expected
+}
+
+func registryClassificationCategory(classification, fallback string) string {
+	switch classification {
+	case "credential":
+		return "authentication"
+	case "approval":
+		return "approval"
+	case "bad_request":
+		return "input"
+	case "parser", "adapter", "provider_contract":
+		return "adapter"
+	case "rate_limit", "not_found", "upstream_outage", "maintenance":
+		return "external_provider"
+	default:
+		return fallback
+	}
+}
+
+func printExecutionFailureBrief(w io.Writer, failure executionFailure) {
+	fmt.Fprintf(w, "failure: %s (%s)\n", failure.Category, failure.Reason)
+	if failure.RegistryRouting != nil {
+		fmt.Fprintf(w, "  Registry rule: %s (%s, %s)\n", failure.RegistryRouting.RuleID, failure.RegistryRouting.Classification, failure.RegistryRouting.Severity)
+	} else if failure.RegistryRoutingError != "" {
+		fmt.Fprintf(w, "  Registry routing unavailable: %s\n", failure.RegistryRoutingError)
+	}
+	for _, step := range uniqueStrings(failure.NextSteps) {
+		fmt.Fprintf(w, "  next: %s\n", step)
+	}
+}
+
+func providerStatusText(status *datago.ProviderStatus) string {
+	if status == nil {
+		return ""
+	}
+	return strings.Join([]string{status.Code, status.Message, status.ReasonCode, status.AuthMessage, status.ErrorMessage}, " ")
+}
+
+func containsAny(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func safeExecutionError(err error, plan requestPlan) string {
+	return redactCredentialText(err.Error(), plan.Credential.Value)
+}
+
+func redactCredentialText(value, credential string) string {
+	if secret := strings.TrimSpace(credential); secret != "" {
+		value = strings.ReplaceAll(value, secret, "REDACTED")
+		if encoded := url.QueryEscape(secret); encoded != secret {
+			value = strings.ReplaceAll(value, encoded, "REDACTED")
+		}
+		if encoded := url.PathEscape(secret); encoded != secret {
+			value = strings.ReplaceAll(value, encoded, "REDACTED")
+		}
+	}
+	return value
+}
+
+func redactResponseEnvelope(envelope datago.ResponseEnvelope, credential string) datago.ResponseEnvelope {
+	envelope.URL = redactCredentialText(envelope.URL, credential)
+	envelope.Body = redactCredentialText(envelope.Body, credential)
+	envelope.Message = redactCredentialText(envelope.Message, credential)
+	if envelope.ProviderStatus != nil {
+		status := *envelope.ProviderStatus
+		status.Source = redactCredentialText(status.Source, credential)
+		status.Code = redactCredentialText(status.Code, credential)
+		status.Message = redactCredentialText(status.Message, credential)
+		status.ReasonCode = redactCredentialText(status.ReasonCode, credential)
+		status.AuthMessage = redactCredentialText(status.AuthMessage, credential)
+		status.ErrorMessage = redactCredentialText(status.ErrorMessage, credential)
+		envelope.ProviderStatus = &status
+	}
+	return envelope
+}
+
+func (a app) registryReleaseStatus(registrySource, registryPath string) registryReleaseStatus {
+	status := registryReleaseStatus{
+		ProvenancePath: defaultRegistryInstallProvenancePath,
+		ActiveSource:   registrySource,
+		ActiveRegistry: registryPath,
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		status.Reason = "missing_provenance"
+		if !os.IsNotExist(err) {
+			status.Reason = "invalid_provenance"
+			status.LatestFetchError = err.Error()
+		}
+		status.NextSteps = append(status.NextSteps, "datapan init --json")
+		return status
+	}
+	status.ProvenancePresent = true
+	status.Installed = provenance
+	status.CLIConsumerStatus = provenance.CLIConsumerStatus
+	status.CLICompatibilityMode = provenance.CLICompatibilityMode
+	status.RuntimeManualReview = provenance.RuntimeManualReview
+	status.RuntimeCompatibilityEffect = provenance.RuntimeCompatibilityRisk
+
+	matches := registryPath != "" && sameFilePath(registryPath, provenance.RegistryPath)
+	status.ActiveRegistryMatches = &matches
+	if !matches {
+		status.Reason = "active_registry_differs_from_provenance"
+		status.NextSteps = append(status.NextSteps, "use the installed registry or run datapan init --registry PATH --json for the active path")
+		return status
+	}
+
+	digestMatches, err := registryDigestMatches(registryPath, provenance.RegistrySHA256)
+	if err != nil {
+		status.Reason = "registry_integrity_check_failed"
+		status.LatestFetchError = err.Error()
+		status.NextSteps = append(status.NextSteps, "datapan init --json")
+		return status
+	}
+	status.RegistryDigestMatches = &digestMatches
+	if !digestMatches {
+		status.Reason = "registry_digest_mismatch"
+		status.NextSteps = append(status.NextSteps, "datapan init --json")
+		return status
+	}
+
+	if compatibility, ok := installedConsumerCompatibilityStatus(); ok {
+		status.ConsumerCompatibilityFound = true
+		status.CLIConsumerStatus = compatibility.CLIConsumerStatus
+		status.CLICompatibilityMode = compatibility.CLICompatibilityMode
+		status.RuntimeManualReview = compatibility.RuntimeManualReviewRequired
+		status.RuntimeCompatibilityEffect = compatibility.RuntimeCompatibilityEffect
+	}
+
+	if strings.TrimSpace(provenance.ReleaseTag) == "" {
+		status.Reason = "installed_release_tag_missing"
+		status.NextSteps = append(status.NextSteps, "install from release metadata to enable freshness checks")
+		return status
+	}
+	releaseURL := releaseURLForLatestCheck(provenance.ReleaseAPIURL)
+	latest, err := a.fetchDatapanRegistryRelease(releaseURL)
+	if err != nil {
+		status.Reason = "latest_fetch_failed"
+		status.LatestFetchError = err.Error()
+		status.NextSteps = append(status.NextSteps, "retry datapan status --json when GitHub is reachable")
+		return status
+	}
+	status.LatestTag = latest.TagName
+	status.LatestAssetURL = latest.ZipAssetURL
+	status.LatestShardsAssetURL = latest.ShardsAssetURL
+	if latest.TagName == "" {
+		status.Reason = "latest_release_tag_missing"
+		return status
+	}
+	stale := provenance.ReleaseTag != latest.TagName
+	current := !stale
+	status.Stale = &stale
+	status.Current = &current
+	if stale {
+		status.Reason = "newer_registry_release_available"
+		status.NextSteps = append(status.NextSteps, "datapan catalog install datapan-registry --json")
+	}
+	return status
+}
+
+func readRegistryInstallProvenance(path string) (registryInstallProvenance, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return registryInstallProvenance{}, err
+	}
+	var provenance registryInstallProvenance
+	if err := json.Unmarshal(data, &provenance); err != nil {
+		return registryInstallProvenance{}, fmt.Errorf("decode registry install provenance: %w", err)
+	}
+	if provenance.SchemaVersion != "datapan.registry-install.v1" {
+		return registryInstallProvenance{}, fmt.Errorf("unsupported registry install provenance schema_version: %s", provenance.SchemaVersion)
+	}
+	if strings.TrimSpace(provenance.RegistryPath) == "" || strings.TrimSpace(provenance.RegistrySHA256) == "" {
+		return registryInstallProvenance{}, fmt.Errorf("registry install provenance is missing registry path or digest")
+	}
+	if len(provenance.RegistrySHA256) != 64 {
+		return registryInstallProvenance{}, fmt.Errorf("registry install provenance has invalid registry digest")
+	}
+	if _, err := hex.DecodeString(provenance.RegistrySHA256); err != nil {
+		return registryInstallProvenance{}, fmt.Errorf("registry install provenance has invalid registry digest")
+	}
+	if provenance.ReleaseManifestSHA256 != "" {
+		if len(provenance.ReleaseManifestSHA256) != 64 {
+			return registryInstallProvenance{}, fmt.Errorf("registry install provenance has invalid release manifest digest")
+		}
+		if _, err := hex.DecodeString(provenance.ReleaseManifestSHA256); err != nil {
+			return registryInstallProvenance{}, fmt.Errorf("registry install provenance has invalid release manifest digest")
+		}
+	}
+	switch provenance.PinMode {
+	case "latest", "pinned", "direct_url":
+	default:
+		return registryInstallProvenance{}, fmt.Errorf("registry install provenance has invalid pin mode: %s", provenance.PinMode)
+	}
+	return provenance, nil
+}
+
+func registryDigestMatches(path, expected string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	sum := sha256.Sum256(data)
+	return strings.EqualFold(fmt.Sprintf("%x", sum), strings.TrimSpace(expected)), nil
+}
+
+func releaseURLForLatestCheck(releaseURL string) string {
+	releaseURL = normalizeGitHubReleaseURL(releaseURL)
+	if before, _, found := strings.Cut(releaseURL, "/releases/tags/"); found {
+		return before + "/releases/latest"
+	}
+	if strings.TrimSpace(releaseURL) == "" {
+		return defaultDatapanRegistryReleaseAPI
+	}
+	return releaseURL
+}
+
+func installedConsumerCompatibilityStatus() (datapanRegistryInstallRelease, bool) {
+	data, err := os.ReadFile(defaultReleaseConsumerCompatibilityPath)
+	if err != nil {
+		return datapanRegistryInstallRelease{}, false
+	}
+	var evidence datapanRegistryInstallRelease
+	applyConsumerCompatibilityEvidence(&evidence, data)
+	return evidence, evidence.ConsumerCompatibilityPresent
+}
+
+func printRegistryReleaseStatus(w io.Writer, status registryReleaseStatus) {
+	if !status.ProvenancePresent {
+		fmt.Fprintln(w, "  registry release: provenance missing")
+		return
+	}
+	fmt.Fprintf(w, "  registry release: installed %s", defaultIfEmpty(status.Installed.ReleaseTag, "unknown"))
+	if status.LatestTag != "" {
+		fmt.Fprintf(w, ", latest %s", status.LatestTag)
+	}
+	if status.RegistryDigestMatches != nil && !*status.RegistryDigestMatches {
+		fmt.Fprint(w, " (integrity mismatch)")
+	} else if status.Stale != nil && *status.Stale {
+		fmt.Fprint(w, " (stale)")
+	} else if status.Current != nil && *status.Current {
+		fmt.Fprint(w, " (current)")
+	}
+	fmt.Fprintln(w)
+	if status.CLIConsumerStatus != "" {
+		fmt.Fprintf(w, "    CLI compatibility: %s", status.CLIConsumerStatus)
+		if status.CLICompatibilityMode != "" {
+			fmt.Fprintf(w, " (%s)", status.CLICompatibilityMode)
+		}
+		fmt.Fprintln(w)
+	}
+	if status.RuntimeManualReview != nil && *status.RuntimeManualReview {
+		fmt.Fprintln(w, "    runtime evidence: manual review required")
+	}
+	if status.Reason != "" {
+		fmt.Fprintf(w, "    state: %s\n", status.Reason)
+	}
+	for _, step := range status.NextSteps {
+		fmt.Fprintf(w, "    next: %s\n", step)
+	}
+}
+
+func defaultIfEmpty(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+type releaseConsumerDecisionEvidence struct {
+	Present                      bool
+	Valid                        bool
+	GeneratedAt                  string
+	ReleaseDecision              string
+	CanonicalRegistryConsumption string
+	ManualReviewRequired         *bool
+	ManualReviewAccepted         *bool
+	CLIAction                    string
+	CLIActionReason              string
+	Error                        string
+}
+
+func installedReleaseConsumerDecision() releaseConsumerDecisionEvidence {
+	evidence := releaseConsumerDecisionEvidence{Present: fileExists(defaultReleaseConsumerDecisionPath)}
+	if !evidence.Present {
+		return evidence
+	}
+	data, err := readManifestBoundReleaseArtifact(defaultReleaseConsumerDecisionPath, "reports/release-consumer-decision.json")
+	if err != nil {
+		evidence.Error = err.Error()
+		return evidence
+	}
+	parsed, err := parseReleaseConsumerDecision(data)
+	if err != nil {
+		evidence.Error = err.Error()
+		return evidence
+	}
+	parsed.Present = true
+	return parsed
+}
+
+func parseReleaseConsumerDecision(data []byte) (releaseConsumerDecisionEvidence, error) {
+	var evidence releaseConsumerDecisionEvidence
+	var report struct {
+		SchemaVersion string `json:"schema_version"`
+		GeneratedAt   string `json:"generated_at"`
+		Provider      string `json:"provider"`
+		Summary       struct {
+			ReleaseDecision              string `json:"release_decision"`
+			CanonicalRegistryConsumption string `json:"canonical_registry_consumption"`
+			ManualReviewRequired         *bool  `json:"manual_review_required"`
+			ManualReviewAccepted         *bool  `json:"manual_review_accepted"`
+		} `json:"summary"`
+		ConsumerActions []struct {
+			Consumer string `json:"consumer"`
+			Action   string `json:"action"`
+			Reason   string `json:"reason"`
+		} `json:"consumer_actions"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return evidence, err
+	}
+	if report.SchemaVersion != "datapan.release-consumer-decision.v1" || report.Provider != "datapan-registry" {
+		return evidence, fmt.Errorf("unsupported release consumer decision contract")
+	}
+	switch report.Summary.ReleaseDecision {
+	case "safe_to_consume", "manual_review_required", "blocked":
+	default:
+		return evidence, fmt.Errorf("invalid release consumer decision")
+	}
+	if report.Summary.CanonicalRegistryConsumption != "compatible" || report.Summary.ManualReviewRequired == nil || report.Summary.ManualReviewAccepted == nil {
+		return evidence, fmt.Errorf("release consumer decision is missing required summary fields")
+	}
+	for _, action := range report.ConsumerActions {
+		if action.Consumer != "datapan-cli" {
+			continue
+		}
+		if evidence.CLIAction != "" {
+			return evidence, fmt.Errorf("release consumer decision contains duplicate datapan-cli actions")
+		}
+		evidence.CLIAction = action.Action
+		evidence.CLIActionReason = action.Reason
+	}
+	if evidence.CLIAction == "" || strings.TrimSpace(evidence.CLIActionReason) == "" {
+		return evidence, fmt.Errorf("release consumer decision does not contain a datapan-cli action")
+	}
+	evidence.Valid = true
+	evidence.GeneratedAt = report.GeneratedAt
+	evidence.ReleaseDecision = report.Summary.ReleaseDecision
+	evidence.CanonicalRegistryConsumption = report.Summary.CanonicalRegistryConsumption
+	evidence.ManualReviewRequired = report.Summary.ManualReviewRequired
+	evidence.ManualReviewAccepted = report.Summary.ManualReviewAccepted
+	return evidence, nil
+}
+
 func installedReleaseEvidenceStatus(registryPath string) releaseEvidenceStatus {
 	status := releaseEvidenceStatus{
 		ReleaseDir: defaultReleaseDir,
@@ -7159,6 +9482,16 @@ func installedReleaseEvidenceStatus(registryPath string) releaseEvidenceStatus {
 		defaultReleaseVerificationSummaryPath,
 		defaultReleaseCoveragePath,
 		defaultReleaseRouteDispositionPath,
+		defaultReleaseConsumerCompatibilityPath,
+		defaultReleaseSustainableCoveragePolicyPath,
+		defaultReleaseSustainableCoverageSchemaPath,
+		defaultReleaseSustainableCoveragePath,
+		defaultReleaseConsumerDecisionPath,
+		defaultReleaseConsumerDecisionSchemaPath,
+		defaultReleaseErrorActionCatalogPath,
+		defaultReleaseErrorActionCatalogSchemaPath,
+		defaultReleaseRuntimeRemediationPath,
+		defaultReleaseRuntimeRemediationSchemaPath,
 	}
 	for _, path := range knownFiles {
 		if fileExists(path) {
@@ -7174,6 +9507,88 @@ func installedReleaseEvidenceStatus(registryPath string) releaseEvidenceStatus {
 	status.VerificationPresent = fileExists(defaultReleaseVerificationPath)
 	status.RouteDispositionPresent = fileExists(defaultReleaseRouteDispositionPath)
 	status.CoveragePresent = fileExists(defaultReleaseCoveragePath)
+	consumerDecision := installedReleaseConsumerDecision()
+	status.ConsumerDecisionPresent = consumerDecision.Present
+	status.ConsumerDecisionValid = consumerDecision.Valid
+	status.ConsumerDecisionGeneratedAt = consumerDecision.GeneratedAt
+	status.ConsumerReleaseDecision = consumerDecision.ReleaseDecision
+	status.CanonicalRegistryConsumption = consumerDecision.CanonicalRegistryConsumption
+	status.ConsumerManualReviewRequired = consumerDecision.ManualReviewRequired
+	status.ConsumerManualReviewAccepted = consumerDecision.ManualReviewAccepted
+	status.CLIConsumerAction = consumerDecision.CLIAction
+	status.CLIConsumerActionReason = consumerDecision.CLIActionReason
+	if consumerDecision.Error != "" {
+		status.Errors = append(status.Errors, "consumer_decision: "+consumerDecision.Error)
+	}
+	catalog, catalogPresent, catalogErr := installedRegistryErrorActionCatalog()
+	status.ErrorActionCatalogPresent = catalogPresent
+	status.ErrorActionCatalogValid = catalogPresent && catalogErr == nil
+	if catalogErr != nil {
+		status.Errors = append(status.Errors, "error_action_catalog: "+catalogErr.Error())
+	} else if catalogPresent {
+		status.ErrorActionCatalogGeneratedAt = catalog.GeneratedAt
+		status.ErrorActionRules = len(catalog.Rules)
+	}
+	status.RuntimeRemediationPresent = fileExists(defaultReleaseRuntimeRemediationPath)
+	boundary, boundaryPresent, boundaryErr := installedRegistryRuntimeBoundary("data_go_kr")
+	status.RuntimeRemediationValid = status.RuntimeRemediationPresent && boundaryPresent && boundaryErr == nil
+	if boundaryErr != nil {
+		status.Errors = append(status.Errors, "runtime_remediation: "+boundaryErr.Error())
+	} else if boundaryPresent {
+		status.RuntimeRemediationManualReview = boundary.ManualReviewRequired
+		status.RuntimeRemediationBlocking = boundary.BlockingCount
+		status.RuntimeRemediationWarnings = boundary.WarningCount
+	}
+	policy := installedVerificationFreshnessPolicy()
+	status.FreshnessPolicyPresent = policy.Present
+	status.FreshnessPolicyValid = policy.Valid
+	status.FreshnessEvaluationAt = policy.AsOfText
+	status.FreshnessFreshDays = policy.FreshDays
+	status.FreshnessExpireDays = policy.ExpireDays
+	if policy.Error != "" {
+		status.Errors = append(status.Errors, "freshness_policy: "+policy.Error)
+	}
+	status.FreshnessReportPresent = fileExists(defaultReleaseSustainableCoveragePath)
+	if status.FreshnessReportPresent {
+		data, err := readManifestBoundReleaseArtifact(defaultReleaseSustainableCoveragePath, "reports/sustainable-coverage.json")
+		if err != nil {
+			status.Errors = append(status.Errors, fmt.Sprintf("sustainable_coverage: %v", err))
+		} else {
+			var report struct {
+				SchemaVersion string `json:"schema_version"`
+				Freshness     struct {
+					AsOf             string `json:"as_of"`
+					Fresh            int    `json:"fresh"`
+					Stale            int    `json:"stale"`
+					Expired          int    `json:"expired"`
+					UnknownTimestamp int    `json:"unknown_timestamp"`
+				} `json:"freshness"`
+			}
+			if err := json.Unmarshal(data, &report); err != nil {
+				status.Errors = append(status.Errors, fmt.Sprintf("sustainable_coverage: %v", err))
+			} else {
+				status.FreshnessFresh = report.Freshness.Fresh
+				status.FreshnessStale = report.Freshness.Stale
+				status.FreshnessExpired = report.Freshness.Expired
+				status.FreshnessUnknownTimestamp = report.Freshness.UnknownTimestamp
+			}
+		}
+	}
+	if status.ReadinessPresent {
+		data, err := os.ReadFile(defaultReleaseReadinessPath)
+		if err != nil {
+			status.Errors = append(status.Errors, fmt.Sprintf("readiness: %v", err))
+		} else {
+			var report releaseReadinessReport
+			if err := json.Unmarshal(data, &report); err != nil {
+				status.Errors = append(status.Errors, fmt.Sprintf("readiness: %v", err))
+			} else {
+				ready := report.Ready
+				status.ReadinessReady = &ready
+				status.ReadinessFailedGates = report.Summary.Failed
+			}
+		}
+	}
 	if status.VerificationPresent {
 		status.VerificationPath = defaultReleaseVerificationPath
 		report, err := readVerificationReport(defaultReleaseVerificationPath)
@@ -7301,6 +9716,10 @@ func (a app) access(args []string, jsonOut bool) int {
 	if !ok {
 		return code
 	}
+	trust := a.localRegistryTrust()
+	if openBrowser && !trust.ExecutionAllowed {
+		return a.rejectBlockedRegistryExecution(jsonOut, trust)
+	}
 	opened := false
 	if openBrowser {
 		if err := openURLFunc(spec.ApplicationURL()); err != nil {
@@ -7312,6 +9731,7 @@ func (a app) access(args []string, jsonOut bool) int {
 					"list_id":         spec.ID,
 					"title":           spec.Title,
 					"application_url": spec.ApplicationURL(),
+					"registry_trust":  trust,
 					"message":         err.Error(),
 				}); code != exitOK {
 					return code
@@ -7338,6 +9758,7 @@ func (a app) access(args []string, jsonOut bool) int {
 					"opened":          opened,
 					"purpose_copied":  false,
 					"purpose_text":    datago.PurposeTextKO,
+					"registry_trust":  trust,
 					"message":         err.Error(),
 				}); code != exitOK {
 					return code
@@ -7361,6 +9782,7 @@ func (a app) access(args []string, jsonOut bool) int {
 		"purpose_text":    datago.PurposeTextKO,
 		"smoke_command":   smokeCommand,
 		"next_steps":      nextSteps,
+		"registry_trust":  trust,
 		"notes": []string{
 			"Do not paste API keys into issues, logs, screenshots, or chat.",
 			"data.go.kr usually requires per-service usage approval even when a generic service key exists.",
@@ -7372,6 +9794,7 @@ func (a app) access(args []string, jsonOut bool) int {
 	if jsonOut {
 		return a.writeJSON(payload)
 	}
+	printRegistryTrustBrief(a.stdout, trust)
 	fmt.Fprintf(a.stdout, "%s\n", spec.Title)
 	fmt.Fprintf(a.stdout, "Application page: %s\n", spec.ApplicationURL())
 	if opened {
@@ -7426,7 +9849,7 @@ func (a app) accessLogin(args []string, jsonOut bool) int {
 	if len(args) != 0 {
 		return a.fail(exitUsage, "usage: datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]")
 	}
-	return runBrowserWorkflow(browserWorkflowOptions{
+	return runBrowserWorkflowFunc(browserWorkflowOptions{
 		Command:     "login",
 		ProfileDir:  profileDir,
 		BrowserPath: browserPath,
@@ -7474,7 +9897,11 @@ func (a app) accessRequest(args []string, jsonOut bool) int {
 	if !ok {
 		return code
 	}
-	return runBrowserWorkflow(browserWorkflowOptions{
+	trust := a.localRegistryTrust()
+	if !trust.ExecutionAllowed {
+		return a.rejectBlockedRegistryExecution(jsonOut, trust)
+	}
+	return runBrowserWorkflowFunc(browserWorkflowOptions{
 		Command:        "submit",
 		ListID:         spec.ID,
 		ApplicationURL: spec.ApplicationURL(),
@@ -7483,6 +9910,7 @@ func (a app) accessRequest(args []string, jsonOut bool) int {
 		PurposeText:    datago.PurposeTextKO,
 		Apply:          apply,
 		Output:         output,
+		RegistryTrust:  &trust,
 	}, a.stdout, a.stderr)
 }
 
@@ -7518,49 +9946,68 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	params := mergeParamMaps(fileParams, positionalParams, flagParams)
+	trust := a.localRegistryTrust()
+	if !dryRun && !trust.ExecutionAllowed {
+		return a.rejectBlockedRegistryExecution(jsonOut || exportMode, trust)
+	}
 	reqPlan, keyName, err := a.requestPlan(args[0], operation, params)
 	if err != nil {
 		return a.mapError(err, jsonOut || exportMode)
 	}
 	reqPlan.Timeout = timeout
+	verification := verificationContextForOperation(installedOperationVerificationIndex(), reqPlan.Spec, reqPlan.Operation)
 	if dryRun {
 		payload := map[string]any{
-			"ok":           true,
-			"dry_run":      true,
-			"dataset":      reqPlan.Spec.ID,
-			"operation":    reqPlan.Operation.Name,
-			"method":       http.MethodGet,
-			"url":          reqPlan.RedactedURL,
-			"env_var":      keyName,
-			"timeout":      reqPlan.Timeout.String(),
-			"query_params": reqPlan.PublicParams,
+			"ok":             true,
+			"dry_run":        true,
+			"dataset":        reqPlan.Spec.ID,
+			"operation":      reqPlan.Operation.Name,
+			"method":         http.MethodGet,
+			"url":            reqPlan.RedactedURL,
+			"env_var":        keyName,
+			"timeout":        reqPlan.Timeout.String(),
+			"query_params":   reqPlan.PublicParams,
+			"registry_trust": trust,
+			"verification":   verification,
+		}
+		if warning := verificationEvidenceWarning(verification); warning != nil {
+			payload["evidence_warning"] = warning
 		}
 		if jsonOut || exportMode {
 			return a.writeJSON(payload)
 		}
+		printRegistryTrustBrief(a.stderr, trust)
+		printVerificationBrief(a.stderr, verification)
 		fmt.Fprintf(a.stdout, "GET %s\n", reqPlan.RedactedURL)
 		return exitOK
 	}
 
 	respPayload, err := a.execute(reqPlan)
 	if err != nil {
+		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
 		if jsonOut || exportMode {
 			if code := a.writeJSON(map[string]any{
-				"ok":        false,
-				"error":     "request_failed",
-				"dataset":   reqPlan.Spec.ID,
-				"operation": reqPlan.Operation.Name,
-				"timeout":   reqPlan.Timeout.String(),
-				"message":   err.Error(),
+				"ok":             false,
+				"error":          "request_failed",
+				"dataset":        reqPlan.Spec.ID,
+				"operation":      reqPlan.Operation.Name,
+				"timeout":        reqPlan.Timeout.String(),
+				"message":        safeExecutionError(err, reqPlan),
+				"failure":        failure,
+				"registry_trust": trust,
+				"verification":   verification,
 			}); code != exitOK {
 				return code
 			}
 			return exitRequest
 		}
-		return a.fail(exitRequest, "%v", err)
+		printRegistryTrustBrief(a.stderr, trust)
+		printVerificationBrief(a.stderr, verification)
+		printExecutionFailureBrief(a.stderr, failure)
+		return a.fail(exitRequest, "%s", safeExecutionError(err, reqPlan))
 	}
 	if jsonOut || exportMode {
-		if code := a.writeJSON(respPayload); code != exitOK {
+		if code := a.writeJSON(responseEnvelopeWithTrust(respPayload, trust, verification, reqPlan)); code != exitOK {
 			return code
 		}
 		if !respPayload.OK {
@@ -7568,8 +10015,11 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		}
 		return exitOK
 	}
+	printRegistryTrustBrief(a.stderr, trust)
+	printVerificationBrief(a.stderr, verification)
 	fmt.Fprintln(a.stdout, respPayload.Body)
 	if !respPayload.OK {
+		printExecutionFailureBrief(a.stderr, applyRegistryFailureRouting(classifyResponseFailure(respPayload), reqPlan, &respPayload, nil))
 		return exitRequest
 	}
 	return exitOK
@@ -7583,7 +10033,7 @@ func (a app) curl(args []string, jsonOut bool) int {
 		return a.mapError(err, jsonOut)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
+		return a.writePlannedArtifactJSON(map[string]any{
 			"ok":           true,
 			"dataset":      plan.Spec.ID,
 			"operation":    plan.Operation.Name,
@@ -7592,10 +10042,27 @@ func (a app) curl(args []string, jsonOut bool) int {
 			"command":      plan.Command,
 			"env_var":      plan.EnvVar,
 			"query_params": plan.PublicParams,
-		})
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	fmt.Fprintln(a.stdout, plan.Command)
 	return exitOK
+}
+
+func (a app) writePlannedArtifactJSON(payload map[string]any, plan curlExportPlan) int {
+	trust := a.localRegistryTrust()
+	verification := verificationContextForOperation(installedOperationVerificationIndex(), plan.Spec, plan.Operation)
+	payload["registry_trust"] = trust
+	payload["verification"] = verification
+	if warning := verificationEvidenceWarning(verification); warning != nil {
+		payload["evidence_warning"] = warning
+	}
+	return a.writeJSON(payload)
+}
+
+func (a app) printPlannedArtifactContext(plan curlExportPlan) {
+	printRegistryTrustBrief(a.stderr, a.localRegistryTrust())
+	printVerificationBrief(a.stderr, verificationContextForOperation(installedOperationVerificationIndex(), plan.Spec, plan.Operation))
 }
 
 func (a app) postman(args []string, jsonOut bool) int {
@@ -7607,6 +10074,13 @@ func (a app) postman(args []string, jsonOut bool) int {
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the Postman collection JSON to stdout")
+	}
+	provenanceOutput, args, err := consumeString(args, "--provenance-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if output == "-" && provenanceOutput != "" {
+		return a.fail(exitUsage, "--provenance-output requires file --output")
 	}
 	plan, err := a.curlExportPlan(args)
 	if err != nil {
@@ -7620,18 +10094,21 @@ func (a app) postman(args []string, jsonOut bool) int {
 	if err := enc.Encode(collection); err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
-	if err := writeOutput(output, data.Bytes(), a.stdout); err != nil {
-		return a.fail(exitRequest, "%v", err)
+	provenancePath, err := a.writeStandaloneGeneratedArtifact(output, provenanceOutput, "postman", plan, data.Bytes())
+	if err != nil {
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
-			"ok":        true,
-			"format":    "postman",
-			"output":    output,
-			"dataset":   plan.Spec.ID,
-			"operation": plan.Operation.Name,
-		})
+		return a.writePlannedArtifactJSON(map[string]any{
+			"ok":         true,
+			"format":     "postman",
+			"output":     output,
+			"dataset":    plan.Spec.ID,
+			"operation":  plan.Operation.Name,
+			"provenance": provenancePath,
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	return exitOK
 }
 
@@ -7645,6 +10122,13 @@ func (a app) openAPI(args []string, jsonOut bool) int {
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the OpenAPI document JSON to stdout")
 	}
+	provenanceOutput, args, err := consumeString(args, "--provenance-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if output == "-" && provenanceOutput != "" {
+		return a.fail(exitUsage, "--provenance-output requires file --output")
+	}
 	plan, err := a.curlExportPlan(args)
 	if err != nil {
 		return a.mapError(err, jsonOut)
@@ -7655,20 +10139,23 @@ func (a app) openAPI(args []string, jsonOut bool) int {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(doc); err != nil {
-		return a.fail(exitRequest, "%v", err)
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
-	if err := writeOutput(output, data.Bytes(), a.stdout); err != nil {
-		return a.fail(exitRequest, "%v", err)
+	provenancePath, err := a.writeStandaloneGeneratedArtifact(output, provenanceOutput, "openapi", plan, data.Bytes())
+	if err != nil {
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
-			"ok":        true,
-			"format":    "openapi",
-			"output":    output,
-			"dataset":   plan.Spec.ID,
-			"operation": plan.Operation.Name,
-		})
+		return a.writePlannedArtifactJSON(map[string]any{
+			"ok":         true,
+			"format":     "openapi",
+			"output":     output,
+			"dataset":    plan.Spec.ID,
+			"operation":  plan.Operation.Name,
+			"provenance": provenancePath,
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	return exitOK
 }
 
@@ -7711,11 +10198,15 @@ func (a app) export(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	cacheIntegrity, blocked := inspectSyncCacheArtifact(input, data)
+	if blocked {
+		return a.rejectCacheIntegrity(jsonOut, cacheIntegrity)
+	}
 	rows, err := datago.RowsFromJSON(data)
 	if err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
-	return a.writeRows(rows, format, jsonOut)
+	return a.writeRows(rows, format, jsonOut, cacheIntegrity, nil)
 }
 
 func (a app) preview(args []string, jsonOut bool) int {
@@ -7740,6 +10231,10 @@ func (a app) preview(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	cacheIntegrity, blocked := inspectSyncCacheArtifact(input, data)
+	if blocked {
+		return a.rejectCacheIntegrity(jsonOut, cacheIntegrity)
+	}
 	rows, detected, err := rowsFromPreviewInput(data, format, input)
 	if err != nil {
 		return a.fail(exitRequest, "%v", err)
@@ -7756,8 +10251,14 @@ func (a app) preview(args []string, jsonOut bool) int {
 		"columns":   columns,
 		"rows":      shown,
 	}
+	if cacheIntegrity != nil {
+		payload["cache_integrity"] = cacheIntegrity
+	}
 	if jsonOut {
 		return a.writeJSON(payload)
+	}
+	if cacheIntegrity != nil {
+		printCacheIntegrityBrief(a.stderr, *cacheIntegrity)
 	}
 	fmt.Fprintf(a.stdout, "Preview %s\n", input)
 	fmt.Fprintf(a.stdout, "  format: %s\n", detected)
@@ -7777,7 +10278,7 @@ func (a app) codegen(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
 	if len(args) == 0 {
-		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--json]\n       datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--json]\n       datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--json]")
+		return a.fail(exitUsage, "usage: datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--provenance-output PATH] [--json]\n       datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH] [--json]\n       datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH] [--json]")
 	}
 	switch args[0] {
 	case "go", "golang":
@@ -7806,6 +10307,13 @@ func (a app) codegenGo(args []string, jsonOut bool) int {
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes generated Go code to stdout")
 	}
+	provenanceOutput, args, err := consumeString(args, "--provenance-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if output == "-" && provenanceOutput != "" {
+		return a.fail(exitUsage, "--provenance-output requires file --output")
+	}
 	plan, err := a.curlExportPlan(args)
 	if err != nil {
 		return a.mapError(err, jsonOut)
@@ -7816,20 +10324,23 @@ func (a app) codegenGo(args []string, jsonOut bool) int {
 		return a.fail(exitRequest, "generated Go code is not formattable: %v", err)
 	}
 	source = string(formatted)
-	if err := writeOutput(output, []byte(source), a.stdout); err != nil {
-		return a.fail(exitRequest, "%v", err)
+	provenancePath, err := a.writeStandaloneGeneratedArtifact(output, provenanceOutput, "codegen_go", plan, []byte(source))
+	if err != nil {
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
-			"ok":        true,
-			"target":    "go",
-			"output":    output,
-			"package":   pkg,
-			"dataset":   plan.Spec.ID,
-			"operation": plan.Operation.Name,
-			"function":  goFunctionName(plan),
-		})
+		return a.writePlannedArtifactJSON(map[string]any{
+			"ok":         true,
+			"target":     "go",
+			"output":     output,
+			"package":    pkg,
+			"dataset":    plan.Spec.ID,
+			"operation":  plan.Operation.Name,
+			"function":   goFunctionName(plan),
+			"provenance": provenancePath,
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	return exitOK
 }
 
@@ -7841,24 +10352,34 @@ func (a app) codegenPython(args []string, jsonOut bool) int {
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes generated Python code to stdout")
 	}
+	provenanceOutput, args, err := consumeString(args, "--provenance-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if output == "-" && provenanceOutput != "" {
+		return a.fail(exitUsage, "--provenance-output requires file --output")
+	}
 	plan, err := a.curlExportPlan(args)
 	if err != nil {
 		return a.mapError(err, jsonOut)
 	}
 	source := pythonClientForPlan(plan)
-	if err := writeOutput(output, []byte(source), a.stdout); err != nil {
-		return a.fail(exitRequest, "%v", err)
+	provenancePath, err := a.writeStandaloneGeneratedArtifact(output, provenanceOutput, "codegen_python", plan, []byte(source))
+	if err != nil {
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
-			"ok":        true,
-			"target":    "python",
-			"output":    output,
-			"dataset":   plan.Spec.ID,
-			"operation": plan.Operation.Name,
-			"function":  pythonFunctionName(plan),
-		})
+		return a.writePlannedArtifactJSON(map[string]any{
+			"ok":         true,
+			"target":     "python",
+			"output":     output,
+			"dataset":    plan.Spec.ID,
+			"operation":  plan.Operation.Name,
+			"function":   pythonFunctionName(plan),
+			"provenance": provenancePath,
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	return exitOK
 }
 
@@ -7870,24 +10391,34 @@ func (a app) codegenNode(args []string, jsonOut bool) int {
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes generated Node.js code to stdout")
 	}
+	provenanceOutput, args, err := consumeString(args, "--provenance-output", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if output == "-" && provenanceOutput != "" {
+		return a.fail(exitUsage, "--provenance-output requires file --output")
+	}
 	plan, err := a.curlExportPlan(args)
 	if err != nil {
 		return a.mapError(err, jsonOut)
 	}
 	source := nodeClientForPlan(plan)
-	if err := writeOutput(output, []byte(source), a.stdout); err != nil {
-		return a.fail(exitRequest, "%v", err)
+	provenancePath, err := a.writeStandaloneGeneratedArtifact(output, provenanceOutput, "codegen_node", plan, []byte(source))
+	if err != nil {
+		return a.generatedArtifactFailure(jsonOut, err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{
-			"ok":        true,
-			"target":    "node",
-			"output":    output,
-			"dataset":   plan.Spec.ID,
-			"operation": plan.Operation.Name,
-			"function":  nodeFunctionName(plan),
-		})
+		return a.writePlannedArtifactJSON(map[string]any{
+			"ok":         true,
+			"target":     "node",
+			"output":     output,
+			"dataset":    plan.Spec.ID,
+			"operation":  plan.Operation.Name,
+			"function":   nodeFunctionName(plan),
+			"provenance": provenancePath,
+		}, plan)
 	}
+	a.printPlannedArtifactContext(plan)
 	return exitOK
 }
 
@@ -7906,10 +10437,40 @@ func (a app) save(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes data to stdout")
 	}
 	capture := bytes.Buffer{}
-	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(append(args, "--json"), true, true)
+	callApp := a
+	callApp.stdout = &capture
+	code := callApp.call(append(args, "--json"), true, true)
+	var callResult struct {
+		OK              bool                         `json:"ok"`
+		Error           string                       `json:"error"`
+		Message         string                       `json:"message"`
+		Dataset         string                       `json:"dataset"`
+		Operation       string                       `json:"operation"`
+		RegistryTrust   registryTrustContext         `json:"registry_trust"`
+		Verification    operationVerificationContext `json:"verification"`
+		EvidenceWarning *executionFailure            `json:"evidence_warning"`
+		Failure         *executionFailure            `json:"failure"`
+	}
+	if capture.Len() > 0 {
+		if err := json.Unmarshal(capture.Bytes(), &callResult); err != nil {
+			return a.fail(exitRequest, "decode internal call result: %v", err)
+		}
+	}
 	if code != exitOK {
 		if jsonOut && capture.Len() > 0 {
 			_, _ = a.stdout.Write(capture.Bytes())
+		} else {
+			message := strings.TrimSpace(callResult.Message)
+			if message == "" {
+				message = strings.TrimSpace(callResult.Error)
+			}
+			if message == "" {
+				message = "provider request did not return savable data"
+			}
+			fmt.Fprintf(a.stderr, "save failed: %s\n", message)
+			if callResult.Failure != nil {
+				printExecutionFailureBrief(a.stderr, *callResult.Failure)
+			}
 		}
 		return code
 	}
@@ -7937,14 +10498,26 @@ func (a app) save(args []string, jsonOut bool) int {
 		return a.fail(exitRequest, "%v", err)
 	}
 	if jsonOut {
-		return a.writeJSON(map[string]any{"ok": true, "format": format, "output": output, "count": len(rows)})
+		payload := map[string]any{
+			"ok": true, "format": format, "output": output, "count": len(rows),
+			"dataset": callResult.Dataset, "operation": callResult.Operation,
+			"registry_trust": callResult.RegistryTrust, "verification": callResult.Verification,
+		}
+		if callResult.EvidenceWarning != nil {
+			payload["evidence_warning"] = callResult.EvidenceWarning
+		}
+		return a.writeJSON(payload)
 	}
+	printRegistryTrustBrief(a.stderr, callResult.RegistryTrust)
+	printVerificationBrief(a.stderr, callResult.Verification)
 	return exitOK
 }
 
 type syncCacheFile struct {
-	Kind string `json:"kind"`
-	Path string `json:"path"`
+	Kind   string `json:"kind"`
+	Path   string `json:"path"`
+	Bytes  int    `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 func (a app) sync(args []string, jsonOut bool) int {
@@ -7982,34 +10555,57 @@ func (a app) sync(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	params := mergeParamMaps(fileParams, positionalParams, flagParams)
+	trust := a.localRegistryTrust()
+	if !trust.ExecutionAllowed {
+		return a.rejectBlockedRegistryExecution(jsonOut, trust)
+	}
 	reqPlan, keyName, err := a.requestPlan(args[0], operation, params)
 	if err != nil {
 		return a.mapError(err, jsonOut)
 	}
 	reqPlan.Timeout = timeout
+	verification := verificationContextForOperation(installedOperationVerificationIndex(), reqPlan.Spec, reqPlan.Operation)
 	envelope, err := a.execute(reqPlan)
 	if err != nil {
+		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
-				"ok":        false,
-				"error":     "request_failed",
-				"dataset":   reqPlan.Spec.ID,
-				"operation": reqPlan.Operation.Name,
-				"timeout":   reqPlan.Timeout.String(),
-				"message":   err.Error(),
+				"ok":             false,
+				"error":          "request_failed",
+				"dataset":        reqPlan.Spec.ID,
+				"operation":      reqPlan.Operation.Name,
+				"timeout":        reqPlan.Timeout.String(),
+				"message":        safeExecutionError(err, reqPlan),
+				"failure":        failure,
+				"registry_trust": trust,
+				"verification":   verification,
 			}); code != exitOK {
 				return code
 			}
 			return exitRequest
 		}
-		return a.fail(exitRequest, "%v", err)
+		printRegistryTrustBrief(a.stderr, trust)
+		printVerificationBrief(a.stderr, verification)
+		printExecutionFailureBrief(a.stderr, failure)
+		return a.fail(exitRequest, "%s", safeExecutionError(err, reqPlan))
 	}
 	generatedAt := time.Now().UTC().Format(time.RFC3339)
 	if strings.TrimSpace(outputDir) == "" {
 		outputDir = filepath.Join(".datapan", "cache", safePathSegment(reqPlan.Spec.ID), safePathSegment(reqPlan.Operation.Name), time.Now().UTC().Format("20060102T150405Z"))
 	}
-	files, rows, integrity, err := writeSyncCache(outputDir, generatedAt, version, keyName, reqPlan, envelope)
+	files, rows, integrity, err := writeSyncCache(outputDir, generatedAt, version, keyName, reqPlan, envelope, trust, verification)
 	if err != nil {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{
+				"ok": false, "error": "sync_cache_write_failed", "message": err.Error(),
+				"cache_dir": outputDir, "dataset": reqPlan.Spec.ID, "operation": reqPlan.Operation.Name,
+				"registry_trust": trust, "verification": verification,
+				"next_steps": []string{"confirm the cache parent directory is writable", "retry sync after resolving the local filesystem error"},
+			}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
 		return a.fail(exitRequest, "%v", err)
 	}
 	payload := map[string]any{
@@ -8024,6 +10620,8 @@ func (a app) sync(args []string, jsonOut bool) int {
 		"message":         envelope.Message,
 		"rows":            len(rows),
 		"integrity":       integrity,
+		"registry_trust":  trust,
+		"verification":    verification,
 		"files":           files,
 		"preview_command": "datapan preview --input " + quoteShellArg(filepath.Join(outputDir, "response.json")) + " --json",
 		"next_steps": []catalogOverviewNextStep{
@@ -8031,6 +10629,12 @@ func (a app) sync(args []string, jsonOut bool) int {
 			{Label: "export csv", Command: "datapan export --input " + quoteShellArg(filepath.Join(outputDir, "response.json")) + " --format csv"},
 			{Label: "status", Command: "datapan status --json"},
 		},
+	}
+	if !envelope.OK {
+		payload["failure"] = applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
+	}
+	if warning := verificationEvidenceWarning(verification); warning != nil {
+		payload["evidence_warning"] = warning
 	}
 	if jsonOut {
 		if code := a.writeJSON(payload); code != exitOK {
@@ -8041,6 +10645,8 @@ func (a app) sync(args []string, jsonOut bool) int {
 		}
 		return exitOK
 	}
+	printRegistryTrustBrief(a.stderr, trust)
+	printVerificationBrief(a.stderr, verification)
 	fmt.Fprintf(a.stdout, "Datapan sync\n")
 	fmt.Fprintf(a.stdout, "  cache: %s\n", outputDir)
 	fmt.Fprintf(a.stdout, "  dataset: %s\n", reqPlan.Spec.ID)
@@ -8056,29 +10662,26 @@ func (a app) sync(args []string, jsonOut bool) int {
 		fmt.Fprintf(a.stdout, "  %s: %s\n", file.Kind, file.Path)
 	}
 	if !envelope.OK {
+		printExecutionFailureBrief(a.stderr, applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil))
 		return exitRequest
 	}
 	return exitOK
 }
 
-func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan requestPlan, envelope datago.ResponseEnvelope) ([]syncCacheFile, []map[string]any, datago.ResponseIntegrity, error) {
+func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan requestPlan, envelope datago.ResponseEnvelope, trust registryTrustContext, verification operationVerificationContext) ([]syncCacheFile, []map[string]any, datago.ResponseIntegrity, error) {
 	if strings.TrimSpace(outputDir) == "" {
 		return nil, nil, datago.ResponseIntegrity{}, fmt.Errorf("--output-dir is empty")
 	}
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return nil, nil, datago.ResponseIntegrity{}, err
-	}
 	files := make([]syncCacheFile, 0, 5)
+	generatedFiles := map[string][]byte{}
 	writeJSON := func(kind, name string, payload any) error {
 		data, err := jsonIndentedBytes(payload)
 		if err != nil {
 			return err
 		}
-		path := filepath.Join(outputDir, name)
-		if err := writeOutput(path, data, io.Discard); err != nil {
-			return err
-		}
-		files = append(files, syncCacheFile{Kind: kind, Path: path})
+		generatedFiles[name] = data
+		sum := sha256.Sum256(data)
+		files = append(files, syncCacheFile{Kind: kind, Path: filepath.Join(outputDir, name), Bytes: len(data), SHA256: fmt.Sprintf("%x", sum)})
 		return nil
 	}
 	if err := writeJSON("params", "params.json", publicParamSnapshot(plan.Params)); err != nil {
@@ -8100,11 +10703,9 @@ func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan
 		if code := writeCSV(&csvData, rows); code != exitOK {
 			return nil, nil, datago.ResponseIntegrity{}, fmt.Errorf("write rows csv")
 		}
-		csvPath := filepath.Join(outputDir, "rows.csv")
-		if err := writeOutput(csvPath, csvData.Bytes(), io.Discard); err != nil {
-			return nil, nil, datago.ResponseIntegrity{}, err
-		}
-		files = append(files, syncCacheFile{Kind: "rows_csv", Path: csvPath})
+		generatedFiles["rows.csv"] = append([]byte(nil), csvData.Bytes()...)
+		csvSum := sha256.Sum256(csvData.Bytes())
+		files = append(files, syncCacheFile{Kind: "rows_csv", Path: filepath.Join(outputDir, "rows.csv"), Bytes: csvData.Len(), SHA256: fmt.Sprintf("%x", csvSum)})
 	} else {
 		rows = []map[string]any{}
 	}
@@ -8123,12 +10724,64 @@ func writeSyncCache(outputDir, generatedAt, datapanVersion, keyName string, plan
 		"ok":              envelope.OK,
 		"rows":            len(rows),
 		"integrity":       integrity,
+		"registry_trust":  trust,
+		"verification":    verification,
 		"files":           files,
+	}
+	if warning := verificationEvidenceWarning(verification); warning != nil {
+		manifest["evidence_warning"] = warning
 	}
 	if err := writeJSON("manifest", "manifest.json", manifest); err != nil {
 		return nil, nil, datago.ResponseIntegrity{}, err
 	}
+	if err := commitSyncCacheDirectory(outputDir, generatedFiles); err != nil {
+		return nil, nil, datago.ResponseIntegrity{}, err
+	}
 	return files, rows, integrity, nil
+}
+
+func commitSyncCacheDirectory(outputDir string, files map[string][]byte) error {
+	target, err := stageRegistryInstallDirectory(outputDir, files)
+	if err != nil {
+		return fmt.Errorf("stage sync cache: %w", err)
+	}
+	defer func() {
+		if target.Staged != "" {
+			_ = os.RemoveAll(target.Staged)
+		}
+		if target.Backup != "" && !target.BackedUp {
+			_ = os.RemoveAll(target.Backup)
+		}
+	}()
+	if _, err := os.Lstat(target.Target); err == nil {
+		target.Backup, err = registryInstallBackupPath(target.Target)
+		if err != nil {
+			return fmt.Errorf("reserve sync cache backup: %w", err)
+		}
+		target.HadTarget = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect sync cache: %w", err)
+	}
+	if target.HadTarget {
+		if err := registryInstallRename(target.Target, target.Backup); err != nil {
+			return fmt.Errorf("backup sync cache: %w", err)
+		}
+		target.BackedUp = true
+		syncParentDirectory(target.Target)
+	}
+	if err := registryInstallRename(target.Staged, target.Target); err != nil {
+		return rollbackRegistryInstallTargets([]*registryInstallTarget{&target}, fmt.Errorf("commit sync cache: %w", err))
+	}
+	target.Committed = true
+	target.Staged = ""
+	syncParentDirectory(target.Target)
+	if target.Backup != "" {
+		if err := os.RemoveAll(target.Backup); err == nil {
+			target.Backup = ""
+			target.BackedUp = false
+		}
+	}
+	return nil
 }
 
 func publicParamSnapshot(params map[string]string) map[string]string {
@@ -8167,10 +10820,39 @@ func safePathSegment(value string) string {
 
 func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 	capture := bytes.Buffer{}
-	code := app{args: a.args, stdout: &capture, stderr: a.stderr, env: a.env, http: a.http, reg: a.reg}.call(args, true, true)
+	callApp := a
+	callApp.stdout = &capture
+	code := callApp.call(args, true, true)
+	var callResult struct {
+		Error           string                       `json:"error"`
+		Message         string                       `json:"message"`
+		Dataset         string                       `json:"dataset"`
+		Operation       string                       `json:"operation"`
+		RegistryTrust   registryTrustContext         `json:"registry_trust"`
+		Verification    operationVerificationContext `json:"verification"`
+		EvidenceWarning *executionFailure            `json:"evidence_warning"`
+		Failure         *executionFailure            `json:"failure"`
+	}
+	if capture.Len() > 0 {
+		if err := json.Unmarshal(capture.Bytes(), &callResult); err != nil {
+			return a.fail(exitRequest, "decode internal call result: %v", err)
+		}
+	}
 	if code != exitOK {
 		if jsonOut && capture.Len() > 0 {
 			_, _ = a.stdout.Write(capture.Bytes())
+		} else {
+			message := strings.TrimSpace(callResult.Message)
+			if message == "" {
+				message = strings.TrimSpace(callResult.Error)
+			}
+			if message == "" {
+				message = "provider request did not return exportable data"
+			}
+			fmt.Fprintf(a.stderr, "export failed: %s\n", message)
+			if callResult.Failure != nil {
+				printExecutionFailureBrief(a.stderr, *callResult.Failure)
+			}
 		}
 		return code
 	}
@@ -8178,20 +10860,162 @@ func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 	if err != nil {
 		return a.fail(exitRequest, "%v", err)
 	}
-	return a.writeRows(rows, format, jsonOut)
+	evidence := &rowExportEvidence{
+		Dataset: callResult.Dataset, Operation: callResult.Operation, RegistryTrust: callResult.RegistryTrust,
+		Verification: callResult.Verification, EvidenceWarning: callResult.EvidenceWarning,
+	}
+	return a.writeRows(rows, format, jsonOut, nil, evidence)
 }
 
-func (a app) writeRows(rows []map[string]any, format string, jsonOut bool) int {
+type rowExportEvidence struct {
+	Dataset         string
+	Operation       string
+	RegistryTrust   registryTrustContext
+	Verification    operationVerificationContext
+	EvidenceWarning *executionFailure
+}
+
+func (a app) writeRows(rows []map[string]any, format string, jsonOut bool, cacheIntegrity *cacheArtifactIntegrity, evidence *rowExportEvidence) int {
 	switch format {
 	case "json":
-		return a.writeJSON(map[string]any{"ok": true, "count": len(rows), "rows": rows})
+		payload := map[string]any{"ok": true, "count": len(rows), "rows": rows}
+		if jsonOut {
+			addRowExportEvidence(payload, cacheIntegrity, evidence)
+		} else {
+			printRowExportEvidence(a.stderr, cacheIntegrity, evidence)
+		}
+		return a.writeJSON(payload)
 	case "csv":
 		if jsonOut {
-			return a.writeJSON(map[string]any{"ok": true, "format": "csv", "count": len(rows)})
+			payload := map[string]any{"ok": true, "format": "csv", "count": len(rows)}
+			addRowExportEvidence(payload, cacheIntegrity, evidence)
+			return a.writeJSON(payload)
 		}
+		printRowExportEvidence(a.stderr, cacheIntegrity, evidence)
 		return writeCSV(a.stdout, rows)
 	default:
 		return a.fail(exitUsage, "unsupported export format %q; use csv or json", format)
+	}
+}
+
+func addRowExportEvidence(payload map[string]any, cacheIntegrity *cacheArtifactIntegrity, evidence *rowExportEvidence) {
+	if cacheIntegrity != nil {
+		payload["cache_integrity"] = cacheIntegrity
+	}
+	if evidence != nil {
+		payload["dataset"] = evidence.Dataset
+		payload["operation"] = evidence.Operation
+		payload["registry_trust"] = evidence.RegistryTrust
+		payload["verification"] = evidence.Verification
+		if evidence.EvidenceWarning != nil {
+			payload["evidence_warning"] = evidence.EvidenceWarning
+		}
+	}
+}
+
+func printRowExportEvidence(w io.Writer, cacheIntegrity *cacheArtifactIntegrity, evidence *rowExportEvidence) {
+	if cacheIntegrity != nil {
+		printCacheIntegrityBrief(w, *cacheIntegrity)
+	}
+	if evidence != nil {
+		printRegistryTrustBrief(w, evidence.RegistryTrust)
+		printVerificationBrief(w, evidence.Verification)
+	}
+}
+
+type cacheArtifactIntegrity struct {
+	Status         string `json:"status"`
+	Manifest       string `json:"manifest"`
+	Artifact       string `json:"artifact"`
+	Kind           string `json:"kind,omitempty"`
+	ExpectedBytes  int    `json:"expected_bytes,omitempty"`
+	ActualBytes    int    `json:"actual_bytes"`
+	ExpectedSHA256 string `json:"expected_sha256,omitempty"`
+	ActualSHA256   string `json:"actual_sha256"`
+	Reason         string `json:"reason,omitempty"`
+}
+
+func inspectSyncCacheArtifact(input string, data []byte) (*cacheArtifactIntegrity, bool) {
+	if input == "-" || strings.TrimSpace(input) == "" {
+		return nil, false
+	}
+	base := filepath.Base(filepath.Clean(input))
+	if base != "response.json" && base != "rows.json" && base != "rows.csv" {
+		return nil, false
+	}
+	manifestPath := filepath.Join(filepath.Dir(filepath.Clean(input)), "manifest.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if os.IsNotExist(err) {
+		return nil, false
+	}
+	actualSum := sha256.Sum256(data)
+	context := &cacheArtifactIntegrity{
+		Manifest: manifestPath, Artifact: input, ActualBytes: len(data), ActualSHA256: fmt.Sprintf("%x", actualSum),
+	}
+	if err != nil {
+		context.Status = "manifest_invalid"
+		context.Reason = err.Error()
+		return context, true
+	}
+	var manifest struct {
+		Files []syncCacheFile `json:"files"`
+	}
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		context.Status = "manifest_invalid"
+		context.Reason = err.Error()
+		return context, true
+	}
+	var expected *syncCacheFile
+	for index := range manifest.Files {
+		candidate := &manifest.Files[index]
+		if sameFilePath(candidate.Path, input) || filepath.Base(filepath.Clean(candidate.Path)) == base {
+			expected = candidate
+			break
+		}
+	}
+	if expected == nil {
+		context.Status = "not_listed"
+		context.Reason = "sync manifest does not list this artifact"
+		return context, true
+	}
+	context.Kind = expected.Kind
+	context.ExpectedBytes = expected.Bytes
+	context.ExpectedSHA256 = expected.SHA256
+	if expected.Bytes < 0 || len(expected.SHA256) != 64 {
+		context.Status = "manifest_invalid"
+		context.Reason = "sync manifest contains invalid artifact integrity metadata"
+		return context, true
+	}
+	if expected.Bytes != context.ActualBytes || expected.SHA256 != context.ActualSHA256 {
+		context.Status = "mismatch"
+		context.Reason = "cached artifact bytes do not match the sync manifest"
+		return context, true
+	}
+	context.Status = "verified"
+	return context, false
+}
+
+func (a app) rejectCacheIntegrity(jsonOut bool, integrity *cacheArtifactIntegrity) int {
+	steps := []string{"run datapan sync again to create a complete cache generation", "preserve the cache directory for inspection if the change was unexpected"}
+	if jsonOut {
+		if code := a.writeJSON(map[string]any{"ok": false, "error": "cache_integrity_failed", "cache_integrity": integrity, "next_steps": steps}); code != exitOK {
+			return code
+		}
+		return exitRequest
+	}
+	if integrity != nil {
+		printCacheIntegrityBrief(a.stderr, *integrity)
+	}
+	for _, step := range steps {
+		fmt.Fprintf(a.stderr, "  next: %s\n", step)
+	}
+	return exitRequest
+}
+
+func printCacheIntegrityBrief(w io.Writer, integrity cacheArtifactIntegrity) {
+	fmt.Fprintf(w, "cache integrity: %s (%s)\n", integrity.Status, integrity.Artifact)
+	if integrity.Reason != "" {
+		fmt.Fprintf(w, "  reason: %s\n", integrity.Reason)
 	}
 }
 
@@ -9261,7 +12085,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if plan.Adapter != nil {
-		return plan.Adapter.Call(ctx, providers.CallRequest{
+		envelope, err := plan.Adapter.Call(ctx, providers.CallRequest{
 			Spec:          plan.Spec,
 			Operation:     plan.Operation,
 			Params:        plan.Params,
@@ -9269,6 +12093,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 			Credential:    plan.Credential,
 			HTTP:          a.http,
 		})
+		return redactResponseEnvelope(envelope, plan.Credential.Value), err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.URL, nil)
 	if err != nil {
@@ -9285,7 +12110,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 	}
 	contentType := resp.Header.Get("Content-Type")
 	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, contentType, body)
-	return datago.ResponseEnvelope{
+	return redactResponseEnvelope(datago.ResponseEnvelope{
 		OK:             ok,
 		Provider:       "data.go.kr",
 		Dataset:        plan.Spec.ID,
@@ -9297,7 +12122,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		ProviderStatus: providerStatus,
 		URL:            plan.RedactedURL,
 		Body:           string(body),
-	}, nil
+	}, plan.Credential.Value), nil
 }
 
 func adapterHasCapability(adapter providers.Adapter, capability string) bool {
@@ -9345,9 +12170,10 @@ func (a app) mapError(err error, jsonOut bool) int {
 	if errors.As(err, &usage) {
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
-				"ok":      false,
-				"error":   "usage",
-				"message": usage.message,
+				"ok":             false,
+				"error":          "usage",
+				"message":        usage.message,
+				"registry_trust": a.localRegistryTrust(),
 			}); code != exitOK {
 				return code
 			}
@@ -9359,10 +12185,11 @@ func (a app) mapError(err error, jsonOut bool) int {
 	if errors.As(err, &ambiguous) {
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
-				"ok":         false,
-				"error":      "ambiguous_ref",
-				"ref":        ambiguous.ref,
-				"candidates": specSummaries(ambiguous.candidates),
+				"ok":             false,
+				"error":          "ambiguous_ref",
+				"ref":            ambiguous.ref,
+				"candidates":     specSummaries(ambiguous.candidates),
+				"registry_trust": a.localRegistryTrust(),
 			}); code != exitOK {
 				return code
 			}
@@ -9378,9 +12205,10 @@ func (a app) mapError(err error, jsonOut bool) int {
 	if errors.As(err, &nf) {
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
-				"ok":    false,
-				"error": "not_found",
-				"ref":   nf.id,
+				"ok":             false,
+				"error":          "not_found",
+				"ref":            nf.id,
+				"registry_trust": a.localRegistryTrust(),
 			}); code != exitOK {
 				return code
 			}
@@ -9395,6 +12223,7 @@ func (a app) mapError(err error, jsonOut bool) int {
 				"ok":                false,
 				"error":             "missing_auth",
 				"accepted_env_vars": datago.KeyEnvNames,
+				"registry_trust":    a.localRegistryTrust(),
 			}); code != exitOK {
 				return code
 			}
@@ -9404,9 +12233,10 @@ func (a app) mapError(err error, jsonOut bool) int {
 	}
 	if jsonOut {
 		if code := a.writeJSON(map[string]any{
-			"ok":      false,
-			"error":   "request_failed",
-			"message": err.Error(),
+			"ok":             false,
+			"error":          "request_failed",
+			"message":        err.Error(),
+			"registry_trust": a.localRegistryTrust(),
 		}); code != exitOK {
 			return code
 		}
@@ -9472,7 +12302,7 @@ Usage:
   datapan show <ref> [--json]
   datapan use <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
   datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
-  datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
+  datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--provenance-output PATH] [--json]
   datapan auth check [--json]
   datapan status [--json]
   datapan doctor [--json]
@@ -9487,12 +12317,12 @@ Usage:
   datapan export --input PATH|- [--format csv|json]
   datapan preview --input PATH|- [--format auto|json|csv] [--limit N] [--json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
-  datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
-  datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
+  datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
   datapan export [--format csv|json] <ref> [KEY=VALUE ...] [--timeout DURATION]
-  datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
-  datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
-  datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--provenance-output PATH]
+  datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
+  datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
   datapan version [--json]
 
 Accepted data.go.kr key env vars:
@@ -9634,10 +12464,10 @@ Plan a usable API workflow with ordered next steps and optionally write a starte
   datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
 
 Write a starter kit for one operation: params JSON, curl script, Postman
-collection, OpenAPI document, Go/Node/Python clients, and README.`, true
+collection, OpenAPI document, Go/Node/Python clients, provenance, and README.`, true
 	case "params":
 		return `Usage:
-  datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--json]
+  datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--provenance-output PATH] [--json]
 
 Write reusable request params without credential material.`, true
 	case "auth":
@@ -9785,8 +12615,8 @@ Call an operation once and cache response.json, rows, params, and manifest files
 		return `Usage:
   datapan export --input PATH|- [--format csv|json]
   datapan export --format curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-]
-  datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
-  datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan export --format postman <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
+  datapan export --format openapi <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
   datapan export [--format csv|json] <ref> [KEY=VALUE ...] [--timeout DURATION]
 
 Export planned requests to curl, Postman, OpenAPI, or export response rows to
@@ -9798,9 +12628,9 @@ CSV/JSON.`, true
 Preview saved JSON or CSV rows in a compact table or machine-readable JSON.`, true
 	case "codegen":
 		return `Usage:
-  datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-]
-  datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
-  datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-]
+  datapan codegen go <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--package NAME] [--output PATH|-] [--provenance-output PATH]
+  datapan codegen node <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
+  datapan codegen python <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output PATH|-] [--provenance-output PATH]
 
 Generate a small dependency-light client for one planned public data operation.`, true
 	case "version":

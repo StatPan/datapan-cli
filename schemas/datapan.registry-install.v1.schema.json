@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.datapan.dev/datapan.registry-install.v1.schema.json",
+  "title": "Datapan Registry Install Provenance v1",
+  "description": "Local provenance for the datapan-registry release installed by Datapan CLI.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "installed_at",
+    "provider",
+    "registry_path",
+    "registry_sha256",
+    "asset_url",
+    "pin_mode",
+    "source_mode",
+    "shards_validated"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "datapan.registry-install.v1"
+    },
+    "installed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "provider": {
+      "const": "datapan-registry"
+    },
+    "registry_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "registry_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "release_tag": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_api_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "asset_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "shards_asset_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "pin_mode": {
+      "enum": ["latest", "pinned", "direct_url"]
+    },
+    "source_mode": {
+      "enum": ["default_installed", "explicit_path"]
+    },
+    "release_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_manifest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "release_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "manifest_registry_verified": {
+      "type": "boolean"
+    },
+    "shards_validated": {
+      "type": "boolean"
+    },
+    "shards_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shards_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "shards_records": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cli_consumer_status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cli_compatibility_mode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runtime_manual_review_required": {
+      "type": "boolean"
+    },
+    "runtime_compatibility_effect": {
+      "type": "string",
+      "minLength": 1
+    },
+    "consumer_release_decision": {
+      "enum": ["safe_to_consume", "manual_review_required", "blocked"]
+    },
+    "consumer_manual_review_accepted": {
+      "type": "boolean"
+    },
+    "cli_consumer_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cli_consumer_action_reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

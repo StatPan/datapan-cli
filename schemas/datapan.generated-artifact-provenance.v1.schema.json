@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.datapan.dev/datapan.generated-artifact-provenance.v1.schema.json",
+  "title": "Datapan Generated Artifact Provenance v1",
+  "description": "Registry trust and verification provenance for Datapan-generated artifacts and starter kits.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "datapan_version",
+    "generated_at",
+    "dataset",
+    "operation",
+    "registry_trust",
+    "verification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "datapan.generated-artifact-provenance.v1"
+    },
+    "datapan_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "bytes", "sha256"],
+      "properties": {
+        "kind": {"enum": ["params", "postman", "openapi", "codegen_go", "codegen_node", "codegen_python"]},
+        "path": {"type": "string", "minLength": 1},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "registry_trust": {
+      "type": "object",
+      "required": [
+        "status",
+        "registry_source",
+        "integrity",
+        "manifest_binding",
+        "release_readiness",
+        "verification_evidence",
+        "verification_freshness",
+        "execution_allowed"
+      ]
+    },
+    "verification": {
+      "type": "object",
+      "required": ["dataset_id", "operation", "status", "freshness"]
+    }
+  }
+}

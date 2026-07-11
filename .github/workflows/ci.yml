@@ -49,6 +49,10 @@ jobs:
           .\scripts\install.ps1 -Help
           .\scripts\smoke-first-run.ps1 -Help
 
+      - name: Check Registry journey script help
+        shell: pwsh
+        run: ./scripts/smoke-registry-journey.ps1 -Datapan ./README.md -Help
+
       - name: Build datapan
         run: go build ./cmd/datapan
 

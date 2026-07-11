@@ -30,6 +30,7 @@ type browserWorkflowOptions struct {
 	Headed         bool
 	Apply          bool
 	Output         string
+	RegistryTrust  *registryTrustContext
 }
 
 func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) int {
@@ -41,24 +42,24 @@ func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) i
 		opts.PurposeText = datago.PurposeTextKO
 	}
 	if err := os.MkdirAll(opts.ProfileDir, 0o700); err != nil {
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:       false,
 			Command:  opts.Command,
 			Provider: "data.go.kr",
 			Status:   "profile_dir_error",
 			Error:    err.Error(),
-		}, opts.Output)
+		}, opts)
 	}
 
 	ctx, cancel, err := newBrowserContext(opts)
 	if err != nil {
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:       false,
 			Command:  opts.Command,
 			Provider: "data.go.kr",
 			Status:   "browser_start_error",
 			Error:    err.Error(),
-		}, opts.Output)
+		}, opts)
 	}
 	defer cancel()
 
@@ -68,31 +69,32 @@ func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) i
 	case "submit":
 		return runBrowserSubmit(ctx, opts, stdout)
 	default:
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:       false,
 			Command:  opts.Command,
 			Provider: "data.go.kr",
 			Status:   "unknown_browser_workflow",
-		}, opts.Output)
+		}, opts)
 	}
 }
 
 type browserResult struct {
-	OK                bool           `json:"ok"`
-	Command           string         `json:"command"`
-	Provider          string         `json:"provider"`
-	Status            string         `json:"status"`
-	ListID            string         `json:"list_id,omitempty"`
-	ApplicationURL    string         `json:"application_url,omitempty"`
-	ProfileDir        string         `json:"profile_dir,omitempty"`
-	LoginConfirmed    bool           `json:"login_confirmed,omitempty"`
-	HumanGateDetected bool           `json:"human_gate_detected,omitempty"`
-	DryRun            bool           `json:"dry_run,omitempty"`
-	DetectedState     map[string]any `json:"detected_state,omitempty"`
-	Action            string         `json:"action,omitempty"`
-	ApplyResult       map[string]any `json:"apply_result,omitempty"`
-	URL               string         `json:"url,omitempty"`
-	Error             string         `json:"error,omitempty"`
+	OK                bool                  `json:"ok"`
+	Command           string                `json:"command"`
+	Provider          string                `json:"provider"`
+	Status            string                `json:"status"`
+	ListID            string                `json:"list_id,omitempty"`
+	ApplicationURL    string                `json:"application_url,omitempty"`
+	ProfileDir        string                `json:"profile_dir,omitempty"`
+	LoginConfirmed    bool                  `json:"login_confirmed,omitempty"`
+	HumanGateDetected bool                  `json:"human_gate_detected,omitempty"`
+	DryRun            bool                  `json:"dry_run,omitempty"`
+	DetectedState     map[string]any        `json:"detected_state,omitempty"`
+	Action            string                `json:"action,omitempty"`
+	ApplyResult       map[string]any        `json:"apply_result,omitempty"`
+	URL               string                `json:"url,omitempty"`
+	Error             string                `json:"error,omitempty"`
+	RegistryTrust     *registryTrustContext `json:"registry_trust,omitempty"`
 }
 
 func newBrowserContext(opts browserWorkflowOptions) (context.Context, context.CancelFunc, error) {
@@ -128,13 +130,13 @@ func runBrowserLogin(ctx context.Context, opts browserWorkflowOptions, stdout io
 		chromedp.Navigate(dataGoKrLoginURL),
 		chromedp.Sleep(1*time.Second),
 	); err != nil {
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:       false,
 			Command:  "login",
 			Provider: "data.go.kr",
 			Status:   "navigation_error",
 			Error:    err.Error(),
-		}, opts.Output)
+		}, opts)
 	}
 
 	confirmed := false
@@ -152,7 +154,7 @@ func runBrowserLogin(ctx context.Context, opts browserWorkflowOptions, stdout io
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return writeWorkflowResult(stdout, browserResult{
+	return writeWorkflowResultForOptions(stdout, browserResult{
 		OK:                confirmed,
 		Command:           "login",
 		Provider:          "data.go.kr",
@@ -161,7 +163,7 @@ func runBrowserLogin(ctx context.Context, opts browserWorkflowOptions, stdout io
 		LoginConfirmed:    confirmed,
 		HumanGateDetected: hasHumanGate(body),
 		URL:               currentURL,
-	}, opts.Output)
+	}, opts)
 }
 
 func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout io.Writer) int {
@@ -172,16 +174,16 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 		chromedp.Location(&currentURL),
 		chromedp.Text("body", &body, chromedp.ByQuery),
 	); err != nil {
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:       false,
 			Command:  "submit",
 			Provider: "data.go.kr",
 			Status:   "navigation_error",
 			Error:    err.Error(),
-		}, opts.Output)
+		}, opts)
 	}
 	if !isLoginConfirmed(currentURL, body) {
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:                false,
 			Command:           "submit",
 			Provider:          "data.go.kr",
@@ -192,7 +194,7 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 			LoginConfirmed:    false,
 			HumanGateDetected: hasHumanGate(body),
 			URL:               currentURL,
-		}, opts.Output)
+		}, opts)
 	}
 
 	if err := chromedp.Run(ctx,
@@ -201,13 +203,13 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 		chromedp.Location(&currentURL),
 		chromedp.Text("body", &body, chromedp.ByQuery),
 	); err != nil {
-		return writeWorkflowResult(stdout, browserResult{
+		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:       false,
 			Command:  "submit",
 			Provider: "data.go.kr",
 			Status:   "application_navigation_error",
 			Error:    err.Error(),
-		}, opts.Output)
+		}, opts)
 	}
 	detected := detectApplicationState(body)
 	result := browserResult{
@@ -225,16 +227,16 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 		URL:            currentURL,
 	}
 	if !opts.Apply {
-		return writeWorkflowResult(stdout, result, opts.Output)
+		return writeWorkflowResultForOptions(stdout, result, opts)
 	}
 	if detected["status"] != "access_user_action_required" {
 		result.Action = "not_submitted"
-		return writeWorkflowResult(stdout, result, opts.Output)
+		return writeWorkflowResultForOptions(stdout, result, opts)
 	}
 	applyResult := submitApplication(ctx, opts.PurposeText)
 	result.Action = fmt.Sprint(applyResult["action"])
 	result.ApplyResult = applyResult
-	return writeWorkflowResult(stdout, result, opts.Output)
+	return writeWorkflowResultForOptions(stdout, result, opts)
 }
 
 func submitApplication(ctx context.Context, purposeText string) map[string]any {
@@ -381,6 +383,11 @@ func writeWorkflowResult(stdout io.Writer, result browserResult, output string) 
 		return exitOK
 	}
 	return exitRequest
+}
+
+func writeWorkflowResultForOptions(stdout io.Writer, result browserResult, opts browserWorkflowOptions) int {
+	result.RegistryTrust = opts.RegistryTrust
+	return writeWorkflowResult(stdout, result, opts.Output)
 }
 
 func isLoginConfirmed(currentURL, pageText string) bool {
