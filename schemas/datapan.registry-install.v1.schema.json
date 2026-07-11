@@ -123,6 +123,25 @@
     "cli_consumer_action_reason": {
       "type": "string",
       "minLength": 1
+    },
+    "distribution": {
+      "enum": ["huggingface_dataset", "github_release"]
+    },
+    "dataset_id": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "dataset_revision": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+    },
+    "dataset_manifest_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "dataset_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     }
   }
 }

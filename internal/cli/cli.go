@@ -68,7 +68,12 @@ const defaultReleaseRuntimeRemediationPath = ".datapan/release/reports/source-ru
 const defaultReleaseRuntimeRemediationSchemaPath = ".datapan/release/schemas/datapan.source-runtime-remediation-map.v1.schema.json"
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
-const defaultDatapanRegistryReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
+const defaultDatapanRegistryReleaseAPI = "https://huggingface.co/api/datasets/StatPan/datapan-registry"
+const defaultDatapanRegistryGitHubReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
+const datapanRegistryHFDatasetID = "StatPan/datapan-registry"
+const datapanRegistryHFRegistryPath = "data/data-go-kr.registry.json"
+const datapanRegistryHFManifestPath = "release/registry-shards.json"
+const datapanRegistryHFShardsPath = "release/data-go-kr-shards.tar.gz"
 const datapanRegistryZipAssetSuffix = ".zip"
 const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
 const datapanRegistryShardsAssetName = "data-go-kr-shards.tar.gz"
@@ -1494,6 +1499,11 @@ type datapanRegistryInstall struct {
 	ReleaseDir            string
 	ReleaseFiles          []string
 	ReleaseManifestSHA256 string
+	DatasetManifestSHA256 string
+	Distribution          string
+	DatasetID             string
+	DatasetRevision       string
+	DatasetManifestURL    string
 	Provenance            *registryInstallProvenance
 }
 
@@ -1570,6 +1580,15 @@ func (i datapanRegistryInstall) Payload() map[string]any {
 	if i.PinMode != "" {
 		payload["pin_mode"] = i.PinMode
 	}
+	if i.Distribution != "" {
+		payload["distribution"] = i.Distribution
+	}
+	if i.DatasetID != "" {
+		payload["dataset_id"] = i.DatasetID
+	}
+	if i.DatasetRevision != "" {
+		payload["dataset_revision"] = i.DatasetRevision
+	}
 	if i.Provenance != nil {
 		payload["provenance"] = defaultRegistryInstallProvenancePath
 	}
@@ -1591,13 +1610,29 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 			return datapanRegistryInstall{}, fmt.Errorf("release has no %s asset", datapanRegistryZipAssetSuffix)
 		}
 	}
-	zipData, err := a.downloadBytes(assetURL)
-	if err != nil {
-		return datapanRegistryInstall{}, err
-	}
-	snapshot, err := datapanRegistrySnapshotFromZip(zipData)
-	if err != nil {
-		return datapanRegistryInstall{}, err
+	var snapshot datapanRegistryZipSnapshot
+	if release.Distribution == "huggingface_dataset" {
+		registryData, err := a.downloadBytes(assetURL)
+		if err != nil {
+			return datapanRegistryInstall{}, err
+		}
+		sum := fmt.Sprintf("%x", sha256.Sum256(registryData))
+		if !strings.EqualFold(sum, release.RegistrySHA256) {
+			return datapanRegistryInstall{}, fmt.Errorf("Hugging Face Registry SHA-256 mismatch: expected %s, got %s", release.RegistrySHA256, sum)
+		}
+		snapshot = datapanRegistryZipSnapshot{
+			RegistryData: registryData,
+			ReleaseFiles: map[string][]byte{"registry-shards.json": release.ManifestData},
+		}
+	} else {
+		zipData, err := a.downloadBytes(assetURL)
+		if err != nil {
+			return datapanRegistryInstall{}, err
+		}
+		snapshot, err = datapanRegistrySnapshotFromZip(zipData)
+		if err != nil {
+			return datapanRegistryInstall{}, err
+		}
 	}
 	if snapshot.Release.VerificationOK != nil && !*snapshot.Release.VerificationOK {
 		return datapanRegistryInstall{}, fmt.Errorf("registry release verification reports failure")
@@ -1639,13 +1674,17 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 			return datapanRegistryInstall{}, err
 		}
 		return datapanRegistryInstall{
-			RegistryPath: registryPath,
-			AssetURL:     assetURL,
-			ReleaseURL:   normalizedReleaseURL,
-			PinMode:      registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
-			RegistryData: snapshot.RegistryData,
-			Specs:        specs,
-			Release:      snapshot.Release,
+			RegistryPath:       registryPath,
+			AssetURL:           assetURL,
+			ReleaseURL:         normalizedReleaseURL,
+			PinMode:            registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
+			RegistryData:       snapshot.RegistryData,
+			Specs:              specs,
+			Release:            snapshot.Release,
+			Distribution:       release.Distribution,
+			DatasetID:          release.DatasetID,
+			DatasetRevision:    release.DatasetRevision,
+			DatasetManifestURL: release.ManifestURL,
 		}, nil
 	}
 	releaseDir := defaultReleaseDir
@@ -1654,21 +1693,28 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 		return datapanRegistryInstall{}, err
 	}
 	install := datapanRegistryInstall{
-		RegistryPath:   registryPath,
-		AssetURL:       assetURL,
-		ShardsAssetURL: release.ShardsAssetURL,
-		ReleaseURL:     normalizedReleaseURL,
-		ReleaseTag:     release.TagName,
-		PinMode:        registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
-		RegistryData:   snapshot.RegistryData,
-		Specs:          specs,
-		Release:        snapshot.Release,
-		ReleaseDir:     releaseDir,
-		ReleaseFiles:   releaseFiles,
+		RegistryPath:       registryPath,
+		AssetURL:           assetURL,
+		ShardsAssetURL:     release.ShardsAssetURL,
+		ReleaseURL:         normalizedReleaseURL,
+		ReleaseTag:         release.TagName,
+		PinMode:            registryInstallPinMode(requestedAssetURL, normalizedReleaseURL),
+		RegistryData:       snapshot.RegistryData,
+		Specs:              specs,
+		Release:            snapshot.Release,
+		ReleaseDir:         releaseDir,
+		ReleaseFiles:       releaseFiles,
+		Distribution:       release.Distribution,
+		DatasetID:          release.DatasetID,
+		DatasetRevision:    release.DatasetRevision,
+		DatasetManifestURL: release.ManifestURL,
 	}
 	if manifestData, ok := snapshot.ReleaseFiles["manifest.json"]; ok {
 		sum := sha256.Sum256(manifestData)
 		install.ReleaseManifestSHA256 = fmt.Sprintf("%x", sum)
+	} else if len(release.ManifestData) > 0 {
+		sum := sha256.Sum256(release.ManifestData)
+		install.DatasetManifestSHA256 = fmt.Sprintf("%x", sum)
 	}
 	provenance := newRegistryInstallProvenance(install)
 	provenanceData, err := jsonIndentedBytes(provenance)
@@ -1711,6 +1757,11 @@ type registryInstallProvenance struct {
 	ConsumerManualReviewAccepted *bool    `json:"consumer_manual_review_accepted,omitempty"`
 	CLIConsumerAction            string   `json:"cli_consumer_action,omitempty"`
 	CLIConsumerActionReason      string   `json:"cli_consumer_action_reason,omitempty"`
+	Distribution                 string   `json:"distribution,omitempty"`
+	DatasetID                    string   `json:"dataset_id,omitempty"`
+	DatasetRevision              string   `json:"dataset_revision,omitempty"`
+	DatasetManifestURL           string   `json:"dataset_manifest_url,omitempty"`
+	DatasetManifestSHA256        string   `json:"dataset_manifest_sha256,omitempty"`
 }
 
 func newRegistryInstallProvenance(install datapanRegistryInstall) registryInstallProvenance {
@@ -1747,6 +1798,11 @@ func newRegistryInstallProvenance(install datapanRegistryInstall) registryInstal
 		ConsumerManualReviewAccepted: install.Release.ConsumerManualReviewAccepted,
 		CLIConsumerAction:            install.Release.CLIConsumerAction,
 		CLIConsumerActionReason:      install.Release.CLIConsumerActionReason,
+		Distribution:                 install.Distribution,
+		DatasetID:                    install.DatasetID,
+		DatasetRevision:              install.DatasetRevision,
+		DatasetManifestURL:           install.DatasetManifestURL,
+		DatasetManifestSHA256:        install.DatasetManifestSHA256,
 	}
 	if install.Release.ManifestPresent {
 		provenance.ReleaseManifestPath = defaultReleaseManifestPath
@@ -1884,12 +1940,21 @@ func initNextSteps(registryPath string, credentialPresent bool) []string {
 }
 
 type datapanRegistryRelease struct {
-	TagName        string
-	ZipAssetURL    string
-	ShardsAssetURL string
+	TagName         string
+	ZipAssetURL     string
+	ShardsAssetURL  string
+	Distribution    string
+	DatasetID       string
+	DatasetRevision string
+	RegistrySHA256  string
+	ManifestURL     string
+	ManifestData    []byte
 }
 
 func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRelease, error) {
+	if isHuggingFaceDatasetAPI(releaseURL) {
+		return a.fetchHuggingFaceRegistryRelease(releaseURL)
+	}
 	releaseURL = normalizeGitHubReleaseURL(releaseURL)
 	data, err := a.downloadBytes(releaseURL)
 	if err != nil {
@@ -1905,7 +1970,7 @@ func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRele
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return datapanRegistryRelease{}, fmt.Errorf("decode release metadata: %w", err)
 	}
-	out := datapanRegistryRelease{TagName: payload.TagName}
+	out := datapanRegistryRelease{TagName: payload.TagName, Distribution: "github_release"}
 	for _, asset := range payload.Assets {
 		name := strings.ToLower(strings.TrimSpace(asset.Name))
 		downloadURL := strings.TrimSpace(asset.BrowserDownloadURL)
@@ -1917,6 +1982,141 @@ func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRele
 		}
 	}
 	return out, nil
+}
+
+func isHuggingFaceDatasetAPI(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && strings.EqualFold(u.Host, "huggingface.co") && strings.HasPrefix(strings.Trim(u.Path, "/"), "api/datasets/")
+}
+
+type huggingFaceRegistryManifest struct {
+	SchemaVersion        string `json:"schema_version"`
+	SourceRegistrySHA256 string `json:"source_registry_sha256"`
+	DatasetRevision      string `json:"dataset_revision,omitempty"`
+	Revision             string `json:"revision,omitempty"`
+	Commit               string `json:"commit,omitempty"`
+}
+
+func (a app) fetchHuggingFaceRegistryRelease(apiURL string) (datapanRegistryRelease, error) {
+	data, err := a.downloadBytes(apiURL)
+	if err != nil {
+		return datapanRegistryRelease{}, err
+	}
+	var metadata struct {
+		ID       string `json:"id"`
+		SHA      string `json:"sha"`
+		Siblings []struct {
+			Filename string `json:"rfilename"`
+		} `json:"siblings"`
+	}
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("decode Hugging Face Dataset metadata: %w", err)
+	}
+	// Preserve compatibility with tests and explicitly supplied legacy endpoints
+	// that return GitHub release metadata under a custom URL.
+	if metadata.SHA == "" {
+		var legacy struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name string `json:"name"`
+				URL  string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if json.Unmarshal(data, &legacy) == nil && legacy.TagName != "" {
+			out := datapanRegistryRelease{TagName: legacy.TagName, Distribution: "github_release"}
+			for _, asset := range legacy.Assets {
+				name := strings.ToLower(strings.TrimSpace(asset.Name))
+				if strings.HasSuffix(name, datapanRegistryZipAssetSuffix) && out.ZipAssetURL == "" {
+					out.ZipAssetURL = strings.TrimSpace(asset.URL)
+				}
+				if name == datapanRegistryShardsAssetName && out.ShardsAssetURL == "" {
+					out.ShardsAssetURL = strings.TrimSpace(asset.URL)
+				}
+			}
+			return out, nil
+		}
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Dataset metadata is missing immutable commit SHA")
+	}
+	if !validImmutableRevision(metadata.SHA) {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Dataset metadata has invalid commit SHA")
+	}
+	datasetID := strings.TrimSpace(metadata.ID)
+	if datasetID == "" {
+		datasetID = datapanRegistryHFDatasetID
+	}
+	files := map[string]bool{}
+	for _, sibling := range metadata.Siblings {
+		files[sibling.Filename] = true
+	}
+	for _, required := range []string{datapanRegistryHFManifestPath, datapanRegistryHFRegistryPath} {
+		if !files[required] {
+			return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Dataset is missing %s", required)
+		}
+	}
+	bootstrapRevision := metadata.SHA
+	manifestURL := huggingFaceResolveURL(datasetID, bootstrapRevision, datapanRegistryHFManifestPath)
+	manifestData, err := a.downloadBytes(manifestURL)
+	if err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("download Hugging Face Registry manifest: %w", err)
+	}
+	var manifest huggingFaceRegistryManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("decode Hugging Face Registry manifest: %w", err)
+	}
+	revision := firstNonEmpty(manifest.DatasetRevision, manifest.Revision, manifest.Commit, bootstrapRevision)
+	if !validImmutableRevision(revision) {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Registry manifest has invalid immutable commit")
+	}
+	expectedSHA := strings.ToLower(strings.TrimSpace(manifest.SourceRegistrySHA256))
+	if len(expectedSHA) != 64 {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Registry manifest is missing a valid Registry SHA-256")
+	}
+	if _, err := hex.DecodeString(expectedSHA); err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Registry manifest has invalid Registry SHA-256")
+	}
+	if revision != bootstrapRevision {
+		manifestURL = huggingFaceResolveURL(datasetID, revision, datapanRegistryHFManifestPath)
+		manifestData, err = a.downloadBytes(manifestURL)
+		if err != nil {
+			return datapanRegistryRelease{}, fmt.Errorf("download pinned Hugging Face Registry manifest: %w", err)
+		}
+	}
+	out := datapanRegistryRelease{
+		TagName:         revision,
+		ZipAssetURL:     huggingFaceResolveURL(datasetID, revision, datapanRegistryHFRegistryPath),
+		Distribution:    "huggingface_dataset",
+		DatasetID:       datasetID,
+		DatasetRevision: revision,
+		RegistrySHA256:  expectedSHA,
+		ManifestURL:     manifestURL,
+		ManifestData:    manifestData,
+	}
+	if files[datapanRegistryHFShardsPath] && revision == bootstrapRevision {
+		out.ShardsAssetURL = huggingFaceResolveURL(datasetID, revision, datapanRegistryHFShardsPath)
+	}
+	return out, nil
+}
+
+func validImmutableRevision(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func huggingFaceResolveURL(datasetID, revision, path string) string {
+	return "https://huggingface.co/datasets/" + strings.Trim(datasetID, "/") + "/resolve/" + url.PathEscape(strings.TrimSpace(revision)) + "/" + strings.TrimLeft(path, "/")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func normalizeGitHubReleaseURL(raw string) string {
@@ -1952,6 +2152,7 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 	req.Header.Set("Accept", "application/json, application/zip, application/octet-stream")
 	req.Header.Set("User-Agent", "datapan-cli")
 	a.addGitHubAPIHeaders(req)
+	a.addHuggingFaceHeaders(req)
 	client := a.http
 	if client == nil {
 		client = RealHTTPClient{}
@@ -1969,6 +2170,17 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 		return nil, fmt.Errorf("download %s returned HTTP %d", rawURL, resp.StatusCode)
 	}
 	return body, nil
+}
+
+func (a app) addHuggingFaceHeaders(req *http.Request) {
+	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Host, "huggingface.co") || a.env == nil {
+		return
+	}
+	value, ok := a.env.LookupEnv("HF_TOKEN")
+	if !ok || strings.TrimSpace(value) == "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(value))
 }
 
 func (a app) addGitHubAPIHeaders(req *http.Request) {
@@ -9253,7 +9465,7 @@ func (a app) registryReleaseStatus(registrySource, registryPath string) registry
 	if err != nil {
 		status.Reason = "latest_fetch_failed"
 		status.LatestFetchError = err.Error()
-		status.NextSteps = append(status.NextSteps, "retry datapan status --json when GitHub is reachable")
+		status.NextSteps = append(status.NextSteps, "retry datapan status --json when the Registry distribution is reachable")
 		return status
 	}
 	status.LatestTag = latest.TagName
@@ -9301,6 +9513,17 @@ func readRegistryInstallProvenance(path string) (registryInstallProvenance, erro
 		}
 		if _, err := hex.DecodeString(provenance.ReleaseManifestSHA256); err != nil {
 			return registryInstallProvenance{}, fmt.Errorf("registry install provenance has invalid release manifest digest")
+		}
+	}
+	if provenance.Distribution == "huggingface_dataset" {
+		if strings.TrimSpace(provenance.DatasetID) == "" || !validImmutableRevision(provenance.DatasetRevision) || strings.TrimSpace(provenance.DatasetManifestURL) == "" || len(provenance.DatasetManifestSHA256) != 64 {
+			return registryInstallProvenance{}, fmt.Errorf("Hugging Face Registry install provenance is missing immutable Dataset identity")
+		}
+		if _, err := hex.DecodeString(provenance.DatasetManifestSHA256); err != nil {
+			return registryInstallProvenance{}, fmt.Errorf("Hugging Face Registry install provenance has invalid manifest digest")
+		}
+		if provenance.ReleaseTag != provenance.DatasetRevision {
+			return registryInstallProvenance{}, fmt.Errorf("Hugging Face Registry install provenance revision mismatch")
 		}
 	}
 	switch provenance.PinMode {
@@ -12401,7 +12624,8 @@ func commandHelpText(key string) (string, bool) {
   datapan init [--registry PATH] [--url URL] [--release-url URL] [--json]
 
 Install or point Datapan at a registry. Without flags it installs the latest
-datapan-registry GitHub Release into .datapan/data-go-kr.registry.json.`, true
+public StatPan/datapan-registry Hugging Face Dataset revision into
+.datapan/data-go-kr.registry.json and verifies its manifest-bound SHA-256.`, true
 	case "search":
 		return `Usage:
   datapan search [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
@@ -12515,7 +12739,8 @@ links as operations.`, true
 		return `Usage:
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
 
-Install the latest released datapan-registry zip without relying on Git LFS.`, true
+Install the latest immutable StatPan/datapan-registry Hugging Face Dataset
+revision and verify its manifest-bound SHA-256.`, true
 	case "catalog overview":
 		return `Usage:
   datapan catalog overview [--registry PATH] [--limit N] [--output PATH|-] [--json]

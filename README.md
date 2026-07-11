@@ -274,8 +274,10 @@ Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
 
 To move beyond the embedded seed catalog, run `datapan init`. This is the
-normal consumer path: it downloads the latest released `datapan-registry` zip,
-extracts `data/data-go-kr.registry.json`, validates that the registry decodes,
+normal consumer path: it resolves the latest public
+`StatPan/datapan-registry` Hugging Face Dataset commit, downloads the Registry
+and its manifest from that immutable revision, verifies the manifest-bound
+SHA-256, validates that the registry decodes,
 writes it to `.datapan/data-go-kr.registry.json`, reports release manifest /
 readiness / route-disposition / release-notes evidence when the zip includes those artifacts,
 stores the key release evidence files under `.datapan/release` for follow-up commands,
@@ -334,8 +336,9 @@ Use `datapan catalog install datapan-registry --json` when you want only the
 registry download/install step. It also preserves key release evidence files
 under `.datapan/release` when installing to a file, so follow-up coverage
 commands can reuse the published verification and route-disposition evidence.
-It writes `.datapan/registry-install.json` with the release tag, source URLs,
-registry and release-manifest SHA-256 values, install mode, shard evidence, and CLI consumer compatibility
+It writes `.datapan/registry-install.json` with the Dataset ID and immutable
+revision, source URLs, Registry and manifest SHA-256 values, install mode,
+shard evidence, and CLI consumer compatibility
 known at install time. Registry data, release evidence, and provenance are
 staged and replaced as one recoverable install transaction. A commit failure
 restores the previous local state, and a release without evidence clears stale
@@ -353,7 +356,7 @@ are registered. After `datapan init`, status also reports the installed
 release evidence files and the key verification, route-disposition, and
 coverage numbers they contain. The `registry_release` block verifies that the
 active registry path and digest still match the install provenance, checks the
-latest release metadata without replacing local files, and preserves CLI
+latest Dataset metadata without replacing local files, and preserves CLI
 compatibility and runtime manual-review boundaries. A failed online freshness
 check does not make an intact installed registry unusable.
 New Registry releases may include the manifest-bound sustainable coverage

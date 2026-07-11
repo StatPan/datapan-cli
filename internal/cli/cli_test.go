@@ -4917,6 +4917,109 @@ func TestInitInstallsRegistryAndReportsNextSteps(t *testing.T) {
 	}
 }
 
+func TestCatalogInstallDatapanRegistryFromHuggingFaceAnonymousAndPinned(t *testing.T) {
+	t.Chdir(t.TempDir())
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"hf-100","title":"HF Registry","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	registrySHA := fmt.Sprintf("%x", sha256.Sum256([]byte(registry)))
+	revision := strings.Repeat("a", 40)
+	manifestURL := huggingFaceResolveURL(datapanRegistryHFDatasetID, revision, datapanRegistryHFManifestPath)
+	registryURL := huggingFaceResolveURL(datapanRegistryHFDatasetID, revision, datapanRegistryHFRegistryPath)
+	var urls []string
+	var auth []string
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		urls = append(urls, req.URL.String())
+		auth = append(auth, req.Header.Get("Authorization"))
+		body := ""
+		switch req.URL.String() {
+		case defaultDatapanRegistryReleaseAPI:
+			body = fmt.Sprintf(`{"id":%q,"sha":%q,"siblings":[{"rfilename":%q},{"rfilename":%q}]}`, datapanRegistryHFDatasetID, revision, datapanRegistryHFManifestPath, datapanRegistryHFRegistryPath)
+		case manifestURL:
+			body = fmt.Sprintf(`{"schema_version":"datapan.registry-shards.v1","source_registry_sha256":%q}`, registrySHA)
+		case registryURL:
+			body = registry
+		default:
+			t.Fatalf("unexpected URL: %s", req.URL.String())
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, nil, client)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if len(urls) != 3 || urls[0] != defaultDatapanRegistryReleaseAPI || urls[1] != manifestURL || urls[2] != registryURL {
+		t.Fatalf("unexpected immutable download sequence: %#v", urls)
+	}
+	for i, value := range auth {
+		if value != "" {
+			t.Fatalf("anonymous request %d unexpectedly had authorization: %q", i, value)
+		}
+	}
+	for _, want := range []string{`"distribution": "huggingface_dataset"`, `"dataset_id": "StatPan/datapan-registry"`, `"dataset_revision": "` + revision + `"`, `"pin_mode": "latest"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	provenance, err := readRegistryInstallProvenance(defaultRegistryInstallProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.Distribution != "huggingface_dataset" || provenance.DatasetID != datapanRegistryHFDatasetID || provenance.DatasetRevision != revision || provenance.RegistrySHA256 != registrySHA {
+		t.Fatalf("unexpected Hugging Face provenance: %#v", provenance)
+	}
+}
+
+func TestCatalogInstallDatapanRegistryUsesHFTokenWithoutLeaking(t *testing.T) {
+	t.Chdir(t.TempDir())
+	output := filepath.Join(t.TempDir(), "registry.json")
+	registry := `[{"id":"hf-auth","title":"HF Auth","provider":"data.go.kr","priority":"P2","operations":[]}]`
+	registrySHA := fmt.Sprintf("%x", sha256.Sum256([]byte(registry)))
+	revision := strings.Repeat("b", 40)
+	var requestCount int
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		if req.Header.Get("Authorization") != "Bearer hf-secret" {
+			t.Fatalf("request %d missing HF authorization", requestCount)
+		}
+		body := registry
+		if req.URL.String() == defaultDatapanRegistryReleaseAPI {
+			body = fmt.Sprintf(`{"id":%q,"sha":%q,"siblings":[{"rfilename":%q},{"rfilename":%q}]}`, datapanRegistryHFDatasetID, revision, datapanRegistryHFManifestPath, datapanRegistryHFRegistryPath)
+		} else if req.URL.String() == huggingFaceResolveURL(datapanRegistryHFDatasetID, revision, datapanRegistryHFManifestPath) {
+			body = fmt.Sprintf(`{"schema_version":"datapan.registry-shards.v1","source_registry_sha256":%q}`, registrySHA)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, fakeEnv{"HF_TOKEN": "hf-secret"}, client)
+	if code != exitOK || stderr != "" || requestCount != 3 {
+		t.Fatalf("code=%d requests=%d stdout=%s stderr=%s", code, requestCount, stdout, stderr)
+	}
+	if strings.Contains(stdout, "hf-secret") {
+		t.Fatalf("HF token leaked: %s", stdout)
+	}
+}
+
+func TestCatalogInstallDatapanRegistryRejectsHFDigestMismatch(t *testing.T) {
+	t.Chdir(t.TempDir())
+	output := filepath.Join(t.TempDir(), "registry.json")
+	revision := strings.Repeat("c", 40)
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `[{"id":"bad","operations":[]}]`
+		if req.URL.String() == defaultDatapanRegistryReleaseAPI {
+			body = fmt.Sprintf(`{"id":%q,"sha":%q,"siblings":[{"rfilename":%q},{"rfilename":%q}]}`, datapanRegistryHFDatasetID, revision, datapanRegistryHFManifestPath, datapanRegistryHFRegistryPath)
+		} else if req.URL.String() == huggingFaceResolveURL(datapanRegistryHFDatasetID, revision, datapanRegistryHFManifestPath) {
+			body = fmt.Sprintf(`{"schema_version":"datapan.registry-shards.v1","source_registry_sha256":%q}`, strings.Repeat("0", 64))
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, nil, client)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, "Hugging Face Registry SHA-256 mismatch") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("digest mismatch wrote Registry: %v", err)
+	}
+}
+
 func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
 	t.Chdir(t.TempDir())
 	output := filepath.Join(t.TempDir(), "registry.json")
@@ -4926,7 +5029,7 @@ func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
 	var assetAuth string
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case defaultDatapanRegistryReleaseAPI:
+		case defaultDatapanRegistryGitHubReleaseAPI:
 			apiAuth = req.Header.Get("Authorization")
 			return &http.Response{
 				StatusCode: 200,
@@ -4950,7 +5053,7 @@ func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
 			return nil, nil
 		}
 	})
-	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--json"}, fakeEnv{"GH_TOKEN": "secret-token"}, client)
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--registry", output, "--release-url", defaultDatapanRegistryGitHubReleaseAPI, "--json"}, fakeEnv{"GH_TOKEN": "secret-token"}, client)
 	if code != exitOK {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}

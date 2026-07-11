@@ -621,14 +621,19 @@ make `ready:false`, but they remain visible in `summary` and `gates`.
 
 `datapan catalog install datapan-registry --registry PATH --json` is the normal
 lower-level install path for a released Datapan registry. It fetches the latest
-GitHub release metadata for `StatPan/datapan-registry`, downloads the first
-`.zip` asset, extracts `data/data-go-kr.registry.json`, validates that the file
-decodes as a Datapan registry, and writes it to `PATH` without calling
-data.go.kr. Use `--url URL` to install from an explicit release zip and skip
-release metadata lookup. Use `--release-url URL` to point at a different
-compatible GitHub release API endpoint. JSON output reports `ok`, `provider`,
+Hugging Face Dataset metadata for `StatPan/datapan-registry`, resolves the
+latest commit SHA, downloads `release/registry-shards.json` and
+`data/data-go-kr.registry.json` from that immutable revision, verifies the
+manifest-bound Registry SHA-256, validates that the file decodes as a Datapan
+registry, and writes it to `PATH` without calling data.go.kr. Requests are
+anonymous when `HF_TOKEN` is absent and authenticated when it is present; both
+paths use the same immutable revision and digest verification. Use `--url URL`
+to install from an explicit legacy release zip and skip metadata lookup. Use
+`--release-url URL` to point at a compatible Hugging Face Dataset API or legacy
+GitHub Release endpoint. JSON output reports `ok`, `provider`,
 `registry`, `url`, `bytes`, `specs`, `installed`, `release_tag`, `release_url`,
-`pin_mode`, `provenance`, and `release` when those fields are available. The
+`pin_mode`, `distribution`, `dataset_id`, `dataset_revision`, `provenance`, and
+`release` when those fields are available. The
 provenance file is not written for `--registry -`. `release`
 must report whether the downloaded zip included `manifest.json`,
 `RELEASE_NOTES.md`, release verification, and release readiness artifacts, plus

@@ -127,8 +127,9 @@ Non-goals for this repository:
 
 ### datapan-registry
 
-Status: active initial release at
-`https://github.com/StatPan/datapan-registry/releases/tag/v2026.06.24`.
+Status: active Registry source at `https://github.com/StatPan/datapan-registry`
+with the public distribution Dataset at
+`https://huggingface.co/datasets/StatPan/datapan-registry`.
 
 Purpose:
 
