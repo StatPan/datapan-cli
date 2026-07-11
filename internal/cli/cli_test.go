@@ -5020,6 +5020,66 @@ func TestCatalogInstallDatapanRegistryRejectsHFDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestHuggingFaceDistributionDownloadFailuresAreActionable(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		status   int
+		category string
+	}{
+		{name: "missing", status: http.StatusNotFound, category: "distribution_artifact_missing"},
+		{name: "rate limited", status: http.StatusTooManyRequests, category: "distribution_rate_limited"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader("failure")), Header: make(http.Header)}, nil
+			})
+			code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--json"}, nil, client)
+			if code != exitRequest || stderr != "" || !strings.Contains(stdout, `"error": "registry_distribution_failed"`) || !strings.Contains(stdout, `"category": "`+tc.category+`"`) || !strings.Contains(stdout, `"next_actions"`) {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestHuggingFaceDistributionRejectsInterruptedBody(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, ContentLength: 10, Body: io.NopCloser(strings.NewReader("short")), Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--json"}, nil, client)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, `"category": "distribution_interrupted"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestHuggingFaceDistributionRejectsMutableOrIncompletePointer(t *testing.T) {
+	bootstrap := strings.Repeat("d", 40)
+	pointerURL := huggingFaceResolveURL(datapanRegistryHFDatasetID, bootstrap, datapanRegistryHFDistributionManifestPath)
+	for _, tc := range []struct {
+		name    string
+		pointer string
+		want    string
+	}{
+		{name: "mutable revision", pointer: `{"schema_version":"datapan.huggingface-distribution.v1","dataset":{"id":"StatPan/datapan-registry","revision":"main"},"artifact_count":0,"artifacts":[]}`, want: "invalid immutable Dataset identity"},
+		{name: "count mismatch", pointer: `{"schema_version":"datapan.huggingface-distribution.v1","dataset":{"id":"StatPan/datapan-registry","revision":"` + strings.Repeat("e", 40) + `"},"artifact_count":1,"artifacts":[]}`, want: "artifact count mismatch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				body := tc.pointer
+				if req.URL.String() == defaultDatapanRegistryReleaseAPI {
+					body = fmt.Sprintf(`{"id":%q,"sha":%q,"siblings":[{"rfilename":%q}]}`, datapanRegistryHFDatasetID, bootstrap, datapanRegistryHFDistributionManifestPath)
+				} else if req.URL.String() != pointerURL {
+					t.Fatalf("unexpected URL: %s", req.URL.String())
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})
+			code, stdout, stderr := runTest([]string{"catalog", "install", "datapan-registry", "--json"}, nil, client)
+			if code != exitRequest || stderr != "" || !strings.Contains(stdout, tc.want) {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestCatalogInstallDatapanRegistryUsesGitHubTokenForAPIOnly(t *testing.T) {
 	t.Chdir(t.TempDir())
 	output := filepath.Join(t.TempDir(), "registry.json")

@@ -21,10 +21,12 @@ Snapshot checked: 2026-07-11 Asia/Seoul.
   retained the journey, params, export, and kit provenance artifacts.
 - The public Registry distribution is now the
   [`StatPan/datapan-registry` Hugging Face Dataset](https://huggingface.co/datasets/StatPan/datapan-registry).
-  The CLI resolves its latest commit, downloads the manifest and Registry from
-  that immutable revision, and verifies the manifest-bound SHA-256 with or
-  without `HF_TOKEN`. The 2026-07-11 live anonymous install verified revision
-  `7b5d3d37973308ba8ff3558809c1ff4ed217768d`, 12,060 specs, and 411 shards.
+  The CLI resolves the two-phase distribution pointer and downloads required
+  Registry contracts only from its immutable payload revision. The 2026-07-11
+  live anonymous install verified revision
+  `a804917eba528c62a9f12cefca1e41ccf0840190`, 133 distribution artifacts,
+  12,060 specs, 411 shards, release verification and readiness, consumer
+  decision, error-action routing, and runtime remediation evidence.
 - The latest public Registry remains
   [`v2026.06.25.24`](https://github.com/StatPan/datapan-registry/releases/tag/v2026.06.25.24),
   published 2026-06-25. Registry main has advanced to

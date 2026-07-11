@@ -74,6 +74,7 @@ const datapanRegistryHFDatasetID = "StatPan/datapan-registry"
 const datapanRegistryHFRegistryPath = "data/data-go-kr.registry.json"
 const datapanRegistryHFManifestPath = "release/registry-shards.json"
 const datapanRegistryHFShardsPath = "release/data-go-kr-shards.tar.gz"
+const datapanRegistryHFDistributionManifestPath = "release/distribution-manifest.json"
 const datapanRegistryZipAssetSuffix = ".zip"
 const datapanRegistryZipRegistryPath = "data/data-go-kr.registry.json"
 const datapanRegistryShardsAssetName = "data-go-kr-shards.tar.gz"
@@ -1612,9 +1613,13 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 	}
 	var snapshot datapanRegistryZipSnapshot
 	if release.Distribution == "huggingface_dataset" {
-		registryData, err := a.downloadBytes(assetURL)
-		if err != nil {
-			return datapanRegistryInstall{}, err
+		registryData := release.RegistryData
+		if len(registryData) == 0 {
+			var err error
+			registryData, err = a.downloadBytes(assetURL)
+			if err != nil {
+				return datapanRegistryInstall{}, err
+			}
 		}
 		sum := fmt.Sprintf("%x", sha256.Sum256(registryData))
 		if !strings.EqualFold(sum, release.RegistrySHA256) {
@@ -1623,6 +1628,33 @@ func (a app) installDatapanRegistry(registryPath, assetURL, releaseURL string) (
 		snapshot = datapanRegistryZipSnapshot{
 			RegistryData: registryData,
 			ReleaseFiles: map[string][]byte{"registry-shards.json": release.ManifestData},
+		}
+		if len(release.EvidenceFiles) > 0 {
+			entries := map[string][]byte{datapanRegistryZipRegistryPath: registryData}
+			for path, data := range release.EvidenceFiles {
+				entries[path] = data
+			}
+			releaseEvidence, err := installReleaseEvidenceFromZip(entries)
+			if err != nil {
+				return datapanRegistryInstall{}, err
+			}
+			snapshot.Release = releaseEvidence
+			snapshot.ReleaseFiles = installReleaseFilesFromZip(entries)
+			if manifestData, ok := entries["manifest.json"]; ok {
+				if err := verifyInstalledRegistryManifestArtifact(manifestData, registryData); err != nil {
+					return datapanRegistryInstall{}, err
+				}
+				for path, data := range release.EvidenceFiles {
+					if path == "manifest.json" || path == "RELEASE_NOTES.md" || strings.HasPrefix(path, "reports/latest-release-") || path == "reports/data-go-kr/error-action-catalog.json" {
+						continue
+					}
+					if err := verifyInstalledManifestArtifact(manifestData, path, data); err != nil {
+						return datapanRegistryInstall{}, err
+					}
+				}
+				verified := true
+				snapshot.Release.ManifestRegistryVerified = &verified
+			}
 		}
 	} else {
 		zipData, err := a.downloadBytes(assetURL)
@@ -1949,6 +1981,8 @@ type datapanRegistryRelease struct {
 	RegistrySHA256  string
 	ManifestURL     string
 	ManifestData    []byte
+	EvidenceFiles   map[string][]byte
+	RegistryData    []byte
 }
 
 func (a app) fetchDatapanRegistryRelease(releaseURL string) (datapanRegistryRelease, error) {
@@ -2048,6 +2082,9 @@ func (a app) fetchHuggingFaceRegistryRelease(apiURL string) (datapanRegistryRele
 	for _, sibling := range metadata.Siblings {
 		files[sibling.Filename] = true
 	}
+	if files[datapanRegistryHFDistributionManifestPath] {
+		return a.fetchHuggingFaceDistributionRelease(datasetID, metadata.SHA)
+	}
 	for _, required := range []string{datapanRegistryHFManifestPath, datapanRegistryHFRegistryPath} {
 		if !files[required] {
 			return datapanRegistryRelease{}, fmt.Errorf("Hugging Face Dataset is missing %s", required)
@@ -2095,6 +2132,97 @@ func (a app) fetchHuggingFaceRegistryRelease(apiURL string) (datapanRegistryRele
 		out.ShardsAssetURL = huggingFaceResolveURL(datasetID, revision, datapanRegistryHFShardsPath)
 	}
 	return out, nil
+}
+
+type huggingFaceDistributionArtifact struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
+}
+
+type huggingFaceDistributionManifest struct {
+	SchemaVersion   string                            `json:"schema_version"`
+	Dataset         struct{ ID, Revision string }     `json:"dataset"`
+	ReleaseManifest huggingFaceDistributionArtifact   `json:"release_manifest"`
+	ArtifactCount   int                               `json:"artifact_count"`
+	Artifacts       []huggingFaceDistributionArtifact `json:"artifacts"`
+}
+
+func (a app) fetchHuggingFaceDistributionRelease(datasetID, pointerRevision string) (datapanRegistryRelease, error) {
+	pointerURL := huggingFaceResolveURL(datasetID, pointerRevision, datapanRegistryHFDistributionManifestPath)
+	pointerData, err := a.downloadBytes(pointerURL)
+	if err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("download Hugging Face distribution manifest: %w", err)
+	}
+	var manifest huggingFaceDistributionManifest
+	if err := json.Unmarshal(pointerData, &manifest); err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("decode Hugging Face distribution manifest: %w", err)
+	}
+	if manifest.SchemaVersion != "datapan.huggingface-distribution.v1" || manifest.Dataset.ID != datasetID || !validImmutableRevision(manifest.Dataset.Revision) {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face distribution manifest has invalid immutable Dataset identity")
+	}
+	if manifest.ArtifactCount != len(manifest.Artifacts) {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face distribution manifest artifact count mismatch")
+	}
+	records := map[string]huggingFaceDistributionArtifact{manifest.ReleaseManifest.Path: manifest.ReleaseManifest}
+	for _, record := range manifest.Artifacts {
+		if _, exists := records[record.Path]; exists {
+			return datapanRegistryRelease{}, fmt.Errorf("Hugging Face distribution manifest has duplicate artifact %s", record.Path)
+		}
+		records[record.Path] = record
+	}
+	required := []string{
+		"manifest.json", "RELEASE_NOTES.md", datapanRegistryHFRegistryPath,
+		datapanRegistryHFManifestPath, datapanRegistryHFShardsPath,
+		"reports/latest-release-verification.json", "reports/latest-release-readiness.json",
+		"reports/latest-verification.json", "reports/latest-verification-summary.json", "reports/coverage.json",
+		"reports/route-disposition.json", datapanRegistryConsumerCompatibilityPath,
+		"policy/sustainable-coverage.json", "schemas/datapan.sustainable-coverage-policy.v1.schema.json",
+		"reports/sustainable-coverage.json", "reports/release-consumer-decision.json",
+		"schemas/datapan.release-consumer-decision.v1.schema.json", "reports/data-go-kr/error-action-catalog.json",
+		"schemas/datapan.error-action-catalog.v1.schema.json", "reports/source-runtime-remediation-map.json",
+		"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
+	}
+	evidence := map[string][]byte{}
+	var registryData []byte
+	for _, path := range required {
+		record, ok := records[path]
+		if !ok {
+			return datapanRegistryRelease{}, fmt.Errorf("Hugging Face distribution manifest is missing required artifact %s", path)
+		}
+		data, err := a.downloadBytes(huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, path))
+		if err != nil {
+			return datapanRegistryRelease{}, fmt.Errorf("download Hugging Face distribution artifact %s: %w", path, err)
+		}
+		if err := verifyHuggingFaceDistributionArtifact(record, data); err != nil {
+			return datapanRegistryRelease{}, err
+		}
+		if datapanRegistryInstallKeepsZipEntry(path) && path != datapanRegistryHFRegistryPath {
+			evidence[path] = data
+		}
+		if path == datapanRegistryHFRegistryPath {
+			registryData = data
+		}
+	}
+	registryRecord := records[datapanRegistryHFRegistryPath]
+	return datapanRegistryRelease{
+		TagName: manifest.Dataset.Revision, ZipAssetURL: huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, datapanRegistryHFRegistryPath),
+		ShardsAssetURL: huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, datapanRegistryHFShardsPath),
+		Distribution:   "huggingface_dataset", DatasetID: datasetID, DatasetRevision: manifest.Dataset.Revision,
+		RegistrySHA256: registryRecord.SHA256, ManifestURL: pointerURL, ManifestData: pointerData, EvidenceFiles: evidence, RegistryData: registryData,
+	}, nil
+}
+
+func verifyHuggingFaceDistributionArtifact(record huggingFaceDistributionArtifact, data []byte) error {
+	if record.Bytes < 1 || int64(len(data)) != record.Bytes {
+		return fmt.Errorf("Hugging Face distribution artifact byte mismatch for %s", record.Path)
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256(data))
+	if len(record.SHA256) != 64 || !strings.EqualFold(sum, record.SHA256) {
+		return fmt.Errorf("Hugging Face distribution artifact SHA-256 mismatch for %s", record.Path)
+	}
+	return nil
 }
 
 func validImmutableRevision(value string) bool {
@@ -2159,18 +2287,52 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		if strings.EqualFold(req.URL.Host, "huggingface.co") {
+			category := "distribution_unavailable"
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+				category = "distribution_timeout"
+			}
+			return nil, registryDistributionError{Category: category, Action: "retry the immutable Hugging Face Registry download", Err: err}
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
 	if err != nil {
+		if strings.EqualFold(req.URL.Host, "huggingface.co") {
+			return nil, registryDistributionError{Category: "distribution_interrupted", Action: "retry the immutable Hugging Face Registry download", Err: err}
+		}
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if strings.EqualFold(req.URL.Host, "huggingface.co") {
+			category, action := "distribution_unavailable", "retry when the Hugging Face Dataset is reachable"
+			if resp.StatusCode == http.StatusNotFound {
+				category, action = "distribution_artifact_missing", "publish or select a Registry revision containing the required artifact"
+			} else if resp.StatusCode == http.StatusTooManyRequests {
+				category, action = "distribution_rate_limited", "retry after the Hugging Face rate-limit window or set HF_TOKEN"
+			}
+			return nil, registryDistributionError{Category: category, Action: action, Err: fmt.Errorf("download %s returned HTTP %d", rawURL, resp.StatusCode)}
+		}
 		return nil, fmt.Errorf("download %s returned HTTP %d", rawURL, resp.StatusCode)
+	}
+	if resp.ContentLength > 0 && int64(len(body)) != resp.ContentLength {
+		if strings.EqualFold(req.URL.Host, "huggingface.co") {
+			return nil, registryDistributionError{Category: "distribution_interrupted", Action: "retry the immutable Hugging Face Registry download", Err: fmt.Errorf("download %s expected %d bytes, got %d", rawURL, resp.ContentLength, len(body))}
+		}
+		return nil, fmt.Errorf("download %s expected %d bytes, got %d", rawURL, resp.ContentLength, len(body))
 	}
 	return body, nil
 }
+
+type registryDistributionError struct {
+	Category string
+	Action   string
+	Err      error
+}
+
+func (e registryDistributionError) Error() string { return e.Err.Error() }
+func (e registryDistributionError) Unwrap() error { return e.Err }
 
 func (a app) addHuggingFaceHeaders(req *http.Request) {
 	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Host, "huggingface.co") || a.env == nil {
@@ -3074,6 +3236,16 @@ func decodeRegistryBytes(data []byte) ([]datago.Spec, error) {
 }
 
 func (a app) catalogInstallFailure(jsonOut bool, err error) int {
+	var distributionErr registryDistributionError
+	if errors.As(err, &distributionErr) {
+		if jsonOut {
+			if code := a.writeJSON(map[string]any{"ok": false, "error": "registry_distribution_failed", "category": distributionErr.Category, "message": err.Error(), "next_actions": []string{distributionErr.Action}}); code != exitOK {
+				return code
+			}
+			return exitRequest
+		}
+		return a.fail(exitRequest, "%v\ncategory: %s\nnext: %s", err, distributionErr.Category, distributionErr.Action)
+	}
 	if jsonOut {
 		if code := a.writeJSON(map[string]any{
 			"ok":      false,

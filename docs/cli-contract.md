@@ -623,8 +623,11 @@ make `ready:false`, but they remain visible in `summary` and `gates`.
 lower-level install path for a released Datapan registry. It fetches the latest
 Hugging Face Dataset metadata for `StatPan/datapan-registry`, resolves the
 latest commit SHA, downloads `release/registry-shards.json` and
-`data/data-go-kr.registry.json` from that immutable revision, verifies the
-manifest-bound Registry SHA-256, validates that the file decodes as a Datapan
+`release/distribution-manifest.json`, follows the immutable payload revision
+named by that pointer, downloads the Registry, shards, release verification,
+readiness, freshness, compatibility, decision, error-action, and remediation
+contracts from that revision, verifies every distribution byte count and
+SHA-256 plus the canonical release manifest, validates that the file decodes as a Datapan
 registry, and writes it to `PATH` without calling data.go.kr. Requests are
 anonymous when `HF_TOKEN` is absent and authenticated when it is present; both
 paths use the same immutable revision and digest verification. Use `--url URL`
@@ -653,6 +656,13 @@ candidates. When installing to a file, JSON output may include `release_dir`
 and `release_files` for the locally preserved evidence files. `--json` must not
 be combined with `--registry -`, because
 `--registry -` writes the raw registry JSON to stdout.
+
+Hugging Face failures use `registry_distribution_failed` with a stable
+`category` and `next_actions`. Categories distinguish missing artifacts, rate
+limits, timeouts, interrupted bodies, and general distribution availability.
+Integrity or contract mismatches fail closed before any install target is
+replaced. A legacy Dataset without the two-phase distribution pointer remains
+supported through the shard-manifest compatibility path.
 
 `datapan init [--registry PATH] [--url URL] [--release-url URL] --json` wraps
 that install path for first-run setup. JSON output must include `install`,

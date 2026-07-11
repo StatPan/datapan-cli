@@ -276,8 +276,10 @@ examples because Datapan reads the key from environment variables.
 To move beyond the embedded seed catalog, run `datapan init`. This is the
 normal consumer path: it resolves the latest public
 `StatPan/datapan-registry` Hugging Face Dataset commit, downloads the Registry
-and its manifest from that immutable revision, verifies the manifest-bound
-SHA-256, validates that the registry decodes,
+distribution pointer, follows its immutable payload revision, downloads the
+Registry and required release contracts only from that revision, verifies
+every distribution byte count and SHA-256 plus the canonical release manifest,
+and validates that the registry decodes,
 writes it to `.datapan/data-go-kr.registry.json`, reports release manifest /
 readiness / route-disposition / release-notes evidence when the zip includes those artifacts,
 stores the key release evidence files under `.datapan/release` for follow-up commands,
