@@ -26,3 +26,19 @@ func TestLooksRequestedOrGrantedIgnoresGenericApprovalPolicy(t *testing.T) {
 		t.Fatal("generic approval policy must not be treated as an application result")
 	}
 }
+
+func TestClassifyApplyResultRequiresExplicitConfirmation(t *testing.T) {
+	if got := classifyApplyResult("활용신청 화면"); got != "apply_result_unconfirmed" {
+		t.Fatalf("unconfirmed page classified as %q", got)
+	}
+	if got := classifyApplyResult("활용신청이 신청되었습니다"); got != "access_requested_not_confirmed" {
+		t.Fatalf("confirmed page classified as %q", got)
+	}
+}
+
+func TestClassifyApplyResultRecognizesDuplicateRequestResultURL(t *testing.T) {
+	got := classifyApplyResultAtURL("https://www.data.go.kr/iim/api/selectAcountList.do?status=dupReq", "")
+	if got != "access_already_requested" {
+		t.Fatalf("duplicate request URL classified as %q", got)
+	}
+}
