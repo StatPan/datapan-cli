@@ -8801,6 +8801,10 @@ type registryTrustContext struct {
 	RegistryPath                 string   `json:"registry_path,omitempty"`
 	ProvenancePresent            bool     `json:"provenance_present"`
 	ReleaseTag                   string   `json:"release_tag,omitempty"`
+	RegistrySHA256               string   `json:"registry_sha256,omitempty"`
+	Distribution                 string   `json:"distribution,omitempty"`
+	DatasetID                    string   `json:"dataset_id,omitempty"`
+	DatasetRevision              string   `json:"dataset_revision,omitempty"`
 	Integrity                    string   `json:"integrity"`
 	ManifestBinding              string   `json:"manifest_binding"`
 	RegistryDigestMatches        *bool    `json:"registry_digest_matches,omitempty"`
@@ -8929,6 +8933,10 @@ func (a app) localRegistryTrust() registryTrustContext {
 	}
 	trust.ProvenancePresent = true
 	trust.ReleaseTag = provenance.ReleaseTag
+	trust.RegistrySHA256 = provenance.RegistrySHA256
+	trust.Distribution = provenance.Distribution
+	trust.DatasetID = provenance.DatasetID
+	trust.DatasetRevision = provenance.DatasetRevision
 	trust.CLIConsumerStatus = provenance.CLIConsumerStatus
 	trust.CLICompatibilityMode = provenance.CLICompatibilityMode
 	trust.RuntimeManualReview = provenance.RuntimeManualReview
