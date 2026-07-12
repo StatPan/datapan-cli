@@ -171,6 +171,7 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 
 func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 	resume, args := consumeBool(args, "--resume")
+	httpSessionEnabled, args := consumeBool(args, "--http-session")
 	planPath, args, err := consumeString(args, "--plan", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -192,7 +193,7 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if planPath == "" || len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan access apply --plan PLAN --limit N [--output PATH] [--resume] [--interval DURATION] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
+		return a.fail(exitUsage, "usage: datapan access apply --plan PLAN --limit N [--output PATH] [--resume] [--http-session] [--interval DURATION] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
 	}
 	plan, err := readApprovalPlan(planPath)
 	if err != nil {
@@ -201,6 +202,16 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 	trust := a.localRegistryTrust()
 	if !trust.ExecutionAllowed {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
+	}
+	var httpSession *dataGoKrHTTPSession
+	if httpSessionEnabled {
+		if strings.TrimSpace(debugURL) == "" {
+			return a.fail(exitUsage, "--http-session requires --browser-debug-url or DATAPAN_BROWSER_DEBUG_URL")
+		}
+		httpSession, err = newDataGoKrHTTPSessionFromBrowser(debugURL)
+		if err != nil {
+			return a.fail(exitRequest, "create authenticated HTTP session: %v", err)
+		}
 	}
 	report := approvalApplyReport{SchemaVersion: approvalApplySchemaVersion, GeneratedAt: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339), Provider: "data.go.kr", Plan: planPath, Limit: limit, RegistryTrust: trust}
 	processed := map[string]bool{}
@@ -225,6 +236,9 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 					processed[result.ListID] = true
 					report.Summary.Submitted++
 				case "access_already_requested":
+					if approvalResultNeedsReinspection(result) {
+						continue
+					}
 					processed[result.ListID] = true
 					report.Summary.AlreadyRequested++
 				default:
@@ -257,7 +271,7 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 		}
 		result, invokeErr := invokeBrowserWorkflow(browserWorkflowOptions{
 			Command: "submit", ListID: spec.ID, ApplicationURL: spec.ApplicationURL(), ProfileDir: profileDir,
-			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: true, RegistryTrust: &trust,
+			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: true, RegistryTrust: &trust, HTTPSession: httpSession,
 		})
 		runAttempts++
 		report.Summary.Attempted++
@@ -303,9 +317,20 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 	return exitOK
 }
 
+func approvalResultNeedsReinspection(result approvalApplyResult) bool {
+	if result.Action != "access_already_requested" || result.Details == nil {
+		return false
+	}
+	resultURL, _ := result.Details["url"].(string)
+	return strings.Contains(resultURL, "/iim/api/selectDevAcountRequestForm.do")
+}
+
 func shouldStopApprovalBatch(result browserResult) bool {
 	switch result.Status {
 	case "session_expired_or_login_required", "manual_login_timeout":
+		return true
+	}
+	if result.Action == "portal_rate_limited" {
 		return true
 	}
 	return result.Action == "access_user_action_required" && result.HumanGateDetected
