@@ -2749,6 +2749,8 @@ func TestSearchJSONShowsCallRouteMetadata(t *testing.T) {
 		`"id": "epost-route"`,
 		`"call_ready": true`,
 		`"call_route": "provider_adapter"`,
+		`"support_status": "external"`,
+		`"support_action": "call_with_provider_adapter"`,
 		`"call_provider": "epost"`,
 		`"endpoint_host": "openapi.epost.go.kr"`,
 		`"id": "qnet-route"`,
@@ -2762,6 +2764,37 @@ func TestSearchJSONShowsCallRouteMetadata(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in call route metadata: %s", want, stdout)
 		}
+	}
+}
+
+func TestGenericExternalOperationIsExplicitAndBlockedBeforeExecution(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := osWriteFile(registryPath, []byte(`[
+		{"id":"external-only","title":"External Only API","provider":"data.go.kr","priority":"P2","operations":[{"name":"목록","endpoint":"https://partner.example.test/api"}]}
+	]`)); err != nil {
+		t.Fatal(err)
+	}
+	env := fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATA_PORTAL_API_KEY": "secret-value"}
+	code, stdout, stderr := runTest([]string{"show", "external-only", "--json"}, env, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"support_status": "external"`, `"cli_executable": false`, `"support_action": "use_external_provider"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in external metadata: %s", want, stdout)
+		}
+	}
+	called := false
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		called = true
+		return nil, fmt.Errorf("unexpected request")
+	})
+	code, stdout, _ = runTest([]string{"get", "external-only", "--json"}, env, client)
+	if code != exitRequest || !strings.Contains(stdout, "is external and is not executable by datapan-cli") {
+		t.Fatalf("expected explicit external rejection, code=%d stdout=%s", code, stdout)
+	}
+	if called {
+		t.Fatal("external operation must be rejected before network execution")
 	}
 }
 
@@ -3060,7 +3093,7 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 			"operations": [
 				{
 					"name": "목록 조회",
-					"endpoint": "https://example.test/api",
+					"endpoint": "https://apis.data.go.kr/test/api",
 					"request_params": [
 						{"name": "serviceKey", "label": "인증키"},
 						{"name": "authApiKey", "label": "인증키2"},
@@ -3095,9 +3128,10 @@ func TestShowIncludesImportedParamsAccessAndExample(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"dev_approval": "신청가능"`,
-		`"call_ready": false`,
-		`"call_route": "generic_external"`,
-		`"endpoint_host": "example.test"`,
+		`"call_ready": true`,
+		`"call_route": "data_go_kr_gateway"`,
+		`"support_status": "supported"`,
+		`"endpoint_host": "apis.data.go.kr"`,
 		`"request_count": 421`,
 		`"request_params":`,
 		`"auth_params":`,
@@ -8281,7 +8315,7 @@ func TestAccessSynthesizesSmokeCommandFromImportedRegistry(t *testing.T) {
 			"operations": [
 				{
 					"name": "목록 조회",
-					"endpoint": "https://example.test/api",
+					"endpoint": "https://apis.data.go.kr/test/api",
 					"request_params": [
 						{"name": "PAGE", "label": "페이지"},
 						{"name": "ROWS", "label": "행수"}

@@ -146,6 +146,12 @@ is stricter: it is true only for routes Datapan currently treats as stable for
 adapter. `call_route` should use stable values such as `data_go_kr_gateway`,
 `provider_adapter`, `provider_adapter_verification_only`, `generic_external`,
 `service_root`, `soap`, `wms`, `malformed_endpoint`, or `not_callable`.
+Discovery and detail output must also expose `support_status` as `supported`,
+`external`, or `unsupported`, together with `cli_executable` and
+`support_action`. `external` is a provider-scope statement even when a dedicated
+adapter can execute the operation. External routes without a call-capable
+adapter and unsupported routes must fail before network I/O, artifact creation,
+or starter-kit generation.
 `list` and `ls` accept the same source metadata filters as `search`;
 unlike `search`, they may run with no query or filters and should return a
 bounded dataset list. `--callable` is also accepted by `search`, `list`, and
