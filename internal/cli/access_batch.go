@@ -80,6 +80,7 @@ type approvalApplyResult struct {
 }
 
 func (a app) accessPlan(args []string, jsonOut bool) int {
+	allRegistry, args := consumeBool(args, "--all")
 	input, args, err := consumeString(args, "--input", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -96,18 +97,32 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	if input == "" || len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan access plan --input VERIFICATION [--output PATH] [--limit N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
-	}
-	report, err := readVerificationReport(input)
-	if err != nil {
-		return a.fail(exitUsage, "read verification report: %v", err)
+	if (input == "") == !allRegistry || len(args) != 0 {
+		return a.fail(exitUsage, "usage: datapan access plan (--input VERIFICATION | --all) [--output PATH] [--limit N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
 	}
 	trust := a.localRegistryTrust()
 	if !trust.ExecutionAllowed {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
 	}
-	ids := approvalCandidateIDs(report.Results, limit)
+	var ids []string
+	if allRegistry {
+		input = "registry:all"
+		for _, spec := range a.reg.Specs() {
+			if spec.Provider != "data.go.kr" {
+				continue
+			}
+			ids = append(ids, spec.ID)
+			if limit > 0 && len(ids) >= limit {
+				break
+			}
+		}
+	} else {
+		report, err := readVerificationReport(input)
+		if err != nil {
+			return a.fail(exitUsage, "read verification report: %v", err)
+		}
+		ids = approvalCandidateIDs(report.Results, limit)
+	}
 	plan := approvalPlan{
 		SchemaVersion: approvalPlanSchemaVersion,
 		GeneratedAt:   time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
@@ -121,6 +136,10 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 		spec, code, ok := a.resolveOne(id, true)
 		if !ok {
 			plan.Items = append(plan.Items, approvalPlanItem{ListID: id, Status: "inspection_failed", Action: "not_inspected", Error: fmt.Sprintf("resolve exit %d", code)})
+			continue
+		}
+		if allRegistry {
+			plan.Items = append(plan.Items, approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL(), Status: "access_user_action_required", Action: "inspect_before_apply"})
 			continue
 		}
 		result, err := invokeBrowserWorkflow(browserWorkflowOptions{
@@ -151,6 +170,7 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 }
 
 func (a app) accessApplyPlan(args []string, jsonOut bool) int {
+	resume, args := consumeBool(args, "--resume")
 	planPath, args, err := consumeString(args, "--plan", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -163,12 +183,16 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 	if err != nil || limit <= 0 {
 		return a.fail(exitUsage, "--limit requires a positive integer for approval submission")
 	}
+	interval, args, err := consumeDuration(args, "--interval", time.Second)
+	if err != nil || interval < 0 {
+		return a.fail(exitUsage, "--interval requires a non-negative duration")
+	}
 	profileDir, browserPath, debugURL, args, err := consumeAccessBrowserOptions(a, args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if planPath == "" || len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan access apply --plan PLAN --limit N [--output PATH] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
+		return a.fail(exitUsage, "usage: datapan access apply --plan PLAN --limit N [--output PATH] [--resume] [--interval DURATION] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
 	}
 	plan, err := readApprovalPlan(planPath)
 	if err != nil {
@@ -179,24 +203,66 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
 	}
 	report := approvalApplyReport{SchemaVersion: approvalApplySchemaVersion, GeneratedAt: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339), Provider: "data.go.kr", Plan: planPath, Limit: limit, RegistryTrust: trust}
+	processed := map[string]bool{}
+	if resume {
+		existing, err := readApprovalApplyReport(output)
+		if err != nil && !os.IsNotExist(err) {
+			return a.fail(exitUsage, "read approval apply checkpoint: %v", err)
+		}
+		if err == nil {
+			if existing.Plan != planPath {
+				return a.fail(exitUsage, "approval apply checkpoint belongs to a different plan")
+			}
+			report = existing
+			report.GeneratedAt = time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+			report.Limit = limit
+			report.RegistryTrust = trust
+			report.Summary = approvalApplySummary{}
+			completed := make([]approvalApplyResult, 0, len(report.Results))
+			for _, result := range report.Results {
+				switch result.Action {
+				case "access_requested_not_confirmed":
+					processed[result.ListID] = true
+					report.Summary.Submitted++
+				case "access_already_requested":
+					processed[result.ListID] = true
+					report.Summary.AlreadyRequested++
+				default:
+					continue
+				}
+				completed = append(completed, result)
+			}
+			report.Results = completed
+			report.Summary.Attempted = len(completed)
+		}
+	}
+	runAttempts := 0
 	for _, item := range plan.Items {
-		if item.Status != "access_user_action_required" || report.Summary.Attempted >= limit {
+		if item.Status != "access_user_action_required" || runAttempts >= limit {
 			report.Summary.Skipped++
 			continue
 		}
 		report.Summary.Eligible++
+		if processed[item.ListID] {
+			continue
+		}
 		spec, _, ok := a.resolveOne(item.ListID, true)
 		if !ok {
 			report.Summary.Failed++
 			report.Results = append(report.Results, approvalApplyResult{ListID: item.ListID, Status: "resolve_failed", Action: "not_submitted"})
+			if err := writeAtomicJSON(output, report); err != nil {
+				return a.fail(exitRequest, "write approval apply checkpoint: %v", err)
+			}
 			continue
 		}
 		result, invokeErr := invokeBrowserWorkflow(browserWorkflowOptions{
 			Command: "submit", ListID: spec.ID, ApplicationURL: spec.ApplicationURL(), ProfileDir: profileDir,
 			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: true, RegistryTrust: &trust,
 		})
+		runAttempts++
 		report.Summary.Attempted++
 		entry := approvalApplyResult{ListID: item.ListID, Status: result.Status, Action: result.Action, HumanGateDetected: result.HumanGateDetected, Details: result.ApplyResult}
+		stopBatch := shouldStopApprovalBatch(result)
 		if invokeErr != nil {
 			entry.Status, entry.Action, entry.Error = "apply_failed", "not_submitted", invokeErr.Error()
 			report.Summary.Failed++
@@ -208,6 +274,15 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 			report.Summary.Failed++
 		}
 		report.Results = append(report.Results, entry)
+		if err := writeAtomicJSON(output, report); err != nil {
+			return a.fail(exitRequest, "write approval apply checkpoint: %v", err)
+		}
+		if stopBatch {
+			break
+		}
+		if interval > 0 {
+			time.Sleep(interval)
+		}
 	}
 	if err := writeAtomicJSON(output, report); err != nil {
 		return a.fail(exitRequest, "write approval apply report: %v", err)
@@ -226,6 +301,14 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 		return exitRequest
 	}
 	return exitOK
+}
+
+func shouldStopApprovalBatch(result browserResult) bool {
+	switch result.Status {
+	case "session_expired_or_login_required", "manual_login_timeout":
+		return true
+	}
+	return result.Action == "access_user_action_required" && result.HumanGateDetected
 }
 
 func consumeAccessBrowserOptions(a app, args []string) (string, string, string, []string, error) {
@@ -327,6 +410,21 @@ func readApprovalPlan(path string) (approvalPlan, error) {
 		return approvalPlan{}, fmt.Errorf("unsupported or unsafe approval plan")
 	}
 	return plan, nil
+}
+
+func readApprovalApplyReport(path string) (approvalApplyReport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return approvalApplyReport{}, err
+	}
+	var report approvalApplyReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return approvalApplyReport{}, err
+	}
+	if report.SchemaVersion != approvalApplySchemaVersion || report.Provider != "data.go.kr" {
+		return approvalApplyReport{}, fmt.Errorf("unsupported approval apply checkpoint")
+	}
+	return report, nil
 }
 
 func writeAtomicJSON(path string, payload any) error {

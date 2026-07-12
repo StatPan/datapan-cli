@@ -42,3 +42,18 @@ func TestClassifyApplyResultRecognizesDuplicateRequestResultURL(t *testing.T) {
 		t.Fatalf("duplicate request URL classified as %q", got)
 	}
 }
+
+func TestShouldStopApprovalBatchOnSessionOrHumanGate(t *testing.T) {
+	for _, result := range []browserResult{
+		{Status: "session_expired_or_login_required"},
+		{Status: "manual_login_timeout"},
+		{Action: "access_user_action_required", HumanGateDetected: true},
+	} {
+		if !shouldStopApprovalBatch(result) {
+			t.Fatalf("batch did not stop for %#v", result)
+		}
+	}
+	if shouldStopApprovalBatch(browserResult{Status: "inspected", Action: "access_requested_not_confirmed"}) {
+		t.Fatal("confirmed application result stopped the batch")
+	}
+}
