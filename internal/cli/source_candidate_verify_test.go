@@ -30,6 +30,9 @@ func TestSourceCandidateVerifyUsesEnvAndRedactsOutput(t *testing.T) {
 		if got := req.URL.Query().Get("apiKey"); got != secret {
 			t.Fatalf("credential query=%q", got)
 		}
+		if got := req.Header.Get("User-Agent"); got != "datapan-cli/source-candidate-verifier" {
+			t.Fatalf("user agent=%q", got)
+		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"rows":[1]}`)), ContentLength: 12}, nil
 	})
 	code, stdout, stderr := runTest([]string{"verify", "--source-profile", profile, "--candidates", candidates, "--credential-env", "SAMPLE_TOKEN", "--output", output, "--json"}, fakeEnv{"SAMPLE_TOKEN": secret}, client)
