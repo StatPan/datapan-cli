@@ -10082,9 +10082,13 @@ func (a app) access(args []string, jsonOut bool) int {
 			return a.accessLogin(args[1:], jsonOut)
 		case "request", "submit":
 			return a.accessRequest(args[1:], jsonOut)
+		case "plan":
+			return a.accessPlan(args[1:], jsonOut)
+		case "apply":
+			return a.accessApplyPlan(args[1:], jsonOut)
 		}
 	}
-	if hasAnyArg(args, "--dry-run", "--apply", "--profile-dir", "--storage-state", "--browser-path", "--output") {
+	if hasAnyArg(args, "--dry-run", "--apply", "--profile-dir", "--storage-state", "--browser-path", "--browser-debug-url", "--output") {
 		return a.accessRequest(args, jsonOut)
 	}
 	openBrowser, args := consumeBool(args, "--open")
@@ -12716,6 +12720,8 @@ Usage:
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
   datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
+  datapan access plan --input VERIFICATION [--output PATH] [--limit N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
+  datapan access apply --plan PLAN --limit N [--output PATH] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
   datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
   datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
   datapan save <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--format csv|json] [--output PATH|-] [--timeout DURATION] [--json]
@@ -12991,6 +12997,8 @@ Draft and verify repeatable datapan-registry release artifacts.`, true
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
   datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
+  datapan access plan --input VERIFICATION [--output PATH] [--limit N] [--browser-debug-url URL] [--json]
+  datapan access apply --plan PLAN --limit N [--output PATH] [--browser-debug-url URL] [--json]
 
 Open or assist data.go.kr API access application workflows.`, true
 	case "access login":

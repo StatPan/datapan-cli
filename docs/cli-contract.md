@@ -1020,6 +1020,8 @@ Browser-backed application automation is an explicit advanced flow:
 datapan access login --headed --profile-dir .datapan/browser-profile
 datapan access <list-id> --dry-run --profile-dir .datapan/browser-profile --json
 datapan access <list-id> --apply --profile-dir .datapan/browser-profile --json
+datapan access plan --input VERIFICATION --output PLAN --browser-debug-url URL --json
+datapan access apply --plan PLAN --limit N --browser-debug-url URL --json
 ```
 
 The implementation should use Go-native browser automation and a local browser
@@ -1033,6 +1035,13 @@ An already authenticated Chrome may instead be reused through a loopback-only
 DevTools browser WebSocket supplied by `--browser-debug-url` or
 `DATAPAN_BROWSER_DEBUG_URL`. This attach mode must not relaunch Chrome, add
 automation flags, or serialize the debugger URL into a receipt.
+Batch planning consumes a verification report, deduplicates HTTP-403 dataset
+IDs, and only inspects their application pages. Its
+`datapan.approval-plan.v1` output records Registry trust and redacted states.
+Batch apply accepts only that dry-run plan, requires a positive limit, resolves
+every item again through the current trusted Registry, and writes a
+`datapan.approval-apply.v1` report. It must not count a submitted or pending
+request as final provider approval.
 Every browser-backed dataset result, including browser start and navigation
 failures, must preserve the same `registry_trust` context that authorized the
 workflow.

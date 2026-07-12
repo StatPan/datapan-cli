@@ -727,6 +727,8 @@ security controls; complete the login manually in the headed browser.
 datapan access login --headed --profile-dir .datapan/browser-profile
 datapan access 15126469 --dry-run --profile-dir .datapan/browser-profile --json
 datapan access 15126469 --apply --profile-dir .datapan/browser-profile --json
+datapan access plan --input verification.json --output approval-plan.json --browser-debug-url "$DATAPAN_BROWSER_DEBUG_URL" --json
+datapan access apply --plan approval-plan.json --limit 1 --browser-debug-url "$DATAPAN_BROWSER_DEBUG_URL" --json
 ```
 
 `datapan access login` uses Go-native Chrome automation and a local browser
@@ -741,6 +743,12 @@ with automation flags, pass its local DevTools browser WebSocket URL with
 `--browser-debug-url` or `DATAPAN_BROWSER_DEBUG_URL`. The endpoint should remain
 bound to loopback; Datapan attaches to the existing session and never records
 the debugger URL in browser receipts.
+`access plan` selects unique HTTP-403 dataset IDs from a verification report
+and performs read-only application-state inspection. `access apply` accepts
+only a versioned dry-run plan and requires an explicit positive `--limit`;
+already requested, unknown, human-gated, and duplicate entries are not
+submitted. Submission means only that a request was sent or requires review,
+not that data.go.kr granted final approval.
 
 Browser-backed access defaults to inspection/dry-run behavior. It submits only
 when `--apply` is explicitly present. `datapan apply` and

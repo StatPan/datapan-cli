@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.datapan.dev/datapan.approval-plan.v1.schema.json",
+  "title": "Datapan data.go.kr Approval Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "provider", "input", "dry_run", "registry_trust", "summary", "items"],
+  "properties": {
+    "schema_version": { "const": "datapan.approval-plan.v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "provider": { "const": "data.go.kr" },
+    "input": { "type": "string", "minLength": 1 },
+    "dry_run": { "const": true },
+    "registry_trust": { "type": "object" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "application_required", "requested_or_granted", "human_gate", "unknown", "inspection_failed"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "application_required": { "type": "integer", "minimum": 0 },
+        "requested_or_granted": { "type": "integer", "minimum": 0 },
+        "human_gate": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 },
+        "inspection_failed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["list_id", "title", "application_url", "status", "human_gate_detected", "action"],
+        "properties": {
+          "list_id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "application_url": { "type": "string", "format": "uri", "pattern": "^https://www\\.data\\.go\\.kr/" },
+          "status": { "enum": ["access_user_action_required", "access_requested_not_confirmed", "human_gate", "unknown", "inspection_failed"] },
+          "human_gate_detected": { "type": "boolean" },
+          "action": { "type": "string" },
+          "detected_state": { "type": "object" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}
