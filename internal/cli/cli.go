@@ -740,6 +740,9 @@ func (a app) ops(args []string, jsonOut bool) int {
 }
 
 func (a app) verify(args []string, jsonOut bool) int {
+	if hasAnyArg(args, "--source-profile") {
+		return a.verifySourceProfile(args, jsonOut)
+	}
 	return a.catalogVerify(args, jsonOut)
 }
 

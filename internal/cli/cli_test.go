@@ -91,6 +91,92 @@ func tarGzFilesForTest(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+func TestVerifySourceProfileWritesRedactedBoundedEvidence(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "source.json")
+	candidates := filepath.Join(dir, "candidates.json")
+	output := filepath.Join(dir, "verification.json")
+	if err := os.WriteFile(profile, []byte(`{"source_id":"test_source","provider":"Test Provider"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidates, []byte(`{
+  "source_id":"test_source",
+  "provider":"Test Provider",
+  "candidates":[{
+    "candidate_id":"bounded-check",
+    "method":"GET",
+    "endpoint_template":"https://example.test/api/{apiKey}",
+    "sample_parameters":{"apiKey":"${TEST_TOKEN}","page":"1"},
+    "credential_policy":{"required":true,"injection_location":"path","placeholder":"${TEST_TOKEN}"}
+  }]
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "never-write-this-token"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/api/"+secret || req.URL.Query().Get("page") != "1" {
+			t.Fatalf("unexpected request URL: %s", req.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		}, nil
+	})
+	code, stdout, stderr := runTest([]string{"verify", "--source-profile", profile, "--candidates", candidates, "--credential-env", "TEST_TOKEN", "--limit", "1", "--output", output, "--json"}, fakeEnv{"TEST_TOKEN": secret}, client)
+	if code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{secret, "example.test", "/api/"} {
+		if strings.Contains(string(data), value) || strings.Contains(stdout, value) || strings.Contains(stderr, value) {
+			t.Fatalf("verification output leaked %q: %s", value, data)
+		}
+	}
+	var report sourceProfileVerification
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary != (sourceProfileVerificationSummary{Candidates: 1, Verified: 1}) || len(report.Results) != 1 || report.Results[0].Outcome != "verified" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
+func TestVerifySourceProfileRecordsMissingCredentialWithoutRequest(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "source.json")
+	candidates := filepath.Join(dir, "candidates.json")
+	output := filepath.Join(dir, "verification.json")
+	if err := os.WriteFile(profile, []byte(`{"source_id":"test_source","provider":"Test Provider"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidates, []byte(`{"source_id":"test_source","provider":"Test Provider","candidates":[{"candidate_id":"bounded-check","method":"GET","endpoint_template":"https://example.test/api","sample_parameters":{},"credential_policy":{"required":true,"injection_location":"query","placeholder":"${TEST_TOKEN}"}}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("request must not be sent without the credential")
+		return nil, nil
+	})
+	code, _, stderr := runTest([]string{"verify", "--source-profile", profile, "--candidates", candidates, "--credential-env", "TEST_TOKEN", "--limit", "1", "--output", output, "--json"}, nil, client)
+	if code != exitAuth || stderr != "" {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report sourceProfileVerification
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary != (sourceProfileVerificationSummary{Candidates: 1, Skipped: 1}) || report.Results[0].ErrorClass != "credential" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
 func registryShardsTarGzForTest(t *testing.T, registry, sourceSHA string) []byte {
 	t.Helper()
 	shardPath := "by-institution/test.registry.json"
