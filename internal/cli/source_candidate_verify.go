@@ -179,6 +179,7 @@ func (a app) verifySourceCandidate(candidate sourceCandidateRequest, credential 
 		result.ErrorClass = "parameter"
 		return result
 	}
+	req.Header.Set("User-Agent", "datapan-cli/source-candidate-verifier")
 	resp, err := a.http.Do(req)
 	result.DurationMS = time.Since(started).Milliseconds()
 	if err != nil {
