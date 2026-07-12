@@ -736,6 +736,11 @@ user's control.
 
 If Chrome/Chromium is not discoverable on `PATH`, pass `--browser-path` or set
 `DATAPAN_BROWSER_PATH` to the browser executable.
+To reuse a user-started, already authenticated Chrome without relaunching it
+with automation flags, pass its local DevTools browser WebSocket URL with
+`--browser-debug-url` or `DATAPAN_BROWSER_DEBUG_URL`. The endpoint should remain
+bound to loopback; Datapan attaches to the existing session and never records
+the debugger URL in browser receipts.
 
 Browser-backed access defaults to inspection/dry-run behavior. It submits only
 when `--apply` is explicitly present. `datapan apply` and

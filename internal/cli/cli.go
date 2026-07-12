@@ -10229,19 +10229,29 @@ func (a app) accessLogin(args []string, jsonOut bool) int {
 			browserPath = strings.TrimSpace(value)
 		}
 	}
+	browserDebugURL, args, err := consumeString(args, "--browser-debug-url", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if browserDebugURL == "" {
+		if value, ok := a.env.LookupEnv("DATAPAN_BROWSER_DEBUG_URL"); ok {
+			browserDebugURL = strings.TrimSpace(value)
+		}
+	}
 	waitMS, args, err := consumeInt(args, "--manual-login-wait-ms", 120000)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]")
 	}
 	return runBrowserWorkflowFunc(browserWorkflowOptions{
-		Command:     "login",
-		ProfileDir:  profileDir,
-		BrowserPath: browserPath,
-		ManualWait:  time.Duration(waitMS) * time.Millisecond,
-		Headed:      headed,
+		Command:         "login",
+		ProfileDir:      profileDir,
+		BrowserPath:     browserPath,
+		BrowserDebugURL: browserDebugURL,
+		ManualWait:      time.Duration(waitMS) * time.Millisecond,
+		Headed:          headed,
 	}, a.stdout, a.stderr)
 }
 
@@ -10273,12 +10283,21 @@ func (a app) accessRequest(args []string, jsonOut bool) int {
 			browserPath = strings.TrimSpace(value)
 		}
 	}
+	browserDebugURL, args, err := consumeString(args, "--browser-debug-url", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if browserDebugURL == "" {
+		if value, ok := a.env.LookupEnv("DATAPAN_BROWSER_DEBUG_URL"); ok {
+			browserDebugURL = strings.TrimSpace(value)
+		}
+	}
 	output, args, err := consumeString(args, "--output", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) != 1 {
-		return a.fail(exitUsage, "usage: datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--output PATH] [--json]")
+		return a.fail(exitUsage, "usage: datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--output PATH] [--json]")
 	}
 	spec, code, ok := a.resolveOne(args[0], jsonOut)
 	if !ok {
@@ -10289,15 +10308,16 @@ func (a app) accessRequest(args []string, jsonOut bool) int {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
 	}
 	return runBrowserWorkflowFunc(browserWorkflowOptions{
-		Command:        "submit",
-		ListID:         spec.ID,
-		ApplicationURL: spec.ApplicationURL(),
-		ProfileDir:     profileDir,
-		BrowserPath:    browserPath,
-		PurposeText:    datago.PurposeTextKO,
-		Apply:          apply,
-		Output:         output,
-		RegistryTrust:  &trust,
+		Command:         "submit",
+		ListID:          spec.ID,
+		ApplicationURL:  spec.ApplicationURL(),
+		ProfileDir:      profileDir,
+		BrowserPath:     browserPath,
+		BrowserDebugURL: browserDebugURL,
+		PurposeText:     datago.PurposeTextKO,
+		Apply:           apply,
+		Output:          output,
+		RegistryTrust:   &trust,
 	}, a.stdout, a.stderr)
 }
 
@@ -12694,8 +12714,8 @@ Usage:
   datapan status [--json]
   datapan doctor [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
-  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
-  datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
+  datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
   datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]
   datapan curl <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--json]
   datapan save <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--format csv|json] [--output PATH|-] [--timeout DURATION] [--json]
@@ -12969,13 +12989,13 @@ Draft and verify repeatable datapan-registry release artifacts.`, true
 	case "access":
 		return `Usage:
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
-  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
-  datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
+  datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
 
 Open or assist data.go.kr API access application workflows.`, true
 	case "access login":
 		return `Usage:
-  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--json]
+  datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
 
 Prepare a browser session for later access application automation.`, true
 	case "get", "call":
