@@ -20,17 +20,18 @@ const (
 )
 
 type browserWorkflowOptions struct {
-	Command        string
-	ListID         string
-	ApplicationURL string
-	ProfileDir     string
-	BrowserPath    string
-	PurposeText    string
-	ManualWait     time.Duration
-	Headed         bool
-	Apply          bool
-	Output         string
-	RegistryTrust  *registryTrustContext
+	Command         string
+	ListID          string
+	ApplicationURL  string
+	ProfileDir      string
+	BrowserPath     string
+	BrowserDebugURL string
+	PurposeText     string
+	ManualWait      time.Duration
+	Headed          bool
+	Apply           bool
+	Output          string
+	RegistryTrust   *registryTrustContext
 }
 
 func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) int {
@@ -98,6 +99,19 @@ type browserResult struct {
 }
 
 func newBrowserContext(opts browserWorkflowOptions) (context.Context, context.CancelFunc, error) {
+	if strings.TrimSpace(opts.BrowserDebugURL) != "" {
+		allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), strings.TrimSpace(opts.BrowserDebugURL))
+		ctx, ctxCancel := chromedp.NewContext(allocCtx)
+		cancel := func() {
+			ctxCancel()
+			allocCancel()
+		}
+		if err := chromedp.Run(ctx); err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		return ctx, cancel, nil
+	}
 	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.UserDataDir(opts.ProfileDir),
 		chromedp.Flag("headless", !opts.Headed),
@@ -345,7 +359,7 @@ func detectApplicationState(pageText string) map[string]any {
 	markers := map[string]any{
 		"has_apply_text":      strings.Contains(pageText, "활용신청"),
 		"has_cancel_text":     strings.Contains(pageText, "신청취소"),
-		"has_approved_text":   strings.Contains(pageText, "승인"),
+		"has_approved_text":   containsAny(pageText, "승인완료", "승인대기", "심사중", "이미 신청", "활용중", "사용중"),
 		"has_login_text":      strings.Contains(pageText, "로그인"),
 		"human_gate_detected": hasHumanGate(pageText),
 	}
@@ -354,8 +368,6 @@ func detectApplicationState(pageText string) map[string]any {
 		markers["status"] = "human_gate"
 	case markers["has_cancel_text"].(bool):
 		markers["status"] = "access_requested_not_confirmed"
-	case markers["has_apply_text"].(bool) && markers["has_approved_text"].(bool):
-		markers["status"] = "ambiguous_manual_review"
 	case markers["has_approved_text"].(bool):
 		markers["status"] = "access_requested_not_confirmed"
 	case markers["has_apply_text"].(bool):
@@ -407,7 +419,7 @@ func hasHumanGate(pageText string) bool {
 }
 
 func looksRequestedOrGranted(pageText string) bool {
-	for _, term := range []string{"신청취소", "이미 신청", "승인", "활용중", "사용중"} {
+	for _, term := range []string{"신청취소", "이미 신청", "승인완료", "승인대기", "심사중", "활용중", "사용중"} {
 		if strings.Contains(pageText, term) {
 			return true
 		}

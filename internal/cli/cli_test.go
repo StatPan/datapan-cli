@@ -8247,6 +8247,28 @@ func TestAccessRequestBrowserResultIncludesRegistryTrust(t *testing.T) {
 	}
 }
 
+func TestAccessRequestPassesExistingBrowserDebugURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"100","title":"테스트 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+	writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+	original := runBrowserWorkflowFunc
+	runBrowserWorkflowFunc = func(opts browserWorkflowOptions, stdout, _ io.Writer) int {
+		if opts.BrowserDebugURL != "ws://127.0.0.1:9227/devtools/browser/test" {
+			t.Fatalf("debug URL not passed: %#v", opts)
+		}
+		return writeWorkflowResultForOptions(stdout, browserResult{OK: true, Command: "submit", Provider: "data.go.kr", Status: "inspected", DryRun: true}, opts)
+	}
+	defer func() { runBrowserWorkflowFunc = original }()
+
+	code, stdout, stderr := runTest([]string{"access", "100", "--dry-run", "--browser-debug-url", "ws://127.0.0.1:9227/devtools/browser/test", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"status": "inspected"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, "devtools/browser/test") {
+		t.Fatalf("browser debugger URL leaked into output: %s", stdout)
+	}
+}
+
 func TestAccessSynthesizesSmokeCommandFromImportedRegistry(t *testing.T) {
 	tmp := t.TempDir() + "/registry.json"
 	if err := osWriteFile(tmp, []byte(`[

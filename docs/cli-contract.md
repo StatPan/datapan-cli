@@ -1029,6 +1029,10 @@ gate manually. Browser-backed `access <list-id>` must default to inspection and
 must submit only when `--apply` is present. It must reuse the saved profile,
 fill visible purpose/usage fields, accept visible checkboxes, and stop with a
 machine-readable status if the session is expired or a human gate appears.
+An already authenticated Chrome may instead be reused through a loopback-only
+DevTools browser WebSocket supplied by `--browser-debug-url` or
+`DATAPAN_BROWSER_DEBUG_URL`. This attach mode must not relaunch Chrome, add
+automation flags, or serialize the debugger URL into a receipt.
 Every browser-backed dataset result, including browser start and navigation
 failures, must preserve the same `registry_trust` context that authorized the
 workflow.
