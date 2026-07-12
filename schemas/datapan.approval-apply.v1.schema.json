@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.datapan.dev/datapan.approval-apply.v1.schema.json",
+  "title": "Datapan data.go.kr Approval Apply Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "provider", "plan", "limit", "registry_trust", "summary", "results"],
+  "properties": {
+    "schema_version": { "const": "datapan.approval-apply.v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "provider": { "const": "data.go.kr" },
+    "plan": { "type": "string", "minLength": 1 },
+    "limit": { "type": "integer", "minimum": 1 },
+    "registry_trust": { "type": "object" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "attempted", "submitted", "skipped", "failed"],
+      "properties": {
+        "eligible": { "type": "integer", "minimum": 0 },
+        "attempted": { "type": "integer", "minimum": 0 },
+        "submitted": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["list_id", "status", "action", "human_gate_detected"],
+        "properties": {
+          "list_id": { "type": "string", "minLength": 1 },
+          "status": { "type": "string" },
+          "action": { "type": "string" },
+          "human_gate_detected": { "type": "boolean" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}
