@@ -248,7 +248,11 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 		return writeWorkflowResultForOptions(stdout, result, opts)
 	}
 	if detected["status"] != "access_user_action_required" {
-		result.Action = "not_submitted"
+		if detected["status"] == "access_requested_not_confirmed" {
+			result.Action = "access_already_requested"
+		} else {
+			result.Action = "not_submitted"
+		}
 		return writeWorkflowResultForOptions(stdout, result, opts)
 	}
 	applyResult := submitApplication(ctx, opts.ListID, opts.PurposeText, opts.BrowserDebugURL)
