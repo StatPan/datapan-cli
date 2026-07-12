@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/StatPan/datapan-cli/internal/datago"
+)
 
 func TestDetectApplicationStateDoesNotTreatApprovalMetadataAsGranted(t *testing.T) {
 	state := detectApplicationState("개발계정 자동승인 운영계정 심의승인 활용신청")
@@ -70,5 +74,26 @@ func TestApprovalResultNeedsReinspectionForFormURL(t *testing.T) {
 	result.Details["url"] = "https://www.data.go.kr/iim/api/selectAcountList.do?status=dupReq"
 	if approvalResultNeedsReinspection(result) {
 		t.Fatal("explicit duplicate result must remain terminal")
+	}
+}
+
+func TestApprovalDependencyProfilesSeparateExternalAuthentication(t *testing.T) {
+	reg := datago.NewRegistry([]datago.Spec{
+		{ID: "gateway", Provider: "data.go.kr", Operations: []datago.Operation{{Name: "op", Endpoint: "https://apis.data.go.kr/test"}}},
+		{ID: "external", Provider: "data.go.kr", Operations: []datago.Operation{{Name: "op", Endpoint: "https://external.example/api"}}},
+		{ID: "empty", Provider: "data.go.kr"},
+	})
+	profiles := approvalDependencyProfiles(reg)
+	if !profiles["gateway"].HasGateway || profiles["gateway"].HasExternal {
+		t.Fatalf("gateway profile=%#v", profiles["gateway"])
+	}
+	if !profiles["external"].HasExternal || profiles["external"].HasGateway {
+		t.Fatalf("external profile=%#v", profiles["external"])
+	}
+	if got := profiles["external"].ExternalHosts(); len(got) != 1 || got[0] != "external.example" {
+		t.Fatalf("external hosts=%#v", got)
+	}
+	if got := profiles["empty"].PrimaryClass(); got != "no_operations" {
+		t.Fatalf("empty class=%q", got)
 	}
 }

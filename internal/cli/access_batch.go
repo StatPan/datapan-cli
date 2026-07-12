@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,12 +32,14 @@ type approvalPlan struct {
 }
 
 type approvalPlanSummary struct {
-	Total               int `json:"total"`
-	ApplicationRequired int `json:"application_required"`
-	RequestedOrGranted  int `json:"requested_or_granted"`
-	HumanGate           int `json:"human_gate"`
-	Unknown             int `json:"unknown"`
-	InspectionFailed    int `json:"inspection_failed"`
+	Total                  int `json:"total"`
+	ApplicationRequired    int `json:"application_required"`
+	RequestedOrGranted     int `json:"requested_or_granted"`
+	ExternalProviderReview int `json:"external_provider_review"`
+	NotApplicable          int `json:"not_applicable"`
+	HumanGate              int `json:"human_gate"`
+	Unknown                int `json:"unknown"`
+	InspectionFailed       int `json:"inspection_failed"`
 }
 
 type approvalPlanItem struct {
@@ -46,6 +49,8 @@ type approvalPlanItem struct {
 	Status            string         `json:"status"`
 	HumanGateDetected bool           `json:"human_gate_detected"`
 	Action            string         `json:"action"`
+	DependencyClass   string         `json:"dependency_class,omitempty"`
+	ExternalHosts     []string       `json:"external_hosts,omitempty"`
 	DetectedState     map[string]any `json:"detected_state,omitempty"`
 	Error             string         `json:"error,omitempty"`
 }
@@ -79,6 +84,58 @@ type approvalApplyResult struct {
 	Details           map[string]any `json:"details,omitempty"`
 }
 
+type approvalDependencyProfile struct {
+	HasGateway      bool
+	HasExternal     bool
+	externalHostSet map[string]bool
+	classSet        map[string]bool
+}
+
+func approvalDependencyProfiles(reg datago.Registry) map[string]approvalDependencyProfile {
+	profiles := map[string]approvalDependencyProfile{}
+	_, dependencies := datago.DependencyInventoryForRegistry(reg, defaultProviderHosts())
+	for _, dependency := range dependencies {
+		profile := profiles[dependency.DatasetID]
+		if profile.externalHostSet == nil {
+			profile.externalHostSet = map[string]bool{}
+			profile.classSet = map[string]bool{}
+		}
+		profile.classSet[dependency.DependencyClass] = true
+		switch dependency.DependencyClass {
+		case "data_go_kr_gateway":
+			profile.HasGateway = true
+		case "external_endpoint":
+			profile.HasExternal = true
+			if dependency.EndpointHost != "" {
+				profile.externalHostSet[dependency.EndpointHost] = true
+			}
+		}
+		profiles[dependency.DatasetID] = profile
+	}
+	return profiles
+}
+
+func (p approvalDependencyProfile) ExternalHosts() []string {
+	hosts := make([]string, 0, len(p.externalHostSet))
+	for host := range p.externalHostSet {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
+func (p approvalDependencyProfile) PrimaryClass() string {
+	if len(p.classSet) == 0 {
+		return "no_operations"
+	}
+	classes := make([]string, 0, len(p.classSet))
+	for class := range p.classSet {
+		classes = append(classes, class)
+	}
+	sort.Strings(classes)
+	return classes[0]
+}
+
 func (a app) accessPlan(args []string, jsonOut bool) int {
 	allRegistry, args := consumeBool(args, "--all")
 	input, args, err := consumeString(args, "--input", "")
@@ -105,6 +162,7 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
 	}
 	var ids []string
+	dependencyProfiles := approvalDependencyProfiles(a.reg)
 	if allRegistry {
 		input = "registry:all"
 		for _, spec := range a.reg.Specs() {
@@ -139,7 +197,18 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 			continue
 		}
 		if allRegistry {
-			plan.Items = append(plan.Items, approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL(), Status: "access_user_action_required", Action: "inspect_before_apply"})
+			profile := dependencyProfiles[spec.ID]
+			item := approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL()}
+			switch {
+			case profile.HasGateway:
+				item.Status, item.Action, item.DependencyClass = "access_user_action_required", "inspect_before_apply", "data_go_kr_gateway"
+			case profile.HasExternal:
+				item.Status, item.Action, item.DependencyClass = "external_provider_review", "classify_external_provider_access", "external_endpoint"
+				item.ExternalHosts = profile.ExternalHosts()
+			default:
+				item.Status, item.Action, item.DependencyClass = "not_applicable", "no_data_go_kr_gateway", profile.PrimaryClass()
+			}
+			plan.Items = append(plan.Items, item)
 			continue
 		}
 		result, err := invokeBrowserWorkflow(browserWorkflowOptions{
@@ -165,7 +234,7 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 		}
 		return exitOK
 	}
-	fmt.Fprintf(a.stdout, "Approval plan: total=%d required=%d requested=%d human_gate=%d failed=%d output=%s\n", plan.Summary.Total, plan.Summary.ApplicationRequired, plan.Summary.RequestedOrGranted, plan.Summary.HumanGate, plan.Summary.InspectionFailed, output)
+	fmt.Fprintf(a.stdout, "Approval plan: total=%d required=%d requested=%d external_review=%d not_applicable=%d human_gate=%d failed=%d output=%s\n", plan.Summary.Total, plan.Summary.ApplicationRequired, plan.Summary.RequestedOrGranted, plan.Summary.ExternalProviderReview, plan.Summary.NotApplicable, plan.Summary.HumanGate, plan.Summary.InspectionFailed, output)
 	return exitOK
 }
 
@@ -230,7 +299,16 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 			report.RegistryTrust = trust
 			report.Summary = approvalApplySummary{}
 			completed := make([]approvalApplyResult, 0, len(report.Results))
+			eligibleIDs := map[string]bool{}
+			for _, item := range plan.Items {
+				if item.Status == "access_user_action_required" {
+					eligibleIDs[item.ListID] = true
+				}
+			}
 			for _, result := range report.Results {
+				if !eligibleIDs[result.ListID] {
+					continue
+				}
 				switch result.Action {
 				case "access_requested_not_confirmed":
 					processed[result.ListID] = true
@@ -411,6 +489,10 @@ func summarizeApprovalPlan(items []approvalPlanItem) approvalPlanSummary {
 			summary.ApplicationRequired++
 		case "access_requested_not_confirmed":
 			summary.RequestedOrGranted++
+		case "external_provider_review":
+			summary.ExternalProviderReview++
+		case "not_applicable":
+			summary.NotApplicable++
 		case "human_gate":
 			summary.HumanGate++
 		case "inspection_failed":

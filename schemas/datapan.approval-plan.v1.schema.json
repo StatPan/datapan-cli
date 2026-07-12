@@ -15,11 +15,13 @@
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["total", "application_required", "requested_or_granted", "human_gate", "unknown", "inspection_failed"],
+      "required": ["total", "application_required", "requested_or_granted", "external_provider_review", "not_applicable", "human_gate", "unknown", "inspection_failed"],
       "properties": {
         "total": { "type": "integer", "minimum": 0 },
         "application_required": { "type": "integer", "minimum": 0 },
         "requested_or_granted": { "type": "integer", "minimum": 0 },
+        "external_provider_review": { "type": "integer", "minimum": 0 },
+        "not_applicable": { "type": "integer", "minimum": 0 },
         "human_gate": { "type": "integer", "minimum": 0 },
         "unknown": { "type": "integer", "minimum": 0 },
         "inspection_failed": { "type": "integer", "minimum": 0 }
@@ -35,9 +37,11 @@
           "list_id": { "type": "string", "minLength": 1 },
           "title": { "type": "string" },
           "application_url": { "type": "string", "format": "uri", "pattern": "^https://www\\.data\\.go\\.kr/" },
-          "status": { "enum": ["access_user_action_required", "access_requested_not_confirmed", "human_gate", "unknown", "inspection_failed"] },
+          "status": { "enum": ["access_user_action_required", "access_requested_not_confirmed", "external_provider_review", "not_applicable", "human_gate", "unknown", "inspection_failed"] },
           "human_gate_detected": { "type": "boolean" },
           "action": { "type": "string" },
+          "dependency_class": { "type": "string" },
+          "external_hosts": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
           "detected_state": { "type": "object" },
           "error": { "type": "string" }
         }

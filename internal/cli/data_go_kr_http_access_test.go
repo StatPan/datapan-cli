@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestParseDataGoKrApplicationFormPreservesHiddenFields(t *testing.T) {
 	document := `<html><body><form method="post" action="/iim/api/insertDevAcount.do">
@@ -40,6 +43,25 @@ func TestClassifyPortalSaveResponse(t *testing.T) {
 	} {
 		if got := classifyPortalSaveResponse(body); got != want {
 			t.Fatalf("body=%q got=%q want=%q", body, got, want)
+		}
+	}
+}
+
+func TestTrustedDataGoKrURLRejectsExternalProviders(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"https://www.data.go.kr/iim/api/form.do": true,
+		"https://auth.data.go.kr/login":          true,
+		"https://data.go.kr/index.do":            true,
+		"http://www.data.go.kr/index.do":         false,
+		"https://data.go.kr.example.com/":        false,
+		"https://external.example/api":           false,
+	} {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := trustedDataGoKrURL(parsed); got != want {
+			t.Fatalf("url=%q got=%v want=%v", raw, got, want)
 		}
 	}
 }

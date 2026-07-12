@@ -23,6 +23,7 @@ import (
 const maxAccessResponseBytes = 4 << 20
 
 var errDataGoKrRateLimited = errors.New("data.go.kr rate limited the access request")
+var errExternalProviderRedirect = errors.New("data.go.kr access request redirected to an external provider")
 
 type dataGoKrHTTPSession struct {
 	client   *http.Client
@@ -90,6 +91,15 @@ func dataGoKrHTTPClientFromBrowser(ctx context.Context) (*http.Client, error) {
 		Jar:       jar,
 		Timeout:   20 * time.Second,
 		Transport: &http.Transport{Proxy: nil},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !trustedDataGoKrURL(req.URL) {
+				return errExternalProviderRedirect
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many data.go.kr redirects")
+			}
+			return nil
+		},
 	}
 	return client, nil
 }
@@ -139,6 +149,9 @@ func (s *dataGoKrHTTPSession) applyOnce(listID, purposeText string) map[string]a
 	if err != nil {
 		if errors.Is(err, errDataGoKrRateLimited) {
 			return map[string]any{"action": "portal_rate_limited"}
+		}
+		if errors.Is(err, errExternalProviderRedirect) {
+			return map[string]any{"action": "external_provider_redirect_blocked"}
 		}
 		return map[string]any{"action": "apply_form_navigation_error", "error": err.Error()}
 	}
@@ -192,6 +205,14 @@ func (s *dataGoKrHTTPSession) applyOnce(listID, purposeText string) map[string]a
 		result["validation_messages"] = dataGoKrAlertMessages(resultBody)
 	}
 	return result
+}
+
+func trustedDataGoKrURL(candidate *url.URL) bool {
+	if candidate == nil || !strings.EqualFold(candidate.Scheme, "https") {
+		return false
+	}
+	host := strings.ToLower(candidate.Hostname())
+	return host == "data.go.kr" || strings.HasSuffix(host, ".data.go.kr")
 }
 
 func classifyPortalSaveResponse(body string) string {
