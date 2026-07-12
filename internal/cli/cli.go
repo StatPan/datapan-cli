@@ -908,8 +908,14 @@ func (a app) searchOrList(args []string, jsonOut bool, allowEmpty bool) int {
 			printVerificationBrief(a.stdout, verificationContextForOperation(verificationIndex, spec, spec.Operations[0]))
 		}
 		callRoute := specCallRoute(spec)
+		support := specSupport(spec)
 		fmt.Fprintf(a.stdout, "  callable: %s\n", yesNo(specHasCallableOperation(spec)))
 		fmt.Fprintf(a.stdout, "  call ready: %s (%s)\n", yesNo(callRoute.Ready), formatCallRoute(callRoute))
+		fmt.Fprintf(a.stdout, "  support: %s", support.Status)
+		if support.Reason != "" {
+			fmt.Fprintf(a.stdout, " (%s)", support.Reason)
+		}
+		fmt.Fprintln(a.stdout)
 		fmt.Fprintf(a.stdout, "  next: %s\n", showCommand(spec))
 		if example := exampleGetCommand(spec); example != "" {
 			fmt.Fprintf(a.stdout, "  try: %s\n", example)
@@ -4352,6 +4358,7 @@ func studioDatasetCards(specs []datago.Spec) []map[string]any {
 			"operations":       showOperationSummaries(spec),
 		}
 		addCallRouteFields(card, specCallRoute(spec))
+		addOperationSupportFields(card, specSupport(spec))
 		access := showAccessSummary(spec)
 		if len(access) > 1 {
 			card["access"] = access
@@ -4380,18 +4387,87 @@ type callRouteMetadata struct {
 	Host     string
 }
 
+type operationSupportMetadata struct {
+	Status     string
+	Executable bool
+	Action     string
+	Reason     string
+}
+
+func operationSupport(spec datago.Spec, op datago.Operation) operationSupportMetadata {
+	class := datago.OperationDependencyClass(spec, op)
+	switch class {
+	case "data_go_kr_gateway":
+		return operationSupportMetadata{Status: "supported", Executable: true, Action: "call_with_datapan"}
+	case "external_endpoint", "service_root":
+		route := operationCallRoute(spec, op)
+		if route.Ready && route.Route == "provider_adapter" {
+			return operationSupportMetadata{Status: "external", Executable: true, Action: "call_with_provider_adapter", Reason: "external provider route managed by a dedicated adapter"}
+		}
+		return operationSupportMetadata{Status: "external", Action: "use_external_provider", Reason: "separate external-provider handling is required"}
+	default:
+		reason := class
+		if strings.TrimSpace(op.Endpoint) == "" {
+			reason = "no callable API endpoint"
+		}
+		return operationSupportMetadata{Status: "unsupported", Action: "not_executable", Reason: reason}
+	}
+}
+
+func specSupport(spec datago.Spec) operationSupportMetadata {
+	var external *operationSupportMetadata
+	for _, op := range spec.Operations {
+		support := operationSupport(spec, op)
+		if support.Status == "supported" {
+			return support
+		}
+		if support.Status == "external" && external == nil {
+			copy := support
+			external = &copy
+		}
+	}
+	if external != nil {
+		return *external
+	}
+	return operationSupportMetadata{Status: "unsupported", Action: "not_executable", Reason: "no supported API operations"}
+}
+
+func addOperationSupportFields(item map[string]any, support operationSupportMetadata) {
+	item["support_status"] = support.Status
+	item["cli_executable"] = support.Executable
+	item["support_action"] = support.Action
+	if support.Reason != "" {
+		item["support_reason"] = support.Reason
+	}
+}
+
+func unsupportedOperationError(spec datago.Spec, op datago.Operation) error {
+	support := operationSupport(spec, op)
+	if support.Executable {
+		return nil
+	}
+	return fmt.Errorf("operation %q for %s is %s and is not executable by datapan-cli: %s", op.Name, spec.ID, support.Status, support.Reason)
+}
+
 func specCallRoute(spec datago.Spec) callRouteMetadata {
 	var firstEndpointRoute callRouteMetadata
+	var firstReadyRoute callRouteMetadata
 	for _, op := range spec.Operations {
 		if strings.TrimSpace(op.Endpoint) != "" {
 			route := operationCallRoute(spec, op)
-			if route.Ready {
+			if route.Ready && route.Route == "data_go_kr_gateway" {
 				return route
+			}
+			if route.Ready && firstReadyRoute.Route == "" {
+				firstReadyRoute = route
 			}
 			if firstEndpointRoute.Route == "" {
 				firstEndpointRoute = route
 			}
 		}
+	}
+	if firstReadyRoute.Route != "" {
+		return firstReadyRoute
 	}
 	if firstEndpointRoute.Route != "" {
 		return firstEndpointRoute
@@ -6642,6 +6718,12 @@ func (a app) info(args []string, jsonOut bool) int {
 			fmt.Fprintln(a.stdout)
 			route := operationCallRoute(spec, op)
 			fmt.Fprintf(a.stdout, "      call ready: %s (%s)\n", yesNo(route.Ready), formatCallRoute(route))
+			support := operationSupport(spec, op)
+			fmt.Fprintf(a.stdout, "      support: %s", support.Status)
+			if support.Reason != "" {
+				fmt.Fprintf(a.stdout, " (%s)", support.Reason)
+			}
+			fmt.Fprintln(a.stdout)
 			if route.Provider != "" {
 				fmt.Fprintf(a.stdout, "      call provider: %s\n", route.Provider)
 			}
@@ -6751,6 +6833,9 @@ func (a app) useOrKit(args []string, jsonOut bool, defaultKitOutput bool) int {
 			return a.mapError(fmt.Errorf("spec %s has no callable operation endpoint yet", spec.ID), jsonOut)
 		}
 		return a.mapError(fmt.Errorf("unknown operation %q for %s", operation, spec.ID), jsonOut)
+	}
+	if err := unsupportedOperationError(spec, op); err != nil {
+		return a.mapError(err, jsonOut)
 	}
 	params, fields := paramsTemplateForOperation(spec, op, overrides)
 	paramsOutput := spec.ID + "_params.json"
@@ -6878,6 +6963,7 @@ func showOperationSummaries(spec datago.Spec) []map[string]any {
 			"example":               exampleCommandForOperation(spec, op),
 		}
 		addCallRouteFields(item, operationCallRoute(spec, op))
+		addOperationSupportFields(item, operationSupport(spec, op))
 		if len(authParams) > 0 {
 			item["auth_params"] = authParams
 			item["auth_env_vars"] = datago.KeyEnvNames
@@ -6933,6 +7019,9 @@ func (a app) params(args []string, jsonOut bool) int {
 			return a.mapError(fmt.Errorf("spec %s has no callable operation endpoint yet", spec.ID), jsonOut)
 		}
 		return a.mapError(fmt.Errorf("unknown operation %q for %s", operation, spec.ID), jsonOut)
+	}
+	if err := unsupportedOperationError(spec, op); err != nil {
+		return a.mapError(err, jsonOut)
 	}
 	template, fields := paramsTemplateForOperation(spec, op, overrides)
 	var out bytes.Buffer
@@ -7089,16 +7178,23 @@ func limitParams(params []datago.Param, limit int) []datago.Param {
 }
 
 func exampleGetCommand(spec datago.Spec) string {
-	if smoke := spec.SmokeCommand(); smoke != "" {
-		return smoke
-	}
 	if len(spec.Operations) == 0 {
 		return ""
+	}
+	if spec.Smoke != nil {
+		if op, ok := spec.Operation(spec.Smoke.Operation); ok && operationSupport(spec, op).Executable {
+			if smoke := spec.SmokeCommand(); smoke != "" {
+				return smoke
+			}
+		}
 	}
 	return exampleCommandForOperation(spec, spec.Operations[0])
 }
 
 func exampleCommandForOperation(spec datago.Spec, op datago.Operation) string {
+	if !operationSupport(spec, op).Executable {
+		return ""
+	}
 	if spec.Smoke != nil && spec.Smoke.Operation == op.Name {
 		if smoke := spec.SmokeCommand(); smoke != "" {
 			return smoke
@@ -7140,7 +7236,7 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 		"show":           showCommand(spec),
 		"use":            exampleUseCommand(spec),
 		"kit":            exampleKitCommand(spec),
-		"access":         "datapan access " + spec.ID + " --start",
+		"access":         exampleAccessCommand(spec),
 		"params":         exampleParamsCommand(spec),
 		"get":            exampleGetCommand(spec),
 		"curl":           exampleExportCommand(spec, "curl"),
@@ -7156,6 +7252,15 @@ func specExampleCommands(spec datago.Spec) map[string]string {
 		}
 	}
 	return examples
+}
+
+func exampleAccessCommand(spec datago.Spec) string {
+	for _, op := range spec.Operations {
+		if datago.OperationDependencyClass(spec, op) == "data_go_kr_gateway" {
+			return "datapan access " + spec.ID + " --start"
+		}
+	}
+	return ""
 }
 
 func useCommandsForOperation(spec datago.Spec, op datago.Operation, params map[string]string, paramsOutput, outputDir string) map[string]string {
@@ -7527,7 +7632,7 @@ func exampleUseCommand(spec datago.Spec) string {
 		return ""
 	}
 	op := spec.Operations[0]
-	if op.Endpoint == "" {
+	if !operationSupport(spec, op).Executable {
 		return ""
 	}
 	args := []string{"datapan", "use", spec.ID}
@@ -7548,7 +7653,7 @@ func exampleKitCommand(spec datago.Spec) string {
 		return ""
 	}
 	op := spec.Operations[0]
-	if op.Endpoint == "" {
+	if !operationSupport(spec, op).Executable {
 		return ""
 	}
 	args := []string{"datapan", "kit", spec.ID}
@@ -7570,7 +7675,7 @@ func exampleParamsCommand(spec datago.Spec) string {
 		return ""
 	}
 	op := spec.Operations[0]
-	if op.Endpoint == "" {
+	if !operationSupport(spec, op).Executable {
 		return ""
 	}
 	args := []string{"datapan", "params", spec.ID}
@@ -7586,7 +7691,7 @@ func exampleExportCommand(spec datago.Spec, format string) string {
 		return ""
 	}
 	op := spec.Operations[0]
-	if op.Endpoint == "" {
+	if !operationSupport(spec, op).Executable {
 		return ""
 	}
 	args := []string{"datapan"}
@@ -7621,7 +7726,7 @@ func exampleCodegenCommand(spec datago.Spec, target string) string {
 		return ""
 	}
 	op := spec.Operations[0]
-	if op.Endpoint == "" {
+	if !operationSupport(spec, op).Executable {
 		return ""
 	}
 	args := []string{"datapan", "codegen", target, spec.ID}
@@ -7699,6 +7804,7 @@ func specSummaries(specs []datago.Spec) []map[string]any {
 			"callable":         specHasCallableOperation(spec),
 		}
 		addCallRouteFields(item, specCallRoute(spec))
+		addOperationSupportFields(item, specSupport(spec))
 		if len(spec.Operations) > 0 {
 			item["default_operation"] = spec.Operations[0].Name
 		}
@@ -11653,6 +11759,9 @@ func (a app) curlExportPlanForRef(ref, operation string, params map[string]strin
 }
 
 func (a app) curlExportPlanForSpec(spec datago.Spec, op datago.Operation, params map[string]string) (curlExportPlan, error) {
+	if err := unsupportedOperationError(spec, op); err != nil {
+		return curlExportPlan{}, err
+	}
 	envVar := datago.KeyEnvNames[0]
 	if selected, ok := a.resolveKey(); ok {
 		envVar = selected
@@ -12412,6 +12521,9 @@ func (a app) requestPlan(ref, operation string, params map[string]string) (reque
 }
 
 func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, params map[string]string) (requestPlan, string, error) {
+	if err := unsupportedOperationError(spec, op); err != nil {
+		return requestPlan{}, "", err
+	}
 	keyName, key, ok := a.resolveKeyValue()
 	if !ok {
 		return requestPlan{}, "", errAuth{}

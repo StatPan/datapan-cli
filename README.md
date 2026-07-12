@@ -407,8 +407,14 @@ without inventing a search term. They accept the same `--org`, `--category`,
 `--json` options as `search`. `--callable` returns only specs that have at
 least one operation endpoint, so it is the quickest path when you want
 something Datapan can turn into `get`, `curl`, Postman, OpenAPI, or generated
-client code. Check `call_ready` and `call_route` when you need the stronger
-"Datapan has a stable call route" signal, or use `--call-ready` directly.
+client code. Every result also reports `support_status`, `cli_executable`, and
+`support_action`. `supported` identifies the data.go.kr gateway path,
+`external` makes the separate-provider boundary explicit, and `unsupported`
+identifies operations Datapan must not execute. A call-capable external adapter
+remains explicitly marked `external`; unadapted external and unsupported routes
+are rejected before any network request. Check `call_ready` and `call_route`
+when you need the narrower technical route signal, or use `--call-ready`
+directly.
 `--ready` is the shorter alias for interactive use, and `datapan ready` is a
 top-level shortcut for `datapan list --call-ready`. Its default output is
 ranked toward APIs with fewer required parameters and less action-like
