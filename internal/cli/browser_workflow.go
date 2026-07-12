@@ -35,6 +35,7 @@ type browserWorkflowOptions struct {
 	Apply           bool
 	Output          string
 	RegistryTrust   *registryTrustContext
+	HTTPSession     *dataGoKrHTTPSession
 }
 
 func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) int {
@@ -44,6 +45,9 @@ func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) i
 	opts.ProfileDir = normalizeProfileDir(opts.ProfileDir)
 	if opts.PurposeText == "" {
 		opts.PurposeText = datago.PurposeTextKO
+	}
+	if opts.HTTPSession != nil && opts.Command == "submit" && opts.Apply {
+		return runHTTPSessionSubmit(opts, stdout)
 	}
 	if err := os.MkdirAll(opts.ProfileDir, 0o700); err != nil {
 		return writeWorkflowResultForOptions(stdout, browserResult{
@@ -80,6 +84,27 @@ func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) i
 			Status:   "unknown_browser_workflow",
 		}, opts)
 	}
+}
+
+func runHTTPSessionSubmit(opts browserWorkflowOptions, stdout io.Writer) int {
+	applyResult := opts.HTTPSession.apply(opts.ListID, opts.PurposeText)
+	action := fmt.Sprint(applyResult["action"])
+	status := "inspected"
+	ok := true
+	if action == "session_expired_or_login_required" {
+		status, ok = action, false
+	}
+	return writeWorkflowResultForOptions(stdout, browserResult{
+		OK:             ok,
+		Command:        "submit",
+		Provider:       "data.go.kr",
+		Status:         status,
+		ListID:         opts.ListID,
+		ApplicationURL: opts.ApplicationURL,
+		LoginConfirmed: ok,
+		Action:         action,
+		ApplyResult:    applyResult,
+	}, opts)
 }
 
 type browserResult struct {

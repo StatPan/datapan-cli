@@ -47,6 +47,7 @@ func TestShouldStopApprovalBatchOnSessionOrHumanGate(t *testing.T) {
 	for _, result := range []browserResult{
 		{Status: "session_expired_or_login_required"},
 		{Status: "manual_login_timeout"},
+		{Action: "portal_rate_limited"},
 		{Action: "access_user_action_required", HumanGateDetected: true},
 	} {
 		if !shouldStopApprovalBatch(result) {
@@ -55,5 +56,19 @@ func TestShouldStopApprovalBatchOnSessionOrHumanGate(t *testing.T) {
 	}
 	if shouldStopApprovalBatch(browserResult{Status: "inspected", Action: "access_requested_not_confirmed"}) {
 		t.Fatal("confirmed application result stopped the batch")
+	}
+}
+
+func TestApprovalResultNeedsReinspectionForFormURL(t *testing.T) {
+	result := approvalApplyResult{
+		Action:  "access_already_requested",
+		Details: map[string]any{"url": "https://www.data.go.kr/iim/api/selectDevAcountRequestForm.do?publicDataDetailPk=x"},
+	}
+	if !approvalResultNeedsReinspection(result) {
+		t.Fatal("form-page inference must be reinspected")
+	}
+	result.Details["url"] = "https://www.data.go.kr/iim/api/selectAcountList.do?status=dupReq"
+	if approvalResultNeedsReinspection(result) {
+		t.Fatal("explicit duplicate result must remain terminal")
 	}
 }
