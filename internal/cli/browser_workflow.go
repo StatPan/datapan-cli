@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/StatPan/datapan-cli/internal/datago"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
@@ -226,6 +229,7 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 		}, opts)
 	}
 	detected := detectApplicationState(body)
+	detected["apply_controls"] = inspectApplicationControls(ctx)
 	result := browserResult{
 		OK:             true,
 		Command:        "submit",
@@ -247,35 +251,67 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 		result.Action = "not_submitted"
 		return writeWorkflowResultForOptions(stdout, result, opts)
 	}
-	applyResult := submitApplication(ctx, opts.PurposeText)
+	applyResult := submitApplication(ctx, opts.ListID, opts.PurposeText, opts.BrowserDebugURL)
 	result.Action = fmt.Sprint(applyResult["action"])
 	result.ApplyResult = applyResult
 	return writeWorkflowResultForOptions(stdout, result, opts)
 }
 
-func submitApplication(ctx context.Context, purposeText string) map[string]any {
-	clicked, err := clickFirst(ctx, []string{
-		"활용신청",
-	})
-	if err != nil {
-		return map[string]any{"action": "apply_control_error", "error": err.Error()}
-	}
-	if !clicked {
-		return map[string]any{"action": "apply_control_not_found"}
-	}
-	_ = chromedp.Run(ctx, chromedp.Sleep(1*time.Second))
+func inspectApplicationControls(ctx context.Context) []map[string]string {
+	var controls []map[string]string
+	script := `(() => Array.from(document.querySelectorAll("a,button,input[type=button],input[type=submit]"))
+  .filter((el) => el.offsetParent !== null)
+  .map((el) => ({
+    text: ((el.innerText || el.textContent || el.value || "") + "").trim().replace(/\s+/g, " ").slice(0, 120),
+    href: el.href || "",
+    id: el.id || "",
+    name: el.name || "",
+    class: el.className || "",
+    onclick: (el.getAttribute("onclick") || "").slice(0, 240)
+  }))
+  .filter((item) => item.text.includes("활용신청") || item.text === "신청")
+  .slice(0, 20))()`
+	_ = chromedp.Run(ctx, chromedp.Evaluate(script, &controls, chromedp.EvalAsValue))
+	return controls
+}
 
-	var body string
-	_ = chromedp.Run(ctx, chromedp.Text("body", &body, chromedp.ByQuery))
+func submitApplication(ctx context.Context, listID, purposeText, browserDebugURL string) map[string]any {
+	formURL := dataGoKrBaseURL + "/tcs/dss/redirectDevAcountRequestForm.do?publicDataPk=" + url.QueryEscape(strings.TrimSpace(listID))
+	var body, currentURL string
+	knownTargets := browserPageTargetIDs(browserDebugURL)
+	if err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, _, _, _, err := page.Navigate(formURL).Do(ctx)
+			return err
+		}),
+	); err != nil {
+		return map[string]any{"action": "apply_form_navigation_error", "error": err.Error()}
+	}
+	if resultURL := waitForNewDataGoKrResultURL(browserDebugURL, knownTargets, 8*time.Second); resultURL != "" {
+		if action := classifyApplyResultAtURL(resultURL, ""); action == "access_already_requested" {
+			return confirmedApplyResult(action, resultURL, nil)
+		}
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Location(&currentURL),
+		chromedp.Text("body", &body, chromedp.ByQuery),
+	); err != nil {
+		return map[string]any{"action": "apply_form_inspection_error", "error": err.Error()}
+	}
+	if strings.Contains(currentURL, "/uim/login/") {
+		return map[string]any{"action": "session_expired_or_login_required", "url": currentURL}
+	}
 	if hasHumanGate(body) {
-		return map[string]any{"action": "access_user_action_required"}
+		return map[string]any{"action": "access_user_action_required", "url": currentURL}
 	}
 	if looksRequestedOrGranted(body) {
-		return map[string]any{"action": "access_requested_not_confirmed"}
+		return map[string]any{"action": "access_requested_not_confirmed", "url": currentURL}
 	}
 
 	filled := fillApplicationForm(ctx, purposeText)
-	clicked, err = clickFirst(ctx, []string{
+	acceptApplyConfirmationDialogs(ctx)
+	clicked, err := clickFirst(ctx, []string{
+		"활용신청",
 		"신청",
 		"등록",
 		"저장",
@@ -285,10 +321,169 @@ func submitApplication(ctx context.Context, purposeText string) map[string]any {
 		return map[string]any{"action": "apply_form_submit_control_error", "error": err.Error(), "filled": filled}
 	}
 	if !clicked {
-		return map[string]any{"action": "apply_form_submit_control_not_found", "filled": filled}
+		return map[string]any{"action": "apply_form_submit_control_not_found", "filled": filled, "controls": inspectSubmitControls(ctx), "url": currentURL}
 	}
-	_ = chromedp.Run(ctx, chromedp.Sleep(1*time.Second), chromedp.Text("body", &body, chromedp.ByQuery))
-	return map[string]any{"action": classifyApplyResult(body), "filled": filled}
+	if resultURL := waitForNewDataGoKrResultURL(browserDebugURL, knownTargets, 8*time.Second); resultURL != "" {
+		action := classifyApplyResultAtURL(resultURL, "")
+		if action == "access_already_requested" {
+			return confirmedApplyResult(action, resultURL, filled)
+		}
+	}
+	_ = chromedp.Run(ctx,
+		chromedp.Location(&currentURL),
+		chromedp.Text("body", &body, chromedp.ByQuery),
+	)
+	action := classifyApplyResultAtURL(currentURL, body)
+	result := map[string]any{
+		"action":         action,
+		"filled":         filled,
+		"detected_state": detectApplicationState(body),
+		"url":            currentURL,
+	}
+	if action == "access_user_action_required" || action == "apply_result_unconfirmed" {
+		result["form_fields"] = inspectApplicationFormFields(ctx)
+		result["validation_messages"] = inspectValidationMessages(ctx)
+	}
+	return result
+}
+
+func confirmedApplyResult(action, resultURL string, filled any) map[string]any {
+	return map[string]any{
+		"action": action,
+		"filled": filled,
+		"detected_state": map[string]any{
+			"status": "access_requested_not_confirmed",
+		},
+		"url": resultURL,
+	}
+}
+
+type browserPageTarget struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
+func browserPageTargets(browserDebugURL string) []browserPageTarget {
+	endpoint := strings.TrimRight(strings.TrimSpace(browserDebugURL), "/") + "/json/list"
+	if strings.TrimSpace(browserDebugURL) == "" {
+		return nil
+	}
+	client := &http.Client{
+		Timeout:   2 * time.Second,
+		Transport: &http.Transport{Proxy: nil},
+	}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var targets []browserPageTarget
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&targets); err != nil {
+		return nil
+	}
+	return targets
+}
+
+func browserPageTargetIDs(browserDebugURL string) map[string]bool {
+	known := map[string]bool{}
+	for _, info := range browserPageTargets(browserDebugURL) {
+		known[info.ID] = true
+		if classifyApplyResultAtURL(info.URL, "") == "access_already_requested" {
+			known["duplicate-result-present"] = true
+		}
+	}
+	return known
+}
+
+func waitForNewDataGoKrResultURL(browserDebugURL string, known map[string]bool, wait time.Duration) string {
+	deadline := time.Now().Add(wait)
+	for {
+		for _, info := range browserPageTargets(browserDebugURL) {
+			if info.Type != "page" || !strings.HasPrefix(info.URL, dataGoKrBaseURL+"/") {
+				continue
+			}
+			if !known["duplicate-result-present"] && classifyApplyResultAtURL(info.URL, "") == "access_already_requested" {
+				return info.URL
+			}
+			if !known[info.ID] {
+				return info.URL
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return ""
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func acceptApplyConfirmationDialogs(ctx context.Context) {
+	chromedp.ListenTarget(ctx, func(event any) {
+		if _, ok := event.(*page.EventJavascriptDialogOpening); !ok {
+			return
+		}
+		go func() {
+			_ = chromedp.Run(ctx, page.HandleJavaScriptDialog(true))
+		}()
+	})
+}
+
+func inspectSubmitControls(ctx context.Context) []map[string]string {
+	var controls []map[string]string
+	script := `(() => Array.from(document.querySelectorAll("button,input[type=button],input[type=submit],a.button"))
+  .filter((el) => el.offsetParent !== null)
+  .map((el) => ({
+    text: ((el.innerText || el.textContent || el.value || "") + "").trim().replace(/\s+/g, " ").slice(0, 120),
+    type: el.getAttribute("type") || "",
+    id: el.id || "",
+    name: el.name || "",
+    class: el.className || "",
+    onclick: (el.getAttribute("onclick") || "").slice(0, 240)
+  }))
+  .filter((item) => item.text)
+  .slice(0, 40))()`
+	_ = chromedp.Run(ctx, chromedp.Evaluate(script, &controls, chromedp.EvalAsValue))
+	return controls
+}
+
+func inspectApplicationFormFields(ctx context.Context) []map[string]any {
+	var fields []map[string]any
+	script := `(() => Array.from(document.querySelectorAll("input,select,textarea"))
+  .filter((el) => el.offsetParent !== null && (el.getAttribute("type") || "").toLowerCase() !== "hidden")
+  .map((el) => {
+    const id = el.id || "";
+    const explicit = id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null;
+    const wrapped = el.closest("label");
+    const container = el.closest("tr,li,div.form-group,div.row,div") || el.parentElement;
+    const label = ((explicit?.innerText || wrapped?.innerText || container?.querySelector("th,label,.label,.tit")?.innerText || "") + "")
+      .trim().replace(/\s+/g, " ").slice(0, 160);
+    return {
+      tag: el.tagName.toLowerCase(),
+      type: (el.getAttribute("type") || "").toLowerCase(),
+      name: el.name || "",
+      id,
+      label,
+      placeholder: el.getAttribute("placeholder") || "",
+      required: !!el.required || el.getAttribute("aria-required") === "true",
+      checked: ["checkbox","radio"].includes((el.getAttribute("type") || "").toLowerCase()) ? !!el.checked : undefined,
+      options: el.tagName === "SELECT" ? Array.from(el.options).map((o) => (o.textContent || "").trim()).filter(Boolean).slice(0, 30) : undefined
+    };
+  }).slice(0, 80))()`
+	_ = chromedp.Run(ctx, chromedp.Evaluate(script, &fields, chromedp.EvalAsValue))
+	return fields
+}
+
+func inspectValidationMessages(ctx context.Context) []string {
+	var messages []string
+	script := `(() => Array.from(document.querySelectorAll(".error,.invalid-feedback,.help-block,.text-danger,[role=alert]"))
+  .filter((el) => el.offsetParent !== null)
+  .map((el) => (el.innerText || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 240))
+  .filter(Boolean).slice(0, 30))()`
+	_ = chromedp.Run(ctx, chromedp.Evaluate(script, &messages, chromedp.EvalAsValue))
+	return messages
 }
 
 func fillApplicationForm(ctx context.Context, purposeText string) map[string]int {
@@ -339,10 +534,12 @@ func clickFirst(ctx context.Context, labels []string) (bool, error) {
   for (const label of labels) {
     for (const el of controls) {
       const text = ((el.innerText || el.textContent || el.value || "") + "").trim();
-      if (label === "신청" && text.includes("활용신청")) {
-        continue;
-      }
-      if ((text === label || text.includes(label)) && el.offsetParent !== null) {
+      const matched = label === "신청"
+        ? ["신청", "신청하기"].includes(text)
+        : label === "활용신청"
+          ? text === "활용신청"
+          : (text === label || text.includes(label));
+      if (matched && el.offsetParent !== null) {
         el.click();
         return true;
       }
@@ -442,7 +639,16 @@ func classifyApplyResult(pageText string) string {
 	if strings.Contains(pageText, "필수") || strings.Contains(pageText, "입력") {
 		return "access_user_action_required"
 	}
-	return "apply_submitted_review_required"
+	return "apply_result_unconfirmed"
+}
+
+func classifyApplyResultAtURL(currentURL, pageText string) string {
+	if parsed, err := url.Parse(currentURL); err == nil && parsed.Host == "www.data.go.kr" {
+		if parsed.Path == "/iim/api/selectAcountList.do" && parsed.Query().Get("status") == "dupReq" {
+			return "access_already_requested"
+		}
+	}
+	return classifyApplyResult(pageText)
 }
 
 func normalizeProfileDir(path string) string {

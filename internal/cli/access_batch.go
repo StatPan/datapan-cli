@@ -62,19 +62,21 @@ type approvalApplyReport struct {
 }
 
 type approvalApplySummary struct {
-	Eligible  int `json:"eligible"`
-	Attempted int `json:"attempted"`
-	Submitted int `json:"submitted"`
-	Skipped   int `json:"skipped"`
-	Failed    int `json:"failed"`
+	Eligible         int `json:"eligible"`
+	Attempted        int `json:"attempted"`
+	Submitted        int `json:"submitted"`
+	AlreadyRequested int `json:"already_requested"`
+	Skipped          int `json:"skipped"`
+	Failed           int `json:"failed"`
 }
 
 type approvalApplyResult struct {
-	ListID            string `json:"list_id"`
-	Status            string `json:"status"`
-	Action            string `json:"action"`
-	HumanGateDetected bool   `json:"human_gate_detected"`
-	Error             string `json:"error,omitempty"`
+	ListID            string         `json:"list_id"`
+	Status            string         `json:"status"`
+	Action            string         `json:"action"`
+	HumanGateDetected bool           `json:"human_gate_detected"`
+	Error             string         `json:"error,omitempty"`
+	Details           map[string]any `json:"details,omitempty"`
 }
 
 func (a app) accessPlan(args []string, jsonOut bool) int {
@@ -194,12 +196,14 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: true, RegistryTrust: &trust,
 		})
 		report.Summary.Attempted++
-		entry := approvalApplyResult{ListID: item.ListID, Status: result.Status, Action: result.Action, HumanGateDetected: result.HumanGateDetected}
+		entry := approvalApplyResult{ListID: item.ListID, Status: result.Status, Action: result.Action, HumanGateDetected: result.HumanGateDetected, Details: result.ApplyResult}
 		if invokeErr != nil {
 			entry.Status, entry.Action, entry.Error = "apply_failed", "not_submitted", invokeErr.Error()
 			report.Summary.Failed++
-		} else if result.Action == "apply_submitted_review_required" || result.Action == "access_requested_not_confirmed" {
+		} else if result.Action == "access_requested_not_confirmed" {
 			report.Summary.Submitted++
+		} else if result.Action == "access_already_requested" {
+			report.Summary.AlreadyRequested++
 		} else {
 			report.Summary.Failed++
 		}
@@ -217,7 +221,7 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 		}
 		return exitOK
 	}
-	fmt.Fprintf(a.stdout, "Approval apply: attempted=%d submitted=%d failed=%d skipped=%d output=%s\n", report.Summary.Attempted, report.Summary.Submitted, report.Summary.Failed, report.Summary.Skipped, output)
+	fmt.Fprintf(a.stdout, "Approval apply: attempted=%d submitted=%d already_requested=%d failed=%d skipped=%d output=%s\n", report.Summary.Attempted, report.Summary.Submitted, report.Summary.AlreadyRequested, report.Summary.Failed, report.Summary.Skipped, output)
 	if report.Summary.Failed > 0 {
 		return exitRequest
 	}
