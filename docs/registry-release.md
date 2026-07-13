@@ -45,6 +45,7 @@ schemas/
   datapan.verification.v1.schema.json
   datapan.verification-plan.v1.schema.json
   datapan.verification-summary.v1.schema.json
+  datapan.health-probe.v1.schema.json
   datapan.runtime-evidence-growth.v1.schema.json
   datapan.registry-shards.v1.schema.json
   datapan.release-manifest.v1.schema.json
@@ -247,6 +248,19 @@ verification evidence coverage, provider split readiness, and the largest
 remaining adapter gaps. When `reports/route-disposition.json` is available,
 coverage also includes evidence-adjusted missing route counts so stale or
 transient upstream routes do not look like ordinary adapter backlog.
+
+### Health Probe Receipt Schema
+
+Path:
+
+```text
+schemas/datapan.health-probe.v1.schema.json
+```
+
+This schema defines the redacted, one-operation receipt emitted by `datapan
+verify --health`. It is published for future service workers and status-system
+consumers, while mutable probe observations remain outside canonical Registry
+data.
 
 ### Catalog Diff
 

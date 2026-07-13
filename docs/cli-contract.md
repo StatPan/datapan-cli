@@ -549,7 +549,7 @@ Verification JSON includes a `report` with `generated_at`, `provider`,
 `registry`, `ref`, `operation`, `limit`, `timeout`, `exclude_input`,
 `truncated`, `filters`, `filtered_count`, `summary`, and `results`. Each result includes dataset ID,
 operation, dependency class, status,
-timestamp when a call was attempted, HTTP status, semantic status, provider
+timestamp and elapsed milliseconds when a call was attempted, HTTP status, semantic status, provider
 status, redacted URL, public parameters, missing parameters, and body shape
 where available. Status values are conservative: `verified`, `failed`,
 `skipped`, or `unknown`. Failed provider responses must preserve
@@ -557,6 +557,24 @@ where available. Status values are conservative: `verified`, `failed`,
 types. If eligible calls cannot run because credentials are absent, the command
 returns exit code 3 while still emitting a machine-readable report under
 `--json`.
+
+`datapan verify --ref REF --operation NAME --health --output receipt.json
+--json` is the one-shot automation surface. It resolves exactly one operation
+and delegates to the same Registry trust gate, safe parameter planner, gateway
+executor, and registered external adapter used by verification. It emits a
+`datapan.health-probe.v1` receipt atomically, with immutable installed Registry
+revision/digests, elapsed milliseconds, observation confidence, and a stable
+assessment. The receipt contains parameter names but no values, credentials,
+authorization headers, full query URL, response body, or response rows.
+
+Health mode exits 0 for `healthy`, 4 for `unhealthy`, 3 for skipped or
+indeterminate/not-probeable operations, 1 for invalid usage, and 4 for a failed
+Registry trust/provenance gate. Empty data is an observation and remains
+healthy when the provider response otherwise succeeds. Schema and freshness
+remain `not_observed` until an explicit immutable Registry policy supports
+those assertions. A future service or Gatus-facing worker may invoke this
+one-shot command, but scheduling, credential custody, retries, history,
+alerts, Gatus configuration, and status UI are outside this repository.
 
 `datapan catalog verify --input REPORT --json` reads an existing verification
 report without making new provider calls. It may be combined with `--status`

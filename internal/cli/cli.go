@@ -5503,6 +5503,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		return a.fail(exitUsage, "%v", err)
 	}
 	probeUnadapted, args := consumeBool(args, "--probe-unadapted")
+	health, args := consumeBool(args, "--health")
 	timeoutProvided := hasAnyArg(args, "--timeout")
 	timeout, args, err := consumeDuration(args, "--timeout", defaultCallTimeout)
 	if err != nil {
@@ -5514,6 +5515,15 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	}
 	if operation != "" && ref == "" {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
+	}
+	if health && (strings.TrimSpace(ref) == "" || strings.TrimSpace(operation) == "") {
+		return a.fail(exitUsage, "--health requires exactly one --ref and --operation")
+	}
+	if health && (input != "" || excludeInput != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || probeUnadapted || (limitRaw != "" && limit != 1)) {
+		return a.fail(exitUsage, "--health selects exactly one operation and cannot be combined with report or batch filters")
+	}
+	if health {
+		limit = 1
 	}
 	if len(args) != 0 {
 		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--org NAME] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
@@ -5585,6 +5595,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		if adapter, ok := providerRegistry.MatchHost(candidate.EndpointHost); ok && (candidate.DependencyClass == "external_endpoint" || candidate.DependencyClass == "service_root") {
 			keyName, key, _ := a.resolveKeyValue()
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			started := time.Now()
 			result := adapter.Verify(ctx, providers.VerificationRequest{
 				Spec:          candidate.Spec,
 				Operation:     candidate.Operation,
@@ -5594,6 +5605,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				HTTP:          a.http,
 				VerifiedAt:    generatedAt,
 			})
+			result.DurationMS = time.Since(started).Milliseconds()
 			cancel()
 			result.Reason = redactCredentialText(result.Reason, key)
 			result.URL = redactCredentialText(result.URL, key)
@@ -5637,7 +5649,9 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 			continue
 		}
 		plan.Timeout = timeout
+		started := time.Now()
 		envelope, err := a.execute(plan)
+		durationMS := time.Since(started).Milliseconds()
 		if err != nil {
 			results = append(results, datago.VerificationResult{
 				DatasetID:       candidate.Spec.ID,
@@ -5651,6 +5665,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				VerifiedAt:      generatedAt,
 				URL:             plan.RedactedURL,
 				Params:          candidate.Params,
+				DurationMS:      durationMS,
 			})
 			continue
 		}
@@ -5676,6 +5691,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 			URL:             envelope.URL,
 			Params:          candidate.Params,
 			BodyShape:       verificationBodyShape(envelope),
+			DurationMS:      durationMS,
 		})
 	}
 	report := datago.VerificationReport{
@@ -5693,6 +5709,31 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 		Results:       results,
 	}
 	report.Summary = datago.SummarizeVerification(results)
+	if health {
+		if len(candidates) != 1 || len(results) != 1 {
+			return a.fail(exitNotFound, "health probe operation not found")
+		}
+		receipt, err := a.healthProbeReceipt(candidates[0], results[0], registryTrust, timeout)
+		if err != nil {
+			return a.fail(exitRequest, "health probe receipt: %v", err)
+		}
+		data, err := json.MarshalIndent(receipt, "", "  ")
+		if err != nil {
+			return a.fail(exitRequest, "%v", err)
+		}
+		data = append(data, '\n')
+		if output != "" {
+			if err := writeOutputAtomic(output, data, a.stdout); err != nil {
+				return a.fail(exitRequest, "%v", err)
+			}
+		}
+		if jsonOut || output == "" {
+			if _, err := a.stdout.Write(data); err != nil {
+				return exitRequest
+			}
+		}
+		return healthProbeExitCode(receipt)
+	}
 	if output != "" {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -12807,6 +12848,7 @@ Usage:
   datapan targets [--limit N] [--sample N] [--provider NAME] [--host HOST] [--kind KIND] [--json]
   datapan ops [--limit N] [--kind KIND] [--status STATUS] [--provider NAME] [--host HOST] [--json]
   datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+  datapan verify --ref REF --operation NAME --health [--timeout DURATION] [--output PATH] [--json]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
@@ -12981,8 +13023,11 @@ List registry operations with dependency and adapter status filters.`, true
 	case "verify":
 		return `Usage:
   datapan verify [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--timeout DURATION] [--json]
+  datapan verify --ref REF --operation NAME --health [--timeout DURATION] [--output PATH] [--json]
 
-Run bounded runtime verification against selected registry operations.`, true
+Run bounded runtime verification against selected registry operations. Health
+mode emits exactly one redacted datapan.health-probe.v1 receipt through the
+same resolver, planner, registered adapter, trust gate, and executor.`, true
 	case "show":
 		return `Usage:
   datapan show <ref> [--json]

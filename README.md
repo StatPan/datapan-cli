@@ -175,6 +175,7 @@ datapan catalog adapter-targets --registry .datapan/data-go-kr.registry.json --o
 datapan catalog route-disposition --registry .datapan/data-go-kr.registry.json --probe .datapan/unadapted-external-probe.json --output .datapan/route-disposition.json --json
 datapan catalog providers --registry .datapan/data-go-kr.registry.json --status missing --kind external_endpoint --output .datapan/provider-backlog.json --json
 datapan catalog verify plan --registry .datapan/data-go-kr.registry.json --verification .datapan/latest-verification.json --json
+datapan verify --ref 15084084 --operation getVilageFcst --health --timeout 10s --output receipt.json --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --ref 15084084 --timeout 10s --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --kind data_go_kr_gateway --exclude-input .datapan/latest-verification.json --limit 20 --timeout 10s --json
 datapan catalog verify --registry .datapan/data-go-kr.registry.json --kind external_endpoint --probe-unadapted --timeout 12s --output .datapan/unadapted-external-probe.json --json

@@ -187,6 +187,10 @@
         },
         "body_shape": {
           "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
