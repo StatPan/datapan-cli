@@ -93,6 +93,7 @@ func TestRegistryReleaseDocReferencesArtifacts(t *testing.T) {
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.verification-plan.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
+		"schemas/datapan.health-probe.v1.schema.json",
 		"schemas/datapan.runtime-evidence-growth.v1.schema.json",
 		"schemas/datapan.registry-shards.v1.schema.json",
 		"schemas/datapan.release-manifest.v1.schema.json",

@@ -83,6 +83,7 @@ type VerificationResult struct {
 	Params          map[string]string `json:"params,omitempty"`
 	MissingParams   []string          `json:"missing_params,omitempty"`
 	BodyShape       string            `json:"body_shape,omitempty"`
+	DurationMS      int64             `json:"duration_ms,omitempty"`
 }
 
 type VerificationCandidate struct {
