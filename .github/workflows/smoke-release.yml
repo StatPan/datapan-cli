@@ -69,5 +69,6 @@ jobs:
             release-smoke/kit/datapan-provenance.json
             release-smoke/selected.openapi.json
             release-smoke/selected.openapi.json.datapan-provenance.json
+            release-smoke/health-probe-receipt.json
           if-no-files-found: warn
           retention-days: 30

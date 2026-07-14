@@ -54,6 +54,55 @@ function Assert-NoCredentialLeak {
     }
 }
 
+function Invoke-DatapanHealthReceipt {
+    param(
+        [string]$Dataset,
+        [string]$Operation,
+        [string]$OutputPath
+    )
+
+    # Healthcheck workers must be able to reproduce the receipt contract
+    # without inheriting a developer credential from the release environment.
+    foreach ($name in @("DATAPAN_DATA_GO_KR_KEY", "DATA_PORTAL_API_KEY", "DATA_GO_KR_SERVICE_KEY")) {
+        Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
+
+    $lines = & $Datapan "verify" "--ref" $Dataset "--operation" $Operation "--health" "--output" $OutputPath "--json" 2>&1
+    $exitCode = $LASTEXITCODE
+    $text = $lines -join "`n"
+    if ($text.Contains("smoke-secret-do-not-print")) {
+        throw "credential leaked from health receipt invocation"
+    }
+    if ($exitCode -ne 3) {
+        throw "credential-free health receipt should exit 3 (skipped), got $exitCode`n$text"
+    }
+    if (-not (Test-Path -LiteralPath $OutputPath)) {
+        throw "health receipt was not written: $OutputPath"
+    }
+    try {
+        $stdoutReceipt = ConvertFrom-Json -InputObject $text
+        $receipt = Get-Content -LiteralPath $OutputPath -Raw | ConvertFrom-Json
+    } catch {
+        throw "health receipt was not valid JSON: $($_.Exception.Message)`n$text"
+    }
+    if ($stdoutReceipt.probe_id -ne $receipt.probe_id -or
+        $receipt.schema_version -ne "datapan.health-probe.v1" -or
+        $receipt.assessment.outcome -ne "skipped" -or
+        $receipt.assessment.category -ne "credential_missing" -or
+        $receipt.execution.attempted -ne $false -or
+        $receipt.observation.data_presence -ne "not_observed" -or
+        $receipt.redaction.credentials_removed -ne $true -or
+        $receipt.redaction.query_values_removed -ne $true -or
+        $receipt.redaction.response_rows_removed -ne $true -or
+        [string]::IsNullOrWhiteSpace([string]$receipt.registry.dataset_revision) -or
+        [string]$receipt.registry.registry_sha256 -notmatch "^[a-f0-9]{64}$" -or
+        [string]$receipt.registry.manifest_sha256 -notmatch "^[a-f0-9]{64}$") {
+        throw "health receipt did not preserve the released contract boundary"
+    }
+    Assert-NoCredentialLeak @($OutputPath)
+    return $receipt
+}
+
 try {
     Push-Location $WorkDir
     try {
@@ -142,6 +191,9 @@ try {
             throw "dry-run did not produce a redacted execution plan"
         }
 
+        $healthReceiptPath = Join-Path $WorkDir "health-probe-receipt.json"
+        $healthReceipt = Invoke-DatapanHealthReceipt -Dataset $dataset -Operation $operation -OutputPath $healthReceiptPath
+
         $exportPath = Join-Path $WorkDir "selected.openapi.json"
         $export = Invoke-DatapanJSON @("export", "--format", "openapi", $dataset, "--operation", $operation, "--output", $exportPath, "--json")
         $exportProvenancePath = "$exportPath.datapan-provenance.json"
@@ -192,6 +244,16 @@ try {
             export_sha256 = $exportSHA256
             export_provenance = $exportProvenancePath
             kit_files = $kitFiles.Count
+            health_probe = [pscustomobject]@{
+                schema_version = $healthReceipt.schema_version
+                outcome = $healthReceipt.assessment.outcome
+                category = $healthReceipt.assessment.category
+                attempted = $healthReceipt.execution.attempted
+                registry_dataset_revision = $healthReceipt.registry.dataset_revision
+                registry_sha256 = $healthReceipt.registry.registry_sha256
+                manifest_sha256 = $healthReceipt.registry.manifest_sha256
+                receipt = $healthReceiptPath
+            }
             credential_leak = $false
             work_dir = $WorkDir
         }
