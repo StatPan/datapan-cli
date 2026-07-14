@@ -188,6 +188,7 @@ jobs:
             archive-smoke/kit/datapan-provenance.json
             archive-smoke/selected.openapi.json
             archive-smoke/selected.openapi.json.datapan-provenance.json
+            archive-smoke/health-probe-receipt.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -225,7 +226,7 @@ jobs:
           set -euo pipefail
           gh release create "${GITHUB_REF_NAME}" release-assets/* \
             --title "datapan-cli ${GITHUB_REF_NAME}" \
-            --notes "Datapan CLI binary release for ${GITHUB_REF_NAME}. Install a platform archive, then put datapan or dp on PATH. Checksums are attached."
+            --notes-file .github/release-notes.md
 
   public-smoke:
     name: Verify published tag (${{ matrix.os }})
@@ -285,5 +286,6 @@ jobs:
             published-smoke/kit/datapan-provenance.json
             published-smoke/selected.openapi.json
             published-smoke/selected.openapi.json.datapan-provenance.json
+            published-smoke/health-probe-receipt.json
           if-no-files-found: warn
           retention-days: 30
