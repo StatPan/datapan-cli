@@ -127,15 +127,16 @@ var (
 )
 
 type app struct {
-	args             []string
-	stdout           io.Writer
-	stderr           io.Writer
-	env              Env
-	http             HTTPClient
-	reg              datago.Registry
-	registryPath     string
-	registrySource   string
-	installRecovered bool
+	args               []string
+	stdout             io.Writer
+	stderr             io.Writer
+	env                Env
+	http               HTTPClient
+	reg                datago.Registry
+	registryPath       string
+	registrySource     string
+	installRecovered   bool
+	healthCatalogTrust *registryTrustContext
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
@@ -165,11 +166,28 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 	}
 	reg := datago.DefaultRegistry()
 	registrySource := "embedded"
+	var healthCatalogTrust *registryTrustContext
+	healthCatalog, healthCatalogSet, err := healthCatalogInvocation(args)
+	if err != nil {
+		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+		return a.fail(exitUsage, "%v", err)
+	}
 	registryEnvPath, registryEnvSet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
 	registryEnvPath = strings.TrimSpace(registryEnvPath)
 	registryPath := registryEnvPath
 	registrySet := registryEnvSet && registryEnvPath != ""
-	if !registrySet && shouldLoadDefaultRegistry(args) {
+	if healthCatalogSet {
+		loaded, trust, err := loadManifestBoundHealthCatalog(healthCatalog, time.Now().UTC())
+		if err != nil {
+			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+			return a.fail(exitUsage, "health catalog is not ready: %v", err)
+		}
+		reg = loaded
+		registryPath = defaultRegistryPath
+		registrySource = "health_catalog"
+		healthCatalogTrust = &trust
+		registrySet = false
+	} else if !registrySet && shouldLoadDefaultRegistry(args) {
 		if _, err := os.Stat(defaultRegistryPath); err == nil {
 			registryPath = defaultRegistryPath
 			registrySource = "default"
@@ -191,15 +209,16 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg = loaded
 	}
 	a := app{
-		args:             args,
-		stdout:           stdout,
-		stderr:           stderr,
-		env:              env,
-		http:             httpClient,
-		reg:              reg,
-		registryPath:     registryPath,
-		registrySource:   registrySource,
-		installRecovered: installRecovered,
+		args:               args,
+		stdout:             stdout,
+		stderr:             stderr,
+		env:                env,
+		http:               httpClient,
+		reg:                reg,
+		registryPath:       registryPath,
+		registrySource:     registrySource,
+		installRecovered:   installRecovered,
+		healthCatalogTrust: healthCatalogTrust,
 	}
 	return a.run()
 }
@@ -5504,6 +5523,20 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	}
 	probeUnadapted, args := consumeBool(args, "--probe-unadapted")
 	health, args := consumeBool(args, "--health")
+	healthCatalog, args, err := consumeString(args, "--health-catalog", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if healthCatalog != "" && !health {
+		return a.fail(exitUsage, "--health-catalog requires --health")
+	}
+	healthRegistryRevision, args, err := consumeString(args, "--health-registry-revision", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	if healthRegistryRevision != "" && healthCatalog == "" {
+		return a.fail(exitUsage, "--health-registry-revision requires --health-catalog")
+	}
 	timeoutProvided := hasAnyArg(args, "--timeout")
 	timeout, args, err := consumeDuration(args, "--timeout", defaultCallTimeout)
 	if err != nil {
@@ -9046,6 +9079,9 @@ type registryFailureRouting struct {
 }
 
 func (a app) localRegistryTrust() registryTrustContext {
+	if a.healthCatalogTrust != nil {
+		return *a.healthCatalogTrust
+	}
 	trust := registryTrustContext{
 		Status:                "untracked",
 		RegistrySource:        a.registrySource,
