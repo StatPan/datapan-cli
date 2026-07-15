@@ -22,10 +22,18 @@ type healthProbeReceipt struct {
 	ObservedAt    string                 `json:"observed_at"`
 	Operation     healthProbeOperation   `json:"operation"`
 	Registry      healthProbeRegistry    `json:"registry"`
+	Policy        *healthProbePolicy     `json:"policy,omitempty"`
 	Execution     healthProbeExecution   `json:"execution"`
 	Observation   healthProbeObservation `json:"observation"`
 	Assessment    healthProbeAssessment  `json:"assessment"`
 	Redaction     healthProbeRedaction   `json:"redaction"`
+}
+
+type healthProbePolicy struct {
+	Key       string `json:"key"`
+	Version   int    `json:"version"`
+	Authority string `json:"authority"`
+	MaxLevel  string `json:"max_level"`
 }
 
 type healthProbeOperation struct {
@@ -101,6 +109,7 @@ func (a app) healthProbeReceipt(candidate datago.VerificationCandidate, result d
 		DependencyClass: candidate.DependencyClass,
 	}
 	op.OperationKey = healthOperationKey(op)
+	policy := trust.HealthPolicies[op.OperationKey]
 	assessment := classifyHealthProbe(result)
 	parameterNames := make([]string, 0, len(result.Params))
 	for name := range result.Params {
@@ -122,6 +131,7 @@ func (a app) healthProbeReceipt(candidate datago.VerificationCandidate, result d
 		SchemaVersion: "datapan.health-probe.v1", ProbeID: newProbeUUID(),
 		ObservedAt: firstNonEmpty(result.VerifiedAt, time.Now().UTC().Format(time.RFC3339)), Operation: op,
 		Registry:    healthProbeRegistry{DatasetID: trust.DatasetID, DatasetRevision: trust.DatasetRevision, RegistrySHA256: strings.ToLower(trust.RegistrySHA256), ManifestSHA256: strings.ToLower(provenance.ReleaseManifestSHA256)},
+		Policy:      policy,
 		Execution:   healthProbeExecution{CLIVersion: version, Attempted: result.Status != "skipped", TimeoutMS: timeout.Milliseconds(), RequestBudget: boolInt(result.Status != "skipped"), SafeParameterNames: parameterNames},
 		Observation: observation, Assessment: assessment,
 		Redaction: healthProbeRedaction{CredentialsRemoved: true, QueryValuesRemoved: true, ResponseRowsRemoved: true},
