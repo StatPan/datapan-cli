@@ -149,6 +149,7 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	specs := make([]datago.Spec, 0, len(catalog.Entries))
 	seenIDs := map[string]bool{}
 	seenSelectors := map[string]bool{}
+	healthPolicies := map[string]*healthProbePolicy{}
 	for _, entry := range catalog.Entries {
 		if entry.OperationID == "" || seenIDs[entry.OperationID] || entry.Policy.Key != entry.OperationID || entry.Policy.Version < 1 || entry.Policy.Authority != "datapan-registry" || entry.Execution.RequestBudget != 1 || entry.Execution.TimeoutCeilingMS < 1000 || entry.Execution.TimeoutCeilingMS > 30000 || (entry.Eligibility.Status != "eligible" && entry.Eligibility.Status != "credential_required") || !validSHA256(entry.Aliases.CLIOperationKey) {
 			return datago.Registry{}, registryTrustContext{}, errors.New("health catalog entry policy is invalid")
@@ -180,6 +181,7 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 		if key != strings.ToLower(entry.Aliases.CLIOperationKey) {
 			return datago.Registry{}, registryTrustContext{}, errors.New("health catalog operation key drift")
 		}
+		healthPolicies[key] = &healthProbePolicy{Key: entry.Policy.Key, Version: entry.Policy.Version, Authority: entry.Policy.Authority, MaxLevel: entry.Policy.MaxLevel}
 		specs = append(specs, spec)
 	}
 	matches := true
@@ -187,7 +189,7 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	if datasetID == "" {
 		datasetID = datapanRegistryHFDatasetID
 	}
-	trust := registryTrustContext{Status: "trusted", RegistrySource: "health_catalog", RegistryPath: defaultRegistryPath, ProvenancePresent: true, ReleaseTag: provenance.ReleaseTag, RegistrySHA256: strings.ToLower(provenance.RegistrySHA256), Distribution: provenance.Distribution, DatasetID: datasetID, DatasetRevision: options.RegistryRevision, Integrity: "verified", ManifestBinding: "verified", RegistryDigestMatches: &matches, ReleaseReadiness: "health_catalog_bound", VerificationEvidence: "manifest_bound_health_catalog", VerificationFreshness: "not_evaluated", ExecutionAllowed: true}
+	trust := registryTrustContext{Status: "trusted", RegistrySource: "health_catalog", RegistryPath: defaultRegistryPath, ProvenancePresent: true, ReleaseTag: provenance.ReleaseTag, RegistrySHA256: strings.ToLower(provenance.RegistrySHA256), Distribution: provenance.Distribution, DatasetID: datasetID, DatasetRevision: options.RegistryRevision, Integrity: "verified", ManifestBinding: "verified", RegistryDigestMatches: &matches, ReleaseReadiness: "health_catalog_bound", VerificationEvidence: "manifest_bound_health_catalog", VerificationFreshness: "not_evaluated", ExecutionAllowed: true, HealthPolicies: healthPolicies}
 	return datago.NewRegistry(specs), trust, nil
 }
 

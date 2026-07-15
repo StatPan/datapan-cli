@@ -26,8 +26,15 @@ func TestManifestBoundHealthCatalogSkipsMonolithAndResolvesTenOperations(t *test
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	assertHealthReceipt(t, output, "healthy", "empty")
+	var receipt healthProbeReceipt
 	data, err := os.ReadFile(output)
-	if err != nil || strings.Contains(string(data), "credential-secret") {
+	if err != nil || json.Unmarshal(data, &receipt) != nil {
+		t.Fatalf("read receipt policy: %v", err)
+	}
+	if receipt.Policy == nil || receipt.Policy.Key != "dpr-op-00000001" || receipt.Policy.Version != 1 || receipt.Policy.Authority != "datapan-registry" || receipt.Policy.MaxLevel != "L4" {
+		t.Fatalf("manifest-bound policy missing from receipt: %#v", receipt.Policy)
+	}
+	if strings.Contains(string(data), "credential-secret") {
 		t.Fatal("manifest-bound receipt is unavailable or unsafe")
 	}
 }
