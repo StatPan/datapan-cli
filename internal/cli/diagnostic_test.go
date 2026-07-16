@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"strings"
@@ -11,8 +12,6 @@ import (
 )
 
 func TestNormalizeLocalDiagnosisEvidenceBoundaries(t *testing.T) {
-	observedAt := time.Date(2026, 7, 16, 3, 4, 5, 0, time.UTC)
-	approvedAt := observedAt.Add(-2 * time.Hour)
 	tests := []struct {
 		name        string
 		evidence    localDiagnosticEvidence
@@ -26,13 +25,6 @@ func TestNormalizeLocalDiagnosisEvidenceBoundaries(t *testing.T) {
 			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
 				Envelope: &datago.ResponseEnvelope{StatusCode: http.StatusForbidden}},
 			code: "unknown", state: "unknown", responsible: "unknown",
-		},
-		{
-			name: "approval propagation requires scoped pending sync state and timestamp",
-			evidence: localDiagnosticEvidence{SubjectKey: "operation-1", Failure: executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
-				Envelope: &datago.ResponseEnvelope{StatusCode: http.StatusForbidden},
-				Approval: &localApprovalEvidence{State: "approved_pending_sync", SubjectKey: "operation-1", ConfirmedAt: approvedAt, ObservedAt: observedAt}},
-			code: "approval_propagating", state: "inferred", responsible: "provider", prohibited: []string{"avoid_key_reissue"},
 		},
 		{
 			name: "generic unauthorized stays unknown",
@@ -111,119 +103,36 @@ func TestNormalizeLocalDiagnosisEvidenceBoundaries(t *testing.T) {
 	}
 }
 
-func TestApprovalPropagationRejectsNonAuthoritativeStates(t *testing.T) {
-	observedAt := time.Date(2026, 7, 16, 3, 4, 5, 0, time.UTC)
-	base := localDiagnosticEvidence{
-		SubjectKey: "operation-1",
-		Failure:    executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
-		Envelope:   &datago.ResponseEnvelope{StatusCode: http.StatusForbidden},
-	}
-	tests := []localApprovalEvidence{
-		{State: "access_requested_not_confirmed", SubjectKey: "operation-1", ConfirmedAt: observedAt.Add(-time.Hour), ObservedAt: observedAt},
-		{State: "approved", SubjectKey: "operation-1", ObservedAt: observedAt},
-		{State: "approved_pending_sync", SubjectKey: "operation-2", ConfirmedAt: observedAt.Add(-time.Hour), ObservedAt: observedAt},
-		{State: "approved_pending_sync", SubjectKey: "operation-1", ConfirmedAt: observedAt.Add(time.Hour), ObservedAt: observedAt},
-	}
-	for _, approval := range tests {
-		base.Approval = &approval
-		if got := normalizeLocalDiagnosis(base); got.Code == "approval_propagating" {
-			t.Fatalf("unsupported evidence inferred propagation: %+v => %+v", approval, got)
-		}
-	}
-}
-
-func TestNormalizeLocalDiagnosisHealthDoesNotInventQualityPolicy(t *testing.T) {
-	observedAt := "2026-07-16T03:04:05Z"
-	tests := []struct {
-		name    string
-		receipt healthProbeReceipt
-		code    string
-	}{
-		{name: "empty success stays unknown without presence policy", receipt: healthProbeReceipt{ObservedAt: observedAt, Observation: healthProbeObservation{HTTPStatus: 200, DataPresence: "empty", FreshnessStatus: "not_observed"}}, code: "unknown"},
-		{name: "stale success stays unknown without freshness policy result", receipt: healthProbeReceipt{ObservedAt: observedAt, Observation: healthProbeObservation{HTTPStatus: 200, DataPresence: "present", FreshnessStatus: "stale"}}, code: "unknown"},
-		{name: "health provider failure", receipt: healthProbeReceipt{ObservedAt: observedAt, Observation: healthProbeObservation{HTTPStatus: 503}, Assessment: healthProbeAssessment{Category: "provider_failure"}}, code: "provider_outage"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeLocalDiagnosis(localDiagnosticEvidence{Failure: executionFailure{Reason: "health_observation"}, Health: &tt.receipt})
-			if got.Code != tt.code || got.EvidenceAuthority != "datapan_health" || got.ObservedAt != observedAt {
-				t.Fatalf("diagnosis=%+v", got)
-			}
-		})
-	}
-}
-
-func TestNormalizeLocalDiagnosisRequiresQualityPolicyAndResultIdentity(t *testing.T) {
-	observedAt := time.Date(2026, 7, 16, 3, 4, 5, 0, time.UTC)
-	base := localDiagnosticEvidence{SubjectKey: "operation-1", Failure: executionFailure{Reason: "health_observation"}}
-	for _, quality := range []localQualityEvidence{
-		{Kind: "empty", SubjectKey: "operation-1", Authority: "registry", ObservedAt: observedAt},
-		{Kind: "empty", SubjectKey: "operation-1", PolicyID: "presence.v1", Authority: "registry", ObservedAt: observedAt},
-		{Kind: "empty", SubjectKey: "operation-1", PolicyID: "presence.v1", ResultID: "result-1", ObservedAt: observedAt},
-		{Kind: "empty", SubjectKey: "operation-2", PolicyID: "presence.v1", ResultID: "result-1", Authority: "registry", ObservedAt: observedAt},
-	} {
-		base.Quality = &quality
-		if got := normalizeLocalDiagnosis(base); got.Code != "unknown" {
-			t.Fatalf("incomplete policy evidence produced %s: %+v", got.Code, quality)
-		}
-	}
-	base.Quality = &localQualityEvidence{Kind: "empty", SubjectKey: "operation-1", PolicyID: "presence.v1", ResultID: "result-1", Authority: "registry", ObservedAt: observedAt}
-	if got := normalizeLocalDiagnosis(base); got.Code != "semantic_quality" || got.EvidenceState != "observed" {
-		t.Fatalf("quality diagnosis=%+v", got)
-	}
-	base.Quality.Kind = "stale"
-	if got := normalizeLocalDiagnosis(base); got.Code != "stale_data" || got.EvidenceState != "observed" {
-		t.Fatalf("stale diagnosis=%+v", got)
-	}
-}
-
-func TestAvoidKeyReissueRequiresCorroboratedIncident(t *testing.T) {
-	observedAt := time.Date(2026, 7, 16, 3, 4, 5, 0, time.UTC)
-	base := localDiagnosticEvidence{
-		SubjectKey: "operation-1",
-		Failure:    executionFailure{Category: "external_provider", Reason: "provider_temporarily_unavailable"},
-		Envelope:   &datago.ResponseEnvelope{StatusCode: http.StatusServiceUnavailable},
-	}
-	if got := normalizeLocalDiagnosis(base); len(got.ProhibitedActions) != 0 {
-		t.Fatalf("single 5xx prohibited actions=%v", got.ProhibitedActions)
-	}
-	base.Incident = &localIncidentEvidence{State: "confirmed", SubjectKey: "operation-2", Authority: "datapan_health", ObservedAt: observedAt}
-	if got := normalizeLocalDiagnosis(base); len(got.ProhibitedActions) != 0 {
-		t.Fatalf("mismatched incident prohibited actions=%v", got.ProhibitedActions)
-	}
-	base.Incident.SubjectKey = "operation-1"
-	if got := normalizeLocalDiagnosis(base); len(got.ProhibitedActions) != 0 {
-		t.Fatalf("authority+subject alone prohibited actions=%v", got.ProhibitedActions)
-	}
-	base.Incident.EvidenceKind = "versioned_correlation"
-	base.Incident.CorrelationRuleVersion = "v1"
-	base.Incident.AffectedCount = 2
-	base.Incident.ControlCount = 1
-	base.Incident.WindowStartedAt = observedAt.Add(-time.Minute)
-	base.Incident.WindowEndedAt = observedAt.Add(time.Minute)
-	got := normalizeLocalDiagnosis(base)
-	if got.Code != "provider_outage" || got.EvidenceState != "observed" || !reflect.DeepEqual(got.ProhibitedActions, []string{"avoid_key_reissue"}) {
-		t.Fatalf("corroborated incident=%+v", got)
-	}
-}
-
 func TestLocalDiagnosticTimingAndCallSucceededScope(t *testing.T) {
 	startedAt := time.Date(2026, 7, 16, 3, 4, 5, 123000000, time.FixedZone("KST", 9*60*60))
 	endedAt := startedAt.Add(1750 * time.Millisecond)
-	timing := diagnosisTiming(startedAt, endedAt)
+	computedAt := endedAt.Add(25 * time.Millisecond)
+	timing := localDiagnosticAttemptTiming(startedAt, endedAt, computedAt)
 	if timing == nil || timing.CallAttemptElapsedMS == nil || *timing.CallAttemptElapsedMS != 1750 {
 		t.Fatalf("timing=%+v", timing)
 	}
-	if timing.CallAttemptStartedAt != "2026-07-15T18:04:05.123Z" || timing.DiagnosisComputedAt != "2026-07-15T18:04:06.873Z" {
+	if timing.CallAttemptStartedAt != "2026-07-15T18:04:05.123Z" || timing.CallAttemptEndedAt != "2026-07-15T18:04:06.873Z" || timing.DiagnosisComputedAt != "2026-07-15T18:04:06.898Z" {
 		t.Fatalf("UTC timing=%+v", timing)
 	}
-	succeeded := localCallSucceededDiagnosis(datago.ResponseEnvelope{StatusCode: 200, SemanticStatus: "json_response"}, startedAt, endedAt)
+	if got := localDiagnosticAttemptTiming(startedAt, endedAt, endedAt.Add(-time.Nanosecond)); got != nil {
+		t.Fatalf("pre-completion diagnosis timestamp accepted: %+v", got)
+	}
+	succeeded := localCallSucceededDiagnosisWithClock(datago.ResponseEnvelope{StatusCode: 200, SemanticStatus: "json_response"}, startedAt, endedAt, func() time.Time { return computedAt })
 	if succeeded.Code != "call_succeeded" || succeeded.EvidenceState != "observed" || succeeded.Timing == nil || succeeded.Timing.CallAttemptElapsedMS == nil {
 		t.Fatalf("call_succeeded=%+v", succeeded)
 	}
 	wantScope := []string{"transport", "provider_response", "declared_semantic_status"}
 	if !reflect.DeepEqual(succeeded.Scope, wantScope) {
 		t.Fatalf("scope=%v want=%v", succeeded.Scope, wantScope)
+	}
+	failure := attachLocalDiagnosisWithClock(localDiagnosticEvidence{
+		Failure:   executionFailure{Category: "external_provider", Reason: "provider_temporarily_unavailable"},
+		Envelope:  &datago.ResponseEnvelope{StatusCode: http.StatusServiceUnavailable},
+		StartedAt: startedAt,
+		EndedAt:   endedAt,
+	}, func() time.Time { return computedAt })
+	if failure.Diagnostic == nil || !reflect.DeepEqual(failure.Diagnostic.Timing, timing) {
+		t.Fatalf("deterministic failure timing=%+v want=%+v", failure.Diagnostic, timing)
 	}
 }
 
@@ -267,7 +176,7 @@ func TestGetFailureAddsDiagnosticWithoutChangingExitContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"category": "external_provider"`, `"code": "provider_outage"`, `"evidence_state": "inferred"`,
-		`"scope": [`, `"provider_call"`, `"call_attempt_started_at":`, `"diagnosis_computed_at":`, `"call_attempt_elapsed_ms":`,
+		`"scope": [`, `"provider_call"`, `"call_attempt_started_at":`, `"call_attempt_ended_at":`, `"diagnosis_computed_at":`, `"call_attempt_elapsed_ms":`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -278,6 +187,7 @@ func TestGetFailureAddsDiagnosticWithoutChangingExitContract(t *testing.T) {
 			t.Fatalf("unexpected %q in output: %s", forbidden, stdout)
 		}
 	}
+	assertRuntimeDiagnosticTiming(t, stdout, true)
 }
 
 func TestGetSuccessReportsBoundedCallSucceededScopeNotJourneyMetric(t *testing.T) {
@@ -300,5 +210,98 @@ func TestGetSuccessReportsBoundedCallSucceededScopeNotJourneyMetric(t *testing.T
 		if strings.Contains(stdout, forbidden) {
 			t.Fatalf("unexpected %q in output: %s", forbidden, stdout)
 		}
+	}
+	assertRuntimeDiagnosticTiming(t, stdout, false)
+}
+
+func TestGetGenericAuthenticationStatusesStayUnknownAtRuntime(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		status   int
+		category string
+	}{
+		{name: "unauthorized", status: http.StatusUnauthorized, category: "authentication"},
+		{name: "forbidden", status: http.StatusForbidden, category: "approval"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: tt.status, Body: http.NoBody, Header: make(http.Header)}, nil
+			})
+			code, stdout, stderr := runTest(
+				[]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"},
+				fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+			)
+			if code != exitRequest || stderr != "" {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, want := range []string{`"category": "` + tt.category + `"`, `"code": "unknown"`, `"evidence_state": "unknown"`, `"check_local_credential"`, `"check_dataset_approval"`, `"check_provider_status"`} {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("expected %q in output: %s", want, stdout)
+				}
+			}
+			for _, forbidden := range []string{"approval_propagating", "avoid_key_reissue", "secret-value"} {
+				if strings.Contains(stdout, forbidden) {
+					t.Fatalf("unexpected %q in output: %s", forbidden, stdout)
+				}
+			}
+			assertRuntimeDiagnosticTiming(t, stdout, true)
+		})
+	}
+}
+
+func TestSyncFailureUsesReachableRuntimeEvidence(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusTooManyRequests, Body: http.NoBody, Header: make(http.Header)}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"sync", "15084084", "--output-dir", t.TempDir() + "/cache", "--json", "base_date=20260622", "base_time=0500"},
+		fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client,
+	)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"category": "external_provider"`, `"code": "rate_limited"`, `"evidence_state": "observed"`, `"http_status:429"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	for _, forbidden := range []string{"approval_propagating", "semantic_quality", "stale_data", "avoid_key_reissue", "secret-value"} {
+		if strings.Contains(stdout, forbidden) {
+			t.Fatalf("unexpected %q in output: %s", forbidden, stdout)
+		}
+	}
+	assertRuntimeDiagnosticTiming(t, stdout, true)
+}
+
+func assertRuntimeDiagnosticTiming(t *testing.T, output string, failure bool) {
+	t.Helper()
+	var payload struct {
+		Diagnostic *localDiagnosticOutcome `json:"diagnostic"`
+		Failure    *executionFailure       `json:"failure"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode runtime output: %v\n%s", err, output)
+	}
+	diagnostic := payload.Diagnostic
+	if failure && payload.Failure != nil {
+		diagnostic = payload.Failure.Diagnostic
+	}
+	if diagnostic == nil || diagnostic.Timing == nil || diagnostic.Timing.CallAttemptElapsedMS == nil {
+		t.Fatalf("runtime diagnostic timing missing: %+v", diagnostic)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, diagnostic.Timing.CallAttemptStartedAt)
+	if err != nil {
+		t.Fatalf("parse call start: %v", err)
+	}
+	endedAt, err := time.Parse(time.RFC3339Nano, diagnostic.Timing.CallAttemptEndedAt)
+	if err != nil {
+		t.Fatalf("parse call end: %v", err)
+	}
+	computedAt, err := time.Parse(time.RFC3339Nano, diagnostic.Timing.DiagnosisComputedAt)
+	if err != nil {
+		t.Fatalf("parse diagnosis time: %v", err)
+	}
+	if endedAt.Before(startedAt) || computedAt.Before(endedAt) || *diagnostic.Timing.CallAttemptElapsedMS != endedAt.Sub(startedAt).Milliseconds() {
+		t.Fatalf("invalid runtime timing: %+v", diagnostic.Timing)
 	}
 }

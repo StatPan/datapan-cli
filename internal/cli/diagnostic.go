@@ -28,58 +28,28 @@ type localDiagnosticOutcome struct {
 
 type localDiagnosticTiming struct {
 	CallAttemptStartedAt string `json:"call_attempt_started_at,omitempty"`
+	CallAttemptEndedAt   string `json:"call_attempt_ended_at,omitempty"`
 	DiagnosisComputedAt  string `json:"diagnosis_computed_at,omitempty"`
 	CallAttemptElapsedMS *int64 `json:"call_attempt_elapsed_ms,omitempty"`
 }
 
-// localApprovalEvidence must come from an authoritative approval view. A
-// submitted or requested state is intentionally insufficient to infer
-// approval propagation.
-type localApprovalEvidence struct {
-	State       string
-	SubjectKey  string
-	ConfirmedAt time.Time
-	ObservedAt  time.Time
-}
-
 type localDiagnosticEvidence struct {
-	SubjectKey string
-	Failure    executionFailure
-	Envelope   *datago.ResponseEnvelope
-	Health     *healthProbeReceipt
-	Approval   *localApprovalEvidence
-	Incident   *localIncidentEvidence
-	Quality    *localQualityEvidence
-	StartedAt  time.Time
-	EndedAt    time.Time
-}
-
-type localIncidentEvidence struct {
-	State                  string
-	Authority              string
-	SubjectKey             string
-	EvidenceKind           string
-	NoticeID               string
-	CorrelationRuleVersion string
-	AffectedCount          int
-	ControlCount           int
-	WindowStartedAt        time.Time
-	WindowEndedAt          time.Time
-	ObservedAt             time.Time
-}
-
-type localQualityEvidence struct {
-	Kind       string
-	PolicyID   string
-	ResultID   string
-	Authority  string
-	SubjectKey string
-	ObservedAt time.Time
+	Failure   executionFailure
+	Envelope  *datago.ResponseEnvelope
+	StartedAt time.Time
+	EndedAt   time.Time
 }
 
 func attachLocalDiagnosis(evidence localDiagnosticEvidence) executionFailure {
+	return attachLocalDiagnosisWithClock(evidence, time.Now)
+}
+
+func attachLocalDiagnosisWithClock(evidence localDiagnosticEvidence, now func() time.Time) executionFailure {
 	failure := evidence.Failure
 	diagnosis := normalizeLocalDiagnosis(evidence)
+	// Capture computation after classification. EndedAt is the provider call
+	// boundary and must not be relabeled as diagnosis computation time.
+	diagnosis.Timing = localDiagnosticAttemptTiming(evidence.StartedAt, evidence.EndedAt, now().UTC())
 	failure.Diagnostic = &diagnosis
 	return failure
 }
@@ -95,48 +65,6 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 		Scope:              []string{"provider_call"},
 		Evidence:           stableFailureReasonEvidence(failure.Reason),
 		RecommendedActions: []string{"inspect_diagnostic_evidence"},
-		Timing:             diagnosisTiming(evidence.StartedAt, evidence.EndedAt),
-	}
-
-	if approvalPropagationSupported(evidence) {
-		out.Code = "approval_propagating"
-		out.ResponsibleParty = "provider"
-		out.EvidenceState = "inferred"
-		out.EvidenceAuthority = "data.go.kr_portal"
-		out.Scope = []string{"usage_approval", "credential_activation"}
-		out.Evidence = append(out.Evidence, "portal_approval:approved_pending_sync", "approval_timestamp:present")
-		out.RecommendedActions = []string{"wait_for_provider_credential_sync", "retry_after_provider_propagation_window"}
-		out.ProhibitedActions = []string{"avoid_key_reissue"}
-		return normalizeDiagnosticSlices(out)
-	}
-	if incidentEvidenceSupported(evidence.SubjectKey, evidence.Incident) {
-		out.Code = "provider_outage"
-		out.ResponsibleParty = "provider"
-		out.EvidenceState = "observed"
-		out.EvidenceAuthority = evidence.Incident.Authority
-		out.ObservedAt = diagnosticObservedAt(evidence.Incident.ObservedAt)
-		out.Scope = []string{"provider_incident"}
-		out.Evidence = append(out.Evidence, incidentEvidenceTokens(evidence.Incident)...)
-		out.RecommendedActions = []string{"check_provider_status", "retry_after_incident_recovery"}
-		out.ProhibitedActions = []string{"avoid_key_reissue"}
-		return normalizeDiagnosticSlices(out)
-	}
-	if qualityEvidenceSupported(evidence.SubjectKey, evidence.Quality) {
-		out.ResponsibleParty = "provider"
-		out.EvidenceState = "observed"
-		out.EvidenceAuthority = evidence.Quality.Authority
-		out.ObservedAt = diagnosticObservedAt(evidence.Quality.ObservedAt)
-		out.Scope = []string{"registry_quality_policy"}
-		out.Evidence = append(out.Evidence, "quality_policy:present", "quality_result:present")
-		switch evidence.Quality.Kind {
-		case "stale":
-			out.Code = "stale_data"
-			out.RecommendedActions = []string{"inspect_reference_date", "inspect_update_schedule"}
-		case "empty", "missing_expected_entity":
-			out.Code = "semantic_quality"
-			out.RecommendedActions = []string{"inspect_expected_data_presence", "inspect_reference_date"}
-		}
-		return normalizeDiagnosticSlices(out)
 	}
 
 	if routed := failure.RegistryRouting; routed != nil {
@@ -159,24 +87,6 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 			setLocalDiagnosis(&out, "provider_outage", "provider", "inferred", "check_provider_status", "retry_with_backoff")
 		case "parser", "adapter", "provider_contract":
 			setLocalDiagnosis(&out, "contract_drift", "datapan", "observed", "inspect_provider_contract", "report_redacted_contract_evidence")
-		}
-		if out.Code != "unknown" {
-			return normalizeDiagnosticSlices(out)
-		}
-	}
-
-	if receipt := evidence.Health; receipt != nil {
-		out.EvidenceAuthority = "datapan_health"
-		out.Scope = []string{"health_probe"}
-		out.ObservedAt = receipt.ObservedAt
-		out.Evidence = append(out.Evidence, "health_receipt:present")
-		switch {
-		case receipt.Observation.HTTPStatus >= 500:
-			setLocalDiagnosis(&out, "provider_outage", "provider", "inferred", "check_provider_status", "retry_with_backoff")
-		case receipt.Observation.HTTPStatus == http.StatusTooManyRequests || receipt.Assessment.Category == "rate_limited":
-			setLocalDiagnosis(&out, "rate_limited", "provider", "observed", "wait_for_rate_limit_reset", "retry_with_backoff")
-		case receipt.Assessment.Category == "schema_drift" || receipt.Assessment.Category == "semantic_failure":
-			setLocalDiagnosis(&out, "contract_drift", "datapan", "inferred", "inspect_provider_contract", "report_redacted_contract_evidence")
 		}
 		if out.Code != "unknown" {
 			return normalizeDiagnosticSlices(out)
@@ -237,86 +147,25 @@ func setLocalDiagnosis(out *localDiagnosticOutcome, code, responsible, evidenceS
 	out.RecommendedActions = append([]string(nil), actions...)
 }
 
-func approvalPropagationSupported(evidence localDiagnosticEvidence) bool {
-	failure, approval := evidence.Failure, evidence.Approval
-	if approval == nil || !strings.EqualFold(strings.TrimSpace(approval.State), "approved_pending_sync") ||
-		strings.TrimSpace(evidence.SubjectKey) == "" || evidence.SubjectKey != approval.SubjectKey ||
-		approval.ConfirmedAt.IsZero() || approval.ObservedAt.IsZero() {
-		return false
-	}
-	if approval.ConfirmedAt.After(approval.ObservedAt) {
-		return false
-	}
-	if evidence.Envelope == nil || (evidence.Envelope.StatusCode != http.StatusUnauthorized && evidence.Envelope.StatusCode != http.StatusForbidden) {
-		return false
-	}
-	return failure.Category == "authentication" || failure.Category == "approval"
-}
-
-func incidentEvidenceSupported(subjectKey string, incident *localIncidentEvidence) bool {
-	if incident == nil || !strings.EqualFold(strings.TrimSpace(incident.State), "confirmed") ||
-		strings.TrimSpace(subjectKey) == "" || subjectKey != incident.SubjectKey ||
-		strings.TrimSpace(incident.Authority) == "" || incident.ObservedAt.IsZero() {
-		return false
-	}
-	switch incident.EvidenceKind {
-	case "provider_notice":
-		return incident.Authority == "provider" && strings.TrimSpace(incident.NoticeID) != ""
-	case "versioned_correlation":
-		return incident.Authority == "datapan_health" && strings.TrimSpace(incident.CorrelationRuleVersion) != "" && incident.AffectedCount >= 2 && incident.ControlCount >= 1 &&
-			!incident.WindowStartedAt.IsZero() && !incident.WindowEndedAt.IsZero() && !incident.WindowEndedAt.Before(incident.WindowStartedAt) &&
-			!incident.ObservedAt.Before(incident.WindowStartedAt) && !incident.ObservedAt.After(incident.WindowEndedAt)
-	default:
-		return false
-	}
-}
-
-func qualityEvidenceSupported(subjectKey string, quality *localQualityEvidence) bool {
-	if quality == nil || strings.TrimSpace(quality.PolicyID) == "" || strings.TrimSpace(quality.ResultID) == "" ||
-		strings.TrimSpace(subjectKey) == "" || subjectKey != quality.SubjectKey ||
-		quality.Authority != "registry" || quality.ObservedAt.IsZero() {
-		return false
-	}
-	switch quality.Kind {
-	case "stale", "empty", "missing_expected_entity":
-		return true
-	default:
-		return false
-	}
-}
-
-func incidentEvidenceTokens(incident *localIncidentEvidence) []string {
-	if incident == nil {
-		return nil
-	}
-	switch incident.EvidenceKind {
-	case "provider_notice":
-		return []string{"provider_incident:confirmed", "provider_notice:present"}
-	case "versioned_correlation":
-		return []string{
-			"provider_incident:confirmed", "correlation_rule:versioned",
-			fmt.Sprintf("affected_count:%d", incident.AffectedCount), fmt.Sprintf("control_count:%d", incident.ControlCount),
-			"correlation_window:bounded",
-		}
-	default:
-		return nil
-	}
-}
-
-func diagnosisTiming(startedAt, endedAt time.Time) *localDiagnosticTiming {
-	if startedAt.IsZero() || endedAt.IsZero() || endedAt.Before(startedAt) {
+func localDiagnosticAttemptTiming(startedAt, endedAt, computedAt time.Time) *localDiagnosticTiming {
+	if startedAt.IsZero() || endedAt.IsZero() || endedAt.Before(startedAt) || computedAt.IsZero() || computedAt.Before(endedAt) {
 		return nil
 	}
 	elapsed := endedAt.Sub(startedAt).Milliseconds()
 	return &localDiagnosticTiming{
 		CallAttemptStartedAt: startedAt.UTC().Format(time.RFC3339Nano),
-		DiagnosisComputedAt:  endedAt.UTC().Format(time.RFC3339Nano),
+		CallAttemptEndedAt:   endedAt.UTC().Format(time.RFC3339Nano),
+		DiagnosisComputedAt:  computedAt.UTC().Format(time.RFC3339Nano),
 		CallAttemptElapsedMS: &elapsed,
 	}
 }
 
 func localCallSucceededDiagnosis(envelope datago.ResponseEnvelope, startedAt, at time.Time) localDiagnosticOutcome {
-	out := localDiagnosticOutcome{
+	return localCallSucceededDiagnosisWithClock(envelope, startedAt, at, time.Now)
+}
+
+func localCallSucceededDiagnosisWithClock(envelope datago.ResponseEnvelope, startedAt, at time.Time, now func() time.Time) localDiagnosticOutcome {
+	out := normalizeDiagnosticSlices(localDiagnosticOutcome{
 		Code:               "call_succeeded",
 		ResponsibleParty:   "none",
 		EvidenceState:      "observed",
@@ -325,9 +174,9 @@ func localCallSucceededDiagnosis(envelope datago.ResponseEnvelope, startedAt, at
 		Scope:              []string{"transport", "provider_response", "declared_semantic_status"},
 		Evidence:           []string{fmt.Sprintf("http_status:%d", envelope.StatusCode), "semantic_status:" + safeDiagnosticToken(envelope.SemanticStatus)},
 		RecommendedActions: []string{"export_reusable_result"},
-		Timing:             diagnosisTiming(startedAt, at),
-	}
-	return normalizeDiagnosticSlices(out)
+	})
+	out.Timing = localDiagnosticAttemptTiming(startedAt, at, now().UTC())
+	return out
 }
 
 func diagnosticObservedAt(at time.Time) string {

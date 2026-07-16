@@ -861,23 +861,28 @@ available during local execution. It exposes a bounded cause `code`, one
 `evidence_state` axis (`observed`, `inferred`, or `unknown`), evidence authority,
 observation time, responsible party, validation scope, safe machine action IDs,
 and prohibited action IDs. It does not claim the Registry diagnostic-envelope
-schema and must not replace Registry-owned vocabulary. Generic 401/403 or
-credential classifications remain inferred and cannot establish approval
-propagation. Generic 401/403 observations keep diagnostic cause `unknown` even
-though the legacy failure category and exit code remain compatible.
-`approval_propagating` requires the exact operation subject, an authoritative
-`approved_pending_sync` state, and approval timestamp. A single 5xx or Health
-provider-failure observation is only inferred outage evidence;
-`avoid_key_reissue` requires a corroborated
-provider notice or a versioned same-subject correlation with affected/control
-counts and a bounded window, or authoritative approval-propagation evidence.
-HTTP 200 with empty or
-stale-looking data does not establish a quality failure without Registry-owned
-policy and result identity.
+schema and must not replace Registry-owned vocabulary. This local projection
+accepts only evidence present in the current call and sync runtime paths:
+the classified execution failure, current provider response envelope, verified
+Registry failure rule selected against the current request plan, and call
+attempt boundaries. Generic 401/403 observations keep diagnostic cause
+`unknown` even though the legacy failure category and exit code remain
+compatible. A bounded provider-field or provider-message Registry rule may
+identify `credential_invalid` or `approval_required`; a generic HTTP-status
+rule may not. A single current 5xx is only inferred outage evidence and never
+emits `avoid_key_reissue`. Approval propagation, Health incident correlation,
+and Registry quality/freshness results are deferred until their versioned,
+subject-bound runtime contracts are available. Consequently this projection
+does not emit `approval_propagating`, `semantic_quality`, `stale_data`, or
+`avoid_key_reissue`. HTTP 200 with empty or stale-looking data remains a
+successful call observation rather than a quality conclusion.
 
 Failure and bounded `call_succeeded` diagnostics may include
-`call_attempt_started_at`, `diagnosis_computed_at`, and
-`call_attempt_elapsed_ms`. These measure one local call attempt, not the M003
+`call_attempt_started_at`, `call_attempt_ended_at`,
+`diagnosis_computed_at`, and `call_attempt_elapsed_ms`. The attempt end is
+captured immediately after provider execution; diagnosis computation is
+captured after local normalization and must not precede the attempt end. These
+measure one local call attempt, not the M003
 product metrics `time_to_diagnosis_ms` or `time_to_first_success_ms`. The latter
 begin at the deterministic journey's operation-selection event and are added
 only when that journey contract is implemented. `ready` remains reserved for
