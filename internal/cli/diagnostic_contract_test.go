@@ -122,7 +122,8 @@ func TestDiagnosticDiscoveryToReusableExportJourneys(t *testing.T) {
 			failureClient := roundTripFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: tc.status, Header: make(http.Header), Body: http.NoBody}, nil
 			})
-			failureArgs := []string{"get", "15084084", "--json", "--journey-started-at", journeyStart, "base_date=20260622", "base_time=0500"}
+			fabricatedDiagnosis := "2099-01-01T00:00:00Z"
+			failureArgs := []string{"get", "15084084", "--json", "--journey-started-at", journeyStart, "--journey-diagnosed-at", fabricatedDiagnosis, "base_date=20260622", "base_time=0500"}
 			code, failureJSON, stderr := runTest(failureArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, failureClient)
 			if code != exitRequest || stderr != "" {
 				t.Fatalf("failure code=%d stdout=%s stderr=%s", code, failureJSON, stderr)
@@ -143,6 +144,14 @@ func TestDiagnosticDiscoveryToReusableExportJourneys(t *testing.T) {
 				t.Fatalf("failure journey metrics/redaction = %#v output=%s", diagnostic.ConsumerHandoff.Metrics, failureJSON)
 			}
 			diagnosedAt := diagnostic.Timing.DiagnosisComputedAt
+			runtimeDiagnosis, err := time.Parse(time.RFC3339Nano, diagnosedAt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDiagnosisMS := runtimeDiagnosis.Sub(journeyStartedAt).Milliseconds()
+			if *diagnostic.ConsumerHandoff.Metrics.TimeToDiagnosisMS != wantDiagnosisMS || *diagnostic.ConsumerHandoff.Metrics.TimeToDiagnosisMS > 60_000 {
+				t.Fatalf("failure trusted fabricated diagnosis timestamp: metrics=%#v runtime=%s", diagnostic.ConsumerHandoff.Metrics, diagnosedAt)
+			}
 
 			successClient := roundTripFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"rows":[{"value":1}]}`))}, nil
@@ -155,13 +164,18 @@ func TestDiagnosticDiscoveryToReusableExportJourneys(t *testing.T) {
 				t.Fatalf("successful retry code=%d stdout=%s stderr=%s", code, successJSON, stderr)
 			}
 
-			for _, format := range []string{"json", "csv"} {
-				exportArgs := append([]string{"export", "--format", format, "--json", "15084084"}, journeyFlags...)
-				exportArgs = append(exportArgs, "base_date=20260622", "base_time=0500")
-				code, exportJSON, stderr := runTest(exportArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, successClient)
-				if code != exitOK || stderr != "" || !strings.Contains(exportJSON, `"diagnostic":`) || !strings.Contains(exportJSON, `"time_to_first_success_ms":`) || strings.Contains(exportJSON, "journey-secret") {
-					t.Fatalf("%s export code=%d stdout=%s stderr=%s", format, code, exportJSON, stderr)
-				}
+			jsonExportArgs := append([]string{"export", "--format", "json", "--json", "15084084"}, journeyFlags...)
+			jsonExportArgs = append(jsonExportArgs, "base_date=20260622", "base_time=0500")
+			code, exportJSON, stderr := runTest(jsonExportArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, successClient)
+			if code != exitOK || stderr != "" || !strings.Contains(exportJSON, `"diagnostic":`) || !strings.Contains(exportJSON, `"time_to_first_success_ms":`) || strings.Contains(exportJSON, "journey-secret") {
+				t.Fatalf("json export code=%d stdout=%s stderr=%s", code, exportJSON, stderr)
+			}
+
+			csvExportArgs := append([]string{"export", "--format", "csv", "15084084"}, journeyFlags...)
+			csvExportArgs = append(csvExportArgs, "base_date=20260622", "base_time=0500")
+			code, csvBytes, stderr := runTest(csvExportArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, successClient)
+			if code != exitOK || csvBytes != "value\n1\n" || strings.Contains(csvBytes, "{") || !strings.Contains(stderr, "registry trust:") || strings.Contains(csvBytes+stderr, "journey-secret") {
+				t.Fatalf("csv export did not cross writeCSV: code=%d stdout=%q stderr=%s", code, csvBytes, stderr)
 			}
 		})
 	}
@@ -331,6 +345,35 @@ func TestJourneyTimestampFlagsFailClosed(t *testing.T) {
 		if code != exitUsage || stdout != "" || stderr == "" {
 			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
 		}
+	}
+}
+
+func TestFailureMetricIgnoresCallerDiagnosedTimestamp(t *testing.T) {
+	startedAt := time.Now().UTC().Add(-time.Second)
+	client := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: make(http.Header), Body: http.NoBody}, nil
+	})
+	args := []string{"get", "15084084", "--json", "--journey-started-at", startedAt.Format(time.RFC3339Nano), "--journey-diagnosed-at", "2099-01-01T00:00:00Z", "base_date=20260622", "base_time=0500"}
+	code, stdout, stderr := runTest(args, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "metric-secret"}, client)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var payload struct {
+		Failure struct {
+			Diagnostic *localDiagnosticOutcome `json:"diagnostic"`
+		} `json:"failure"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil || payload.Failure.Diagnostic == nil || payload.Failure.Diagnostic.ConsumerHandoff == nil || payload.Failure.Diagnostic.ConsumerHandoff.Metrics == nil {
+		t.Fatalf("decode metric: err=%v payload=%#v", err, payload)
+	}
+	runtimeDiagnosis, err := time.Parse(time.RFC3339Nano, payload.Failure.Diagnostic.Timing.DiagnosisComputedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := runtimeDiagnosis.Sub(startedAt).Milliseconds()
+	got := *payload.Failure.Diagnostic.ConsumerHandoff.Metrics.TimeToDiagnosisMS
+	if got != want || got > 60_000 || strings.Contains(stdout, "metric-secret") {
+		t.Fatalf("caller diagnosed timestamp affected failure metric: got=%d want=%d output=%s", got, want, stdout)
 	}
 }
 

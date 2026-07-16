@@ -85,8 +85,10 @@ unavailable. In particular, Web must not infer a cause, service identity, or
 reusable state from ignored fields.
 
 The command boundary accepts `--journey-started-at RFC3339` on a failed
-`get`/`sync` to emit `time_to_diagnosis_ms`. A successful retry or call-based
-JSON/CSV export additionally accepts `--journey-diagnosed-at RFC3339`; it must
-not precede the journey start. The first-success timestamp is captured at the
-successful provider-call boundary, not supplied by the caller. Without these
-explicit cross-command timestamps, the metrics remain omitted.
+`get`/`sync` to emit `time_to_diagnosis_ms`. A failed command always uses its
+own runtime `diagnosis_computed_at`; a caller-supplied `--journey-diagnosed-at`
+cannot replace or extend that metric. A successful retry or call-based JSON/CSV
+export accepts the prior `--journey-diagnosed-at RFC3339`; it must not precede
+the journey start. The first-success timestamp is captured at the successful
+provider-call boundary, not supplied by the caller. Without these explicit
+cross-command timestamps, the metrics remain omitted.

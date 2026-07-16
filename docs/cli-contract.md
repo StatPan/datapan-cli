@@ -888,7 +888,9 @@ begin at the deterministic journey's operation-selection event. `get` and
 `sync` accept an explicit credential-free `--journey-started-at` RFC3339 value;
 a successful retry or call-based JSON/CSV export also accepts the prior
 `--journey-diagnosed-at`. The CLI captures first success at the provider-call
-boundary and rejects malformed or reversed explicit timestamps. `ready` remains reserved for
+boundary and rejects malformed or reversed explicit timestamps. Failed commands
+always derive diagnosis time from their runtime computation and never trust a
+caller-carried diagnosis timestamp for that attempt. `ready` remains reserved for
 an operation-scoped, versioned validation pass in the reviewed Registry
 contract. A local `call_succeeded` result is
 limited to its declared scope (`transport`, `provider_response`, and

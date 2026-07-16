@@ -67,8 +67,10 @@ func attachFailureJourneyMetrics(failure executionFailure, clock diagnosticJourn
 	if failure.Diagnostic == nil || failure.Diagnostic.ConsumerHandoff == nil || clock.StartedAt.IsZero() {
 		return failure
 	}
-	diagnosedAt := clock.DiagnosedAt
-	if diagnosedAt.IsZero() && failure.Diagnostic.Timing != nil {
+	// A failed command owns its diagnosis boundary. Never use the optional
+	// caller-carried prior diagnosis timestamp to compute this attempt's metric.
+	var diagnosedAt time.Time
+	if failure.Diagnostic.Timing != nil {
 		diagnosedAt, _ = time.Parse(time.RFC3339Nano, failure.Diagnostic.Timing.DiagnosisComputedAt)
 	}
 	failure.Diagnostic.ConsumerHandoff.Metrics = diagnosticJourneyMetricsFrom(clock.StartedAt, diagnosedAt, time.Time{})
