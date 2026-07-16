@@ -9073,6 +9073,7 @@ type registryFailureRouting struct {
 	GeneratedAt      string                   `json:"generated_at"`
 	SourceID         string                   `json:"source_id"`
 	RuleID           string                   `json:"rule_id"`
+	MatchKind        string                   `json:"match_kind,omitempty"`
 	Classification   string                   `json:"classification"`
 	Severity         string                   `json:"severity"`
 	Actions          []registryErrorAction    `json:"actions"`
@@ -9504,6 +9505,7 @@ func applyRegistryFailureRouting(failure executionFailure, plan requestPlan, env
 			GeneratedAt:      catalog.GeneratedAt,
 			SourceID:         catalog.SourceID,
 			RuleID:           rule.RuleID,
+			MatchKind:        rule.Match.Kind,
 			Classification:   rule.Classification,
 			Severity:         rule.Severity,
 			Actions:          append([]registryErrorAction(nil), rule.Actions...),

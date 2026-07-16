@@ -43,16 +43,23 @@ func TestNormalizeLocalDiagnosisEvidenceBoundaries(t *testing.T) {
 		{
 			name: "bounded registry approval classification is observed",
 			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "approval", Reason: "registry-rule", RegistryRouting: &registryFailureRouting{
-				Classification: "approval", RuleID: "approval-rule",
+				Classification: "approval", RuleID: "approval-rule", MatchKind: "field_equals",
 			}}},
 			code: "approval_required", state: "observed", responsible: "user",
 		},
 		{
 			name: "registry credential classification remains inferred",
 			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "authentication", Reason: "registry-rule", RegistryRouting: &registryFailureRouting{
-				Classification: "credential", RuleID: "credential-rule",
+				Classification: "credential", RuleID: "credential-rule", MatchKind: "field_equals",
 			}}},
 			code: "credential_invalid", state: "inferred", responsible: "unknown",
+		},
+		{
+			name: "generic registry http status credential route stays unknown",
+			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "authentication", Reason: "registry-rule", RegistryRouting: &registryFailureRouting{
+				Classification: "credential", RuleID: "credential-http-rule", MatchKind: "http_status",
+			}}},
+			code: "unknown", state: "unknown", responsible: "unknown",
 		},
 		{
 			name: "invalid input",

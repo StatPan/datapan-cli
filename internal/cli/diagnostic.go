@@ -144,9 +144,13 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 		out.Evidence = append(out.Evidence, "registry_rule:matched")
 		switch routed.Classification {
 		case "credential":
-			setLocalDiagnosis(&out, "credential_invalid", "unknown", "inferred", "check_local_credential", "check_dataset_approval", "check_provider_credential_registration")
+			if registryRoutingHasBoundedProviderEvidence(routed) {
+				setLocalDiagnosis(&out, "credential_invalid", "unknown", "inferred", "check_local_credential", "check_dataset_approval", "check_provider_credential_registration")
+			}
 		case "approval":
-			setLocalDiagnosis(&out, "approval_required", "user", "observed", "check_dataset_approval", "start_or_inspect_usage_application")
+			if registryRoutingHasBoundedProviderEvidence(routed) {
+				setLocalDiagnosis(&out, "approval_required", "user", "observed", "check_dataset_approval", "start_or_inspect_usage_application")
+			}
 		case "bad_request":
 			setLocalDiagnosis(&out, "invalid_input", "user", "observed", "inspect_required_parameters", "retry_with_valid_input")
 		case "rate_limit":
@@ -212,6 +216,18 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 		setLocalDiagnosis(&out, "contract_drift", "datapan", "inferred", "inspect_provider_contract", "report_redacted_contract_evidence")
 	}
 	return normalizeDiagnosticSlices(out)
+}
+
+func registryRoutingHasBoundedProviderEvidence(routing *registryFailureRouting) bool {
+	if routing == nil {
+		return false
+	}
+	switch routing.MatchKind {
+	case "field_equals", "field_contains", "message_contains":
+		return true
+	default:
+		return false
+	}
 }
 
 func setLocalDiagnosis(out *localDiagnosticOutcome, code, responsible, evidenceState string, actions ...string) {
