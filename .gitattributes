@@ -1,0 +1,2 @@
+internal/cli/testdata/diagnostic-envelope/*.json text eol=lf
+internal/cli/testdata/diagnostic-envelope/fixtures/*.json text eol=lf
