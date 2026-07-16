@@ -9393,10 +9393,14 @@ func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryT
 	}
 	if !envelope.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), plan, &envelope, nil)
-		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: startedAt, EndedAt: completedAt})
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, Plan: &plan, StartedAt: startedAt, EndedAt: completedAt})
 		payload["failure"] = failure
 	} else {
-		payload["diagnostic"] = localCallSucceededDiagnosis(envelope, startedAt, completedAt)
+		diagnosis := localCallSucceededDiagnosis(envelope, startedAt, completedAt)
+		// A transport/provider success is not the Registry's `ready` result;
+		// readiness requires a separate validation_result.
+		diagnosis.ConsumerHandoff = reviewedSuccessfulHandoff(plan, false, false)
+		payload["diagnostic"] = diagnosis
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
 		payload["evidence_warning"] = warning
@@ -9705,12 +9709,22 @@ func registryClassificationCategory(classification, fallback string) string {
 func printExecutionFailureBrief(w io.Writer, failure executionFailure) {
 	fmt.Fprintf(w, "failure: %s (%s)\n", failure.Category, failure.Reason)
 	if diagnostic := failure.Diagnostic; diagnostic != nil {
-		fmt.Fprintf(w, "  diagnosis: %s (responsible=%s, evidence=%s)\n", diagnostic.Code, diagnostic.ResponsibleParty, diagnostic.EvidenceState)
-		for _, action := range diagnostic.RecommendedActions {
-			fmt.Fprintf(w, "  action: %s\n", action)
-		}
-		for _, action := range diagnostic.ProhibitedActions {
-			fmt.Fprintf(w, "  avoid: %s\n", action)
+		if handoff := diagnostic.ConsumerHandoff; handoff != nil {
+			fmt.Fprintf(w, "  diagnosis: %s (accountable=%s, determination=%s)\n", handoff.Result.Code, handoff.Result.AccountableParty, handoff.Result.Determination)
+			for _, action := range handoff.Result.Recommended {
+				fmt.Fprintf(w, "  action: %s\n", action.ActionID)
+			}
+			for _, action := range handoff.Result.Avoid {
+				fmt.Fprintf(w, "  avoid: %s\n", action.ActionID)
+			}
+		} else {
+			fmt.Fprintf(w, "  diagnosis: %s (responsible=%s, evidence=%s)\n", diagnostic.Code, diagnostic.ResponsibleParty, diagnostic.EvidenceState)
+			for _, action := range diagnostic.RecommendedActions {
+				fmt.Fprintf(w, "  action: %s\n", action)
+			}
+			for _, action := range diagnostic.ProhibitedActions {
+				fmt.Fprintf(w, "  avoid: %s\n", action)
+			}
 		}
 	}
 	if failure.RegistryRouting != nil {
@@ -10605,7 +10619,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	diagnosisCompletedAt := time.Now().UTC()
 	if err != nil {
 		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
-		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		if jsonOut || exportMode {
 			if code := a.writeJSON(map[string]any{
 				"ok":             false,
@@ -10641,7 +10655,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	fmt.Fprintln(a.stdout, respPayload.Body)
 	if !respPayload.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(respPayload), reqPlan, &respPayload, nil)
-		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &respPayload, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &respPayload, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		printExecutionFailureBrief(a.stderr, failure)
 		return exitRequest
 	}
@@ -11193,7 +11207,7 @@ func (a app) sync(args []string, jsonOut bool) int {
 	diagnosisCompletedAt := time.Now().UTC()
 	if err != nil {
 		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
-		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
 				"ok":             false,
@@ -11258,10 +11272,12 @@ func (a app) sync(args []string, jsonOut bool) int {
 	}
 	if !envelope.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
-		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		payload["failure"] = failure
 	} else {
-		payload["diagnostic"] = localCallSucceededDiagnosis(envelope, diagnosisStartedAt, diagnosisCompletedAt)
+		diagnosis := localCallSucceededDiagnosis(envelope, diagnosisStartedAt, diagnosisCompletedAt)
+		diagnosis.ConsumerHandoff = reviewedSuccessfulHandoff(reqPlan, false, true)
+		payload["diagnostic"] = diagnosis
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
 		payload["evidence_warning"] = warning
@@ -11293,7 +11309,7 @@ func (a app) sync(args []string, jsonOut bool) int {
 	}
 	if !envelope.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
-		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		printExecutionFailureBrief(a.stderr, failure)
 		return exitRequest
 	}
