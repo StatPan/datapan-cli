@@ -3,13 +3,17 @@ param(
     [string]$Datapan,
     [string]$WorkDir = "",
     [switch]$KeepWorkDir,
+    [ValidateRange(1, 3)]
+    [int]$DistributionAttempts = 1,
+    [ValidateRange(0, 30)]
+    [int]$DistributionRetryDelaySeconds = 2,
     [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
 
 if ($Help) {
-    Write-Output "Usage: pwsh scripts/smoke-registry-journey.ps1 -Datapan PATH [-WorkDir DIR] [-KeepWorkDir]"
+    Write-Output "Usage: pwsh scripts/smoke-registry-journey.ps1 -Datapan PATH [-WorkDir DIR] [-KeepWorkDir] [-DistributionAttempts 1..3] [-DistributionRetryDelaySeconds 0..30]"
     exit 0
 }
 
@@ -22,22 +26,54 @@ if ([string]::IsNullOrWhiteSpace($WorkDir)) {
 }
 $WorkDir = [System.IO.Path]::GetFullPath($WorkDir)
 New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
+$script:RegistryDistributionAttempts = 0
 
 function Invoke-DatapanJSON {
-    param([string[]]$CommandArgs)
-    $lines = & $Datapan @CommandArgs 2>&1
-    $exitCode = $LASTEXITCODE
-    $text = $lines -join "`n"
-    if ($text.Contains("smoke-secret-do-not-print")) {
-        throw "credential leaked from datapan $($CommandArgs -join ' ')"
-    }
-    if ($exitCode -ne 0) {
-        throw "datapan $($CommandArgs -join ' ') failed with exit code $exitCode`n$text"
-    }
-    try {
-        return ConvertFrom-Json -InputObject $text
-    } catch {
-        throw "datapan $($CommandArgs -join ' ') did not return JSON: $($_.Exception.Message)`n$text"
+    param(
+        [string[]]$CommandArgs,
+        [ValidateRange(1, 3)]
+        [int]$MaxDistributionAttempts = 1
+    )
+    for ($attempt = 1; $attempt -le $MaxDistributionAttempts; $attempt++) {
+        $lines = & $Datapan @CommandArgs 2>&1
+        $exitCode = $LASTEXITCODE
+        $text = $lines -join "`n"
+        if ($text.Contains("smoke-secret-do-not-print")) {
+            throw "credential leaked from datapan $($CommandArgs -join ' ')"
+        }
+        if ($exitCode -eq 0) {
+            if ($CommandArgs.Count -gt 0 -and $CommandArgs[0] -eq "init") {
+                $script:RegistryDistributionAttempts = $attempt
+            }
+            try {
+                return ConvertFrom-Json -InputObject $text
+            } catch {
+                throw "datapan $($CommandArgs -join ' ') did not return JSON: $($_.Exception.Message)`n$text"
+            }
+        }
+
+        $failure = $null
+        try {
+            $failure = ConvertFrom-Json -InputObject $text
+        } catch {
+            # Non-JSON failures are never retry candidates.
+        }
+        $retryableDistributionTimeout = (
+            $CommandArgs.Count -gt 0 -and
+            $CommandArgs[0] -eq "init" -and
+            $null -ne $failure -and
+            [string]$failure.error -eq "registry_distribution_failed" -and
+            [string]$failure.category -eq "distribution_timeout"
+        )
+        if (-not $retryableDistributionTimeout -or $attempt -ge $MaxDistributionAttempts) {
+            throw "datapan $($CommandArgs -join ' ') failed with exit code $exitCode`n$text"
+        }
+
+        $delaySeconds = $DistributionRetryDelaySeconds * $attempt
+        Write-Warning "Registry distribution timed out on init attempt $attempt/$MaxDistributionAttempts; retrying after ${delaySeconds}s"
+        if ($delaySeconds -gt 0) {
+            Start-Sleep -Seconds $delaySeconds
+        }
     }
 }
 
@@ -106,7 +142,7 @@ function Invoke-DatapanHealthReceipt {
 try {
     Push-Location $WorkDir
     try {
-        $init = Invoke-DatapanJSON @("init", "--json")
+        $init = Invoke-DatapanJSON -CommandArgs @("init", "--json") -MaxDistributionAttempts $DistributionAttempts
         if (-not $init.ok -or -not $init.ready_for_search) {
             throw "init did not install a searchable Registry release"
         }
@@ -232,6 +268,7 @@ try {
             datapan_version = (Invoke-DatapanJSON @("version", "--json")).version
             registry_release = $status.registry_release.installed.release_tag
             registry_distribution = $init.install.distribution
+            registry_distribution_attempts = $script:RegistryDistributionAttempts
             registry_dataset_revision = $init.install.dataset_revision
             registry_specs = $status.registry.specs
             trust_status = $show.registry_trust.status

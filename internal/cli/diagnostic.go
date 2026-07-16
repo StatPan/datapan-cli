@@ -14,16 +14,17 @@ import (
 // envelope. The reviewed Registry contract remains the authority for the
 // cross-product schema and is bound separately.
 type localDiagnosticOutcome struct {
-	Code               string                 `json:"code"`
-	ResponsibleParty   string                 `json:"responsible_party"`
-	EvidenceState      string                 `json:"evidence_state"`
-	EvidenceAuthority  string                 `json:"evidence_authority"`
-	ObservedAt         string                 `json:"observed_at,omitempty"`
-	Scope              []string               `json:"scope"`
-	Evidence           []string               `json:"evidence"`
-	RecommendedActions []string               `json:"recommended_actions"`
-	ProhibitedActions  []string               `json:"prohibited_actions,omitempty"`
-	Timing             *localDiagnosticTiming `json:"timing,omitempty"`
+	Code               string                     `json:"code"`
+	ResponsibleParty   string                     `json:"responsible_party"`
+	EvidenceState      string                     `json:"evidence_state"`
+	EvidenceAuthority  string                     `json:"evidence_authority"`
+	ObservedAt         string                     `json:"observed_at,omitempty"`
+	Scope              []string                   `json:"scope"`
+	Evidence           []string                   `json:"evidence"`
+	RecommendedActions []string                   `json:"recommended_actions"`
+	ProhibitedActions  []string                   `json:"prohibited_actions,omitempty"`
+	Timing             *localDiagnosticTiming     `json:"timing,omitempty"`
+	ConsumerHandoff    *diagnosticConsumerHandoff `json:"consumer_handoff,omitempty"`
 }
 
 type localDiagnosticTiming struct {
@@ -36,6 +37,7 @@ type localDiagnosticTiming struct {
 type localDiagnosticEvidence struct {
 	Failure   executionFailure
 	Envelope  *datago.ResponseEnvelope
+	Plan      *requestPlan
 	StartedAt time.Time
 	EndedAt   time.Time
 }
@@ -50,6 +52,7 @@ func attachLocalDiagnosisWithClock(evidence localDiagnosticEvidence, now func() 
 	// Capture computation after classification. EndedAt is the provider call
 	// boundary and must not be relabeled as diagnosis computation time.
 	diagnosis.Timing = localDiagnosticAttemptTiming(evidence.StartedAt, evidence.EndedAt, now().UTC())
+	diagnosis.ConsumerHandoff = reviewedDiagnosticHandoff(evidence, diagnosis)
 	failure.Diagnostic = &diagnosis
 	return failure
 }
