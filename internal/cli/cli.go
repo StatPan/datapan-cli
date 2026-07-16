@@ -9395,7 +9395,7 @@ func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryT
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: startedAt, EndedAt: completedAt})
 		payload["failure"] = failure
 	} else {
-		payload["diagnostic"] = localReadyDiagnosis(envelope, startedAt, completedAt)
+		payload["diagnostic"] = localCallSucceededDiagnosis(envelope, startedAt, completedAt)
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
 		payload["evidence_warning"] = warning
@@ -11259,7 +11259,7 @@ func (a app) sync(args []string, jsonOut bool) int {
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		payload["failure"] = failure
 	} else {
-		payload["diagnostic"] = localReadyDiagnosis(envelope, diagnosisStartedAt, diagnosisCompletedAt)
+		payload["diagnostic"] = localCallSucceededDiagnosis(envelope, diagnosisStartedAt, diagnosisCompletedAt)
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
 		payload["evidence_warning"] = warning

@@ -37,6 +37,7 @@ type localDiagnosticTiming struct {
 // approval propagation.
 type localApprovalEvidence struct {
 	State       string
+	SubjectKey  string
 	ConfirmedAt time.Time
 	ObservedAt  time.Time
 }
@@ -54,10 +55,17 @@ type localDiagnosticEvidence struct {
 }
 
 type localIncidentEvidence struct {
-	State      string
-	Authority  string
-	SubjectKey string
-	ObservedAt time.Time
+	State                  string
+	Authority              string
+	SubjectKey             string
+	EvidenceKind           string
+	NoticeID               string
+	CorrelationRuleVersion string
+	AffectedCount          int
+	ControlCount           int
+	WindowStartedAt        time.Time
+	WindowEndedAt          time.Time
+	ObservedAt             time.Time
 }
 
 type localQualityEvidence struct {
@@ -96,7 +104,7 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 		out.EvidenceState = "inferred"
 		out.EvidenceAuthority = "data.go.kr_portal"
 		out.Scope = []string{"usage_approval", "credential_activation"}
-		out.Evidence = append(out.Evidence, "portal_approval:confirmed", "approval_timestamp:present")
+		out.Evidence = append(out.Evidence, "portal_approval:approved_pending_sync", "approval_timestamp:present")
 		out.RecommendedActions = []string{"wait_for_provider_credential_sync", "retry_after_provider_propagation_window"}
 		out.ProhibitedActions = []string{"avoid_key_reissue"}
 		return normalizeDiagnosticSlices(out)
@@ -108,7 +116,7 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 		out.EvidenceAuthority = evidence.Incident.Authority
 		out.ObservedAt = diagnosticObservedAt(evidence.Incident.ObservedAt)
 		out.Scope = []string{"provider_incident"}
-		out.Evidence = append(out.Evidence, "provider_incident:confirmed")
+		out.Evidence = append(out.Evidence, incidentEvidenceTokens(evidence.Incident)...)
 		out.RecommendedActions = []string{"check_provider_status", "retry_after_incident_recovery"}
 		out.ProhibitedActions = []string{"avoid_key_reissue"}
 		return normalizeDiagnosticSlices(out)
@@ -181,6 +189,12 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 			setLocalDiagnosis(&out, "rate_limited", "provider", "observed", "wait_for_rate_limit_reset", "retry_with_backoff")
 		case envelope.StatusCode >= 500:
 			setLocalDiagnosis(&out, "provider_outage", "provider", "inferred", "check_provider_status", "retry_with_backoff")
+		case envelope.StatusCode == http.StatusUnauthorized || envelope.StatusCode == http.StatusForbidden:
+			out.Code = "unknown"
+			out.ResponsibleParty = "unknown"
+			out.EvidenceState = "unknown"
+			out.RecommendedActions = []string{"check_local_credential", "check_dataset_approval", "check_provider_status"}
+			return normalizeDiagnosticSlices(out)
 		}
 		if out.Code != "unknown" {
 			return normalizeDiagnosticSlices(out)
@@ -189,9 +203,9 @@ func normalizeLocalDiagnosis(evidence localDiagnosticEvidence) localDiagnosticOu
 
 	switch failure.Category {
 	case "authentication":
-		setLocalDiagnosis(&out, "credential_invalid", "unknown", "inferred", "check_local_credential", "check_dataset_approval", "check_provider_credential_registration")
+		out.RecommendedActions = []string{"check_local_credential", "check_dataset_approval", "check_provider_status"}
 	case "approval":
-		setLocalDiagnosis(&out, "approval_required", "user", "inferred", "check_dataset_approval", "start_or_inspect_usage_application")
+		out.RecommendedActions = []string{"check_local_credential", "check_dataset_approval", "check_provider_status"}
 	case "input":
 		setLocalDiagnosis(&out, "invalid_input", "user", "inferred", "inspect_required_parameters", "retry_with_valid_input")
 	case "adapter":
@@ -209,7 +223,9 @@ func setLocalDiagnosis(out *localDiagnosticOutcome, code, responsible, evidenceS
 
 func approvalPropagationSupported(evidence localDiagnosticEvidence) bool {
 	failure, approval := evidence.Failure, evidence.Approval
-	if approval == nil || !strings.EqualFold(strings.TrimSpace(approval.State), "approved") || approval.ConfirmedAt.IsZero() || approval.ObservedAt.IsZero() {
+	if approval == nil || !strings.EqualFold(strings.TrimSpace(approval.State), "approved_pending_sync") ||
+		strings.TrimSpace(evidence.SubjectKey) == "" || evidence.SubjectKey != approval.SubjectKey ||
+		approval.ConfirmedAt.IsZero() || approval.ObservedAt.IsZero() {
 		return false
 	}
 	if approval.ConfirmedAt.After(approval.ObservedAt) {
@@ -222,15 +238,27 @@ func approvalPropagationSupported(evidence localDiagnosticEvidence) bool {
 }
 
 func incidentEvidenceSupported(subjectKey string, incident *localIncidentEvidence) bool {
-	return incident != nil && strings.EqualFold(strings.TrimSpace(incident.State), "confirmed") &&
-		strings.TrimSpace(subjectKey) != "" && subjectKey == incident.SubjectKey &&
-		strings.TrimSpace(incident.Authority) != "" && !incident.ObservedAt.IsZero()
+	if incident == nil || !strings.EqualFold(strings.TrimSpace(incident.State), "confirmed") ||
+		strings.TrimSpace(subjectKey) == "" || subjectKey != incident.SubjectKey ||
+		strings.TrimSpace(incident.Authority) == "" || incident.ObservedAt.IsZero() {
+		return false
+	}
+	switch incident.EvidenceKind {
+	case "provider_notice":
+		return incident.Authority == "provider" && strings.TrimSpace(incident.NoticeID) != ""
+	case "versioned_correlation":
+		return incident.Authority == "datapan_health" && strings.TrimSpace(incident.CorrelationRuleVersion) != "" && incident.AffectedCount >= 2 && incident.ControlCount >= 1 &&
+			!incident.WindowStartedAt.IsZero() && !incident.WindowEndedAt.IsZero() && !incident.WindowEndedAt.Before(incident.WindowStartedAt) &&
+			!incident.ObservedAt.Before(incident.WindowStartedAt) && !incident.ObservedAt.After(incident.WindowEndedAt)
+	default:
+		return false
+	}
 }
 
 func qualityEvidenceSupported(subjectKey string, quality *localQualityEvidence) bool {
 	if quality == nil || strings.TrimSpace(quality.PolicyID) == "" || strings.TrimSpace(quality.ResultID) == "" ||
 		strings.TrimSpace(subjectKey) == "" || subjectKey != quality.SubjectKey ||
-		strings.TrimSpace(quality.Authority) == "" || quality.ObservedAt.IsZero() {
+		quality.Authority != "registry" || quality.ObservedAt.IsZero() {
 		return false
 	}
 	switch quality.Kind {
@@ -238,6 +266,24 @@ func qualityEvidenceSupported(subjectKey string, quality *localQualityEvidence) 
 		return true
 	default:
 		return false
+	}
+}
+
+func incidentEvidenceTokens(incident *localIncidentEvidence) []string {
+	if incident == nil {
+		return nil
+	}
+	switch incident.EvidenceKind {
+	case "provider_notice":
+		return []string{"provider_incident:confirmed", "provider_notice:present"}
+	case "versioned_correlation":
+		return []string{
+			"provider_incident:confirmed", "correlation_rule:versioned",
+			fmt.Sprintf("affected_count:%d", incident.AffectedCount), fmt.Sprintf("control_count:%d", incident.ControlCount),
+			"correlation_window:bounded",
+		}
+	default:
+		return nil
 	}
 }
 
@@ -253,9 +299,9 @@ func diagnosisTiming(startedAt, endedAt time.Time) *localDiagnosticTiming {
 	}
 }
 
-func localReadyDiagnosis(envelope datago.ResponseEnvelope, startedAt, at time.Time) localDiagnosticOutcome {
+func localCallSucceededDiagnosis(envelope datago.ResponseEnvelope, startedAt, at time.Time) localDiagnosticOutcome {
 	out := localDiagnosticOutcome{
-		Code:               "ready",
+		Code:               "call_succeeded",
 		ResponsibleParty:   "none",
 		EvidenceState:      "observed",
 		EvidenceAuthority:  "provider_response",

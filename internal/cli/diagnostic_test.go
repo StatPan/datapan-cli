@@ -22,23 +22,30 @@ func TestNormalizeLocalDiagnosisEvidenceBoundaries(t *testing.T) {
 		prohibited  []string
 	}{
 		{
-			name: "approval required without authoritative approval receipt",
+			name: "generic forbidden stays unknown",
 			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
 				Envelope: &datago.ResponseEnvelope{StatusCode: http.StatusForbidden}},
-			code: "approval_required", state: "inferred", responsible: "user",
+			code: "unknown", state: "unknown", responsible: "unknown",
 		},
 		{
-			name: "approval propagation requires confirmed state and timestamp",
-			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
+			name: "approval propagation requires scoped pending sync state and timestamp",
+			evidence: localDiagnosticEvidence{SubjectKey: "operation-1", Failure: executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
 				Envelope: &datago.ResponseEnvelope{StatusCode: http.StatusForbidden},
-				Approval: &localApprovalEvidence{State: "approved", ConfirmedAt: approvedAt, ObservedAt: observedAt}},
+				Approval: &localApprovalEvidence{State: "approved_pending_sync", SubjectKey: "operation-1", ConfirmedAt: approvedAt, ObservedAt: observedAt}},
 			code: "approval_propagating", state: "inferred", responsible: "provider", prohibited: []string{"avoid_key_reissue"},
 		},
 		{
-			name: "credential rejection is not propagation",
+			name: "generic unauthorized stays unknown",
 			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "authentication", Reason: "provider_rejected_credential"},
 				Envelope: &datago.ResponseEnvelope{StatusCode: http.StatusUnauthorized}},
-			code: "credential_invalid", state: "inferred", responsible: "unknown",
+			code: "unknown", state: "unknown", responsible: "unknown",
+		},
+		{
+			name: "bounded registry approval classification is observed",
+			evidence: localDiagnosticEvidence{Failure: executionFailure{Category: "approval", Reason: "registry-rule", RegistryRouting: &registryFailureRouting{
+				Classification: "approval", RuleID: "approval-rule",
+			}}},
+			code: "approval_required", state: "observed", responsible: "user",
 		},
 		{
 			name: "registry credential classification remains inferred",
@@ -100,13 +107,15 @@ func TestNormalizeLocalDiagnosisEvidenceBoundaries(t *testing.T) {
 func TestApprovalPropagationRejectsNonAuthoritativeStates(t *testing.T) {
 	observedAt := time.Date(2026, 7, 16, 3, 4, 5, 0, time.UTC)
 	base := localDiagnosticEvidence{
-		Failure:  executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
-		Envelope: &datago.ResponseEnvelope{StatusCode: http.StatusForbidden},
+		SubjectKey: "operation-1",
+		Failure:    executionFailure{Category: "approval", Reason: "provider_access_not_approved"},
+		Envelope:   &datago.ResponseEnvelope{StatusCode: http.StatusForbidden},
 	}
 	tests := []localApprovalEvidence{
-		{State: "access_requested_not_confirmed", ConfirmedAt: observedAt.Add(-time.Hour), ObservedAt: observedAt},
-		{State: "approved", ObservedAt: observedAt},
-		{State: "approved", ConfirmedAt: observedAt.Add(time.Hour), ObservedAt: observedAt},
+		{State: "access_requested_not_confirmed", SubjectKey: "operation-1", ConfirmedAt: observedAt.Add(-time.Hour), ObservedAt: observedAt},
+		{State: "approved", SubjectKey: "operation-1", ObservedAt: observedAt},
+		{State: "approved_pending_sync", SubjectKey: "operation-2", ConfirmedAt: observedAt.Add(-time.Hour), ObservedAt: observedAt},
+		{State: "approved_pending_sync", SubjectKey: "operation-1", ConfirmedAt: observedAt.Add(time.Hour), ObservedAt: observedAt},
 	}
 	for _, approval := range tests {
 		base.Approval = &approval
@@ -176,13 +185,22 @@ func TestAvoidKeyReissueRequiresCorroboratedIncident(t *testing.T) {
 		t.Fatalf("mismatched incident prohibited actions=%v", got.ProhibitedActions)
 	}
 	base.Incident.SubjectKey = "operation-1"
+	if got := normalizeLocalDiagnosis(base); len(got.ProhibitedActions) != 0 {
+		t.Fatalf("authority+subject alone prohibited actions=%v", got.ProhibitedActions)
+	}
+	base.Incident.EvidenceKind = "versioned_correlation"
+	base.Incident.CorrelationRuleVersion = "v1"
+	base.Incident.AffectedCount = 2
+	base.Incident.ControlCount = 1
+	base.Incident.WindowStartedAt = observedAt.Add(-time.Minute)
+	base.Incident.WindowEndedAt = observedAt.Add(time.Minute)
 	got := normalizeLocalDiagnosis(base)
 	if got.Code != "provider_outage" || got.EvidenceState != "observed" || !reflect.DeepEqual(got.ProhibitedActions, []string{"avoid_key_reissue"}) {
 		t.Fatalf("corroborated incident=%+v", got)
 	}
 }
 
-func TestLocalDiagnosticTimingAndReadyScope(t *testing.T) {
+func TestLocalDiagnosticTimingAndCallSucceededScope(t *testing.T) {
 	startedAt := time.Date(2026, 7, 16, 3, 4, 5, 123000000, time.FixedZone("KST", 9*60*60))
 	endedAt := startedAt.Add(1750 * time.Millisecond)
 	timing := diagnosisTiming(startedAt, endedAt)
@@ -192,13 +210,13 @@ func TestLocalDiagnosticTimingAndReadyScope(t *testing.T) {
 	if timing.CallAttemptStartedAt != "2026-07-15T18:04:05.123Z" || timing.DiagnosisComputedAt != "2026-07-15T18:04:06.873Z" {
 		t.Fatalf("UTC timing=%+v", timing)
 	}
-	ready := localReadyDiagnosis(datago.ResponseEnvelope{StatusCode: 200, SemanticStatus: "json_response"}, startedAt, endedAt)
-	if ready.Code != "ready" || ready.EvidenceState != "observed" || ready.Timing == nil || ready.Timing.CallAttemptElapsedMS == nil {
-		t.Fatalf("ready=%+v", ready)
+	succeeded := localCallSucceededDiagnosis(datago.ResponseEnvelope{StatusCode: 200, SemanticStatus: "json_response"}, startedAt, endedAt)
+	if succeeded.Code != "call_succeeded" || succeeded.EvidenceState != "observed" || succeeded.Timing == nil || succeeded.Timing.CallAttemptElapsedMS == nil {
+		t.Fatalf("call_succeeded=%+v", succeeded)
 	}
 	wantScope := []string{"transport", "provider_response", "declared_semantic_status"}
-	if !reflect.DeepEqual(ready.Scope, wantScope) {
-		t.Fatalf("scope=%v want=%v", ready.Scope, wantScope)
+	if !reflect.DeepEqual(succeeded.Scope, wantScope) {
+		t.Fatalf("scope=%v want=%v", succeeded.Scope, wantScope)
 	}
 }
 
@@ -255,7 +273,7 @@ func TestGetFailureAddsDiagnosticWithoutChangingExitContract(t *testing.T) {
 	}
 }
 
-func TestGetSuccessReportsBoundedReadyScopeNotJourneyMetric(t *testing.T) {
+func TestGetSuccessReportsBoundedCallSucceededScopeNotJourneyMetric(t *testing.T) {
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: http.Header{"Content-Type": []string{"application/json"}}}, nil
 	})
@@ -266,7 +284,7 @@ func TestGetSuccessReportsBoundedReadyScopeNotJourneyMetric(t *testing.T) {
 	if code != exitOK || stderr != "" {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
-	for _, want := range []string{`"code": "ready"`, `"transport"`, `"provider_response"`, `"declared_semantic_status"`, `"call_attempt_elapsed_ms":`} {
+	for _, want := range []string{`"code": "call_succeeded"`, `"transport"`, `"provider_response"`, `"declared_semantic_status"`, `"call_attempt_elapsed_ms":`} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
 		}
