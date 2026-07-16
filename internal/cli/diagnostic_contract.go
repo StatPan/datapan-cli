@@ -27,6 +27,61 @@ type diagnosticJourneyMetrics struct {
 	TimeToFirstSuccessMS *int64 `json:"time_to_first_success_ms,omitempty"`
 }
 
+type diagnosticJourneyClock struct {
+	StartedAt   time.Time
+	DiagnosedAt time.Time
+}
+
+func consumeDiagnosticJourneyClock(args []string) (diagnosticJourneyClock, []string, error) {
+	started, args, err := consumeString(args, "--journey-started-at", "")
+	if err != nil {
+		return diagnosticJourneyClock{}, args, err
+	}
+	diagnosed, args, err := consumeString(args, "--journey-diagnosed-at", "")
+	if err != nil {
+		return diagnosticJourneyClock{}, args, err
+	}
+	clock := diagnosticJourneyClock{}
+	if strings.TrimSpace(started) != "" {
+		clock.StartedAt, err = time.Parse(time.RFC3339Nano, started)
+		if err != nil {
+			return diagnosticJourneyClock{}, args, fmt.Errorf("--journey-started-at must be RFC3339: %w", err)
+		}
+	}
+	if strings.TrimSpace(diagnosed) != "" {
+		if clock.StartedAt.IsZero() {
+			return diagnosticJourneyClock{}, args, fmt.Errorf("--journey-diagnosed-at requires --journey-started-at")
+		}
+		clock.DiagnosedAt, err = time.Parse(time.RFC3339Nano, diagnosed)
+		if err != nil {
+			return diagnosticJourneyClock{}, args, fmt.Errorf("--journey-diagnosed-at must be RFC3339: %w", err)
+		}
+		if clock.DiagnosedAt.Before(clock.StartedAt) {
+			return diagnosticJourneyClock{}, args, fmt.Errorf("--journey-diagnosed-at must not precede --journey-started-at")
+		}
+	}
+	return clock, args, nil
+}
+
+func attachFailureJourneyMetrics(failure executionFailure, clock diagnosticJourneyClock) executionFailure {
+	if failure.Diagnostic == nil || failure.Diagnostic.ConsumerHandoff == nil || clock.StartedAt.IsZero() {
+		return failure
+	}
+	diagnosedAt := clock.DiagnosedAt
+	if diagnosedAt.IsZero() && failure.Diagnostic.Timing != nil {
+		diagnosedAt, _ = time.Parse(time.RFC3339Nano, failure.Diagnostic.Timing.DiagnosisComputedAt)
+	}
+	failure.Diagnostic.ConsumerHandoff.Metrics = diagnosticJourneyMetricsFrom(clock.StartedAt, diagnosedAt, time.Time{})
+	return failure
+}
+
+func attachSuccessJourneyMetrics(diagnosis *localDiagnosticOutcome, clock diagnosticJourneyClock, firstSuccessAt time.Time) {
+	if diagnosis == nil || diagnosis.ConsumerHandoff == nil || clock.StartedAt.IsZero() || clock.DiagnosedAt.IsZero() {
+		return
+	}
+	diagnosis.ConsumerHandoff.Metrics = diagnosticJourneyMetricsFrom(clock.StartedAt, clock.DiagnosedAt, firstSuccessAt)
+}
+
 type diagnosticContractRef struct {
 	Status           string `json:"status"`
 	SchemaSHA256     string `json:"schema_sha256"`

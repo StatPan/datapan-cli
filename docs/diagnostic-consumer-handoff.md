@@ -52,3 +52,41 @@ Web must preserve this unavailable state until the accepted Datapan Health #19
 receipt supplies the matching operation identity. Registry release #568 is the
 separate gate for promoting the reviewed draft contract to a published
 production contract.
+
+## Exact Web field policy
+
+The handoff is an additive object below `diagnostic.consumer_handoff`. Datapan
+Web consumes only the following fields; absence, wrong type, or an unlisted enum
+value fails that capability closed:
+
+| Object | Consumed fields |
+| --- | --- |
+| `contract` | `status`, `schema_sha256`, `mapping_sha256`, `runtime_authority` |
+| `subject` | `source_id`, `provider_id`, `dataset_id`, `operation_id` |
+| `result` | `code`, `determination`, `layer`, `accountable_party`, and each `recommended[]` / `avoid[]` item's `action_id`, `actor`, `rationale_id` |
+| `capabilities.dataset_application` | `route_kind`, `url`, `direct_submission_url` |
+| `capabilities.local_reproduction` | `status`, `mode`, `credential_handling`, `requires_credential` |
+| `capabilities.reusable_export` | `status`, `formats`, `reason`, `evidence_level`, `semantic_validation` |
+| `capabilities.public_health` | `status`, `reason` |
+| `metrics` | `time_to_diagnosis_ms`, `time_to_first_success_ms` |
+
+The outer CLI-only `diagnostic` fields (`code`, `responsible_party`,
+`evidence_state`, `evidence_authority`, `observed_at`, `scope`, `evidence`,
+`recommended_actions`, `prohibited_actions`, and attempt-level `timing`) are
+ignored by Web as authority inputs. Provider `body`, `message`, `url`,
+`provider_status`, Registry routing internals, cache paths, rows, query values,
+credentials, headers, and user identity are unsupported handoff inputs and must
+never be copied into the handoff.
+
+Unknown additive fields inside `consumer_handoff` are ignored for forward
+compatibility, but unknown values in the consumed identity, result, capability,
+or contract fields are not interpreted. They make the affected projection
+unavailable. In particular, Web must not infer a cause, service identity, or
+reusable state from ignored fields.
+
+The command boundary accepts `--journey-started-at RFC3339` on a failed
+`get`/`sync` to emit `time_to_diagnosis_ms`. A successful retry or call-based
+JSON/CSV export additionally accepts `--journey-diagnosed-at RFC3339`; it must
+not precede the journey start. The first-success timestamp is captured at the
+successful provider-call boundary, not supplied by the caller. Without these
+explicit cross-command timestamps, the metrics remain omitted.

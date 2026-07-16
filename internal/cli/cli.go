@@ -9369,7 +9369,7 @@ func classifyRegistryTrustFailure(trust registryTrustContext) executionFailure {
 	return executionFailure{Category: "compatibility", Reason: reason, Retryable: false, NextSteps: steps}
 }
 
-func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryTrustContext, verification operationVerificationContext, plan requestPlan, startedAt, completedAt time.Time) map[string]any {
+func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryTrustContext, verification operationVerificationContext, plan requestPlan, startedAt, completedAt time.Time, journey diagnosticJourneyClock) map[string]any {
 	payload := map[string]any{
 		"ok":              envelope.OK,
 		"provider":        envelope.Provider,
@@ -9394,12 +9394,14 @@ func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryT
 	if !envelope.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), plan, &envelope, nil)
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, Plan: &plan, StartedAt: startedAt, EndedAt: completedAt})
+		failure = attachFailureJourneyMetrics(failure, journey)
 		payload["failure"] = failure
 	} else {
 		diagnosis := localCallSucceededDiagnosis(envelope, startedAt, completedAt)
 		// A transport/provider success is not the Registry's `ready` result;
 		// readiness requires a separate validation_result.
 		diagnosis.ConsumerHandoff = reviewedSuccessfulHandoff(plan, false, false)
+		attachSuccessJourneyMetrics(&diagnosis, journey, completedAt)
 		payload["diagnostic"] = diagnosis
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
@@ -10562,12 +10564,16 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	journey, args, err := consumeDiagnosticJourneyClock(args)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) < 1 {
-		return a.fail(exitUsage, "usage: datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--dry-run] [--json]")
+		return a.fail(exitUsage, "usage: datapan get <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--timeout DURATION] [--journey-started-at RFC3339] [--journey-diagnosed-at RFC3339] [--dry-run] [--json]")
 	}
 	positionalParams, err := parseKeyValueArgs(args[1:])
 	if err != nil {
@@ -10620,6 +10626,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if err != nil {
 		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachFailureJourneyMetrics(failure, journey)
 		if jsonOut || exportMode {
 			if code := a.writeJSON(map[string]any{
 				"ok":             false,
@@ -10642,7 +10649,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		return a.fail(exitRequest, "%s", safeExecutionError(err, reqPlan))
 	}
 	if jsonOut || exportMode {
-		if code := a.writeJSON(responseEnvelopeWithTrust(respPayload, trust, verification, reqPlan, diagnosisStartedAt, diagnosisCompletedAt)); code != exitOK {
+		if code := a.writeJSON(responseEnvelopeWithTrust(respPayload, trust, verification, reqPlan, diagnosisStartedAt, diagnosisCompletedAt, journey)); code != exitOK {
 			return code
 		}
 		if !respPayload.OK {
@@ -10656,6 +10663,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	if !respPayload.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(respPayload), reqPlan, &respPayload, nil)
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &respPayload, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachFailureJourneyMetrics(failure, journey)
 		printExecutionFailureBrief(a.stderr, failure)
 		return exitRequest
 	}
@@ -11176,12 +11184,16 @@ func (a app) sync(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	journey, args, err := consumeDiagnosticJourneyClock(args)
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	flagParams, args, err := consumeParams(args)
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
 	if len(args) < 1 {
-		return a.fail(exitUsage, "usage: datapan sync <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--timeout DURATION] [--json]")
+		return a.fail(exitUsage, "usage: datapan sync <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--timeout DURATION] [--journey-started-at RFC3339] [--journey-diagnosed-at RFC3339] [--json]")
 	}
 	positionalParams, err := parseKeyValueArgs(args[1:])
 	if err != nil {
@@ -11208,6 +11220,7 @@ func (a app) sync(args []string, jsonOut bool) int {
 	if err != nil {
 		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachFailureJourneyMetrics(failure, journey)
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
 				"ok":             false,
@@ -11273,10 +11286,12 @@ func (a app) sync(args []string, jsonOut bool) int {
 	if !envelope.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
 		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, Plan: &reqPlan, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		failure = attachFailureJourneyMetrics(failure, journey)
 		payload["failure"] = failure
 	} else {
 		diagnosis := localCallSucceededDiagnosis(envelope, diagnosisStartedAt, diagnosisCompletedAt)
 		diagnosis.ConsumerHandoff = reviewedSuccessfulHandoff(reqPlan, false, true)
+		attachSuccessJourneyMetrics(&diagnosis, journey, diagnosisCompletedAt)
 		payload["diagnostic"] = diagnosis
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
@@ -11480,6 +11495,7 @@ func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 		Verification    operationVerificationContext `json:"verification"`
 		EvidenceWarning *executionFailure            `json:"evidence_warning"`
 		Failure         *executionFailure            `json:"failure"`
+		Diagnostic      *localDiagnosticOutcome      `json:"diagnostic"`
 	}
 	if capture.Len() > 0 {
 		if err := json.Unmarshal(capture.Bytes(), &callResult); err != nil {
@@ -11510,7 +11526,7 @@ func (a app) exportFromCall(args []string, jsonOut bool, format string) int {
 	}
 	evidence := &rowExportEvidence{
 		Dataset: callResult.Dataset, Operation: callResult.Operation, RegistryTrust: callResult.RegistryTrust,
-		Verification: callResult.Verification, EvidenceWarning: callResult.EvidenceWarning,
+		Verification: callResult.Verification, EvidenceWarning: callResult.EvidenceWarning, Diagnostic: callResult.Diagnostic,
 	}
 	return a.writeRows(rows, format, jsonOut, nil, evidence)
 }
@@ -11521,6 +11537,7 @@ type rowExportEvidence struct {
 	RegistryTrust   registryTrustContext
 	Verification    operationVerificationContext
 	EvidenceWarning *executionFailure
+	Diagnostic      *localDiagnosticOutcome
 }
 
 func (a app) writeRows(rows []map[string]any, format string, jsonOut bool, cacheIntegrity *cacheArtifactIntegrity, evidence *rowExportEvidence) int {
@@ -11557,6 +11574,9 @@ func addRowExportEvidence(payload map[string]any, cacheIntegrity *cacheArtifactI
 		payload["verification"] = evidence.Verification
 		if evidence.EvidenceWarning != nil {
 			payload["evidence_warning"] = evidence.EvidenceWarning
+		}
+		if evidence.Diagnostic != nil {
+			payload["diagnostic"] = evidence.Diagnostic
 		}
 	}
 }

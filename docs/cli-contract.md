@@ -884,8 +884,11 @@ captured immediately after provider execution; diagnosis computation is
 captured after local normalization and must not precede the attempt end. These
 measure one local call attempt, not the M003
 product metrics `time_to_diagnosis_ms` or `time_to_first_success_ms`. The latter
-begin at the deterministic journey's operation-selection event and are added
-only when that journey contract is implemented. `ready` remains reserved for
+begin at the deterministic journey's operation-selection event. `get` and
+`sync` accept an explicit credential-free `--journey-started-at` RFC3339 value;
+a successful retry or call-based JSON/CSV export also accepts the prior
+`--journey-diagnosed-at`. The CLI captures first success at the provider-call
+boundary and rejects malformed or reversed explicit timestamps. `ready` remains reserved for
 an operation-scoped, versioned validation pass in the reviewed Registry
 contract. A local `call_succeeded` result is
 limited to its declared scope (`transport`, `provider_response`, and

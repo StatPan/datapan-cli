@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -88,60 +90,78 @@ func TestReviewedDiagnosticFixturesRemainByteExactAndSchemaValid(t *testing.T) {
 	}
 }
 
-// These seven contracts are the product journey: an exact discovery subject,
-// a bounded diagnosis, one next action, safe local reproduction, and a reusable
-// JSON/CSV result after the local call succeeds. They intentionally exercise
-// the two outage variants separately and do not treat fixtures as runtime facts.
+// These seven cases cross the real command boundary. Helper-only assembly is
+// insufficient evidence for the product journey because it can bypass
+// discovery, provider execution, serialization, retry, and export behavior.
 func TestDiagnosticDiscoveryToReusableExportJourneys(t *testing.T) {
 	cases := []struct {
-		name         string
-		code         string
-		corroborated bool
-		wantAction   string
-		wantAvoid    string
+		name       string
+		status     int
+		wantCode   string
+		wantAction string
 	}{
-		{"approval required", "approval_required", false, "apply_for_operation", "reissue_credential"},
-		{"approval propagating", "approval_propagating", false, "wait_for_approval_sync", "reissue_credential"},
-		{"credential invalid", "credential_invalid", false, "verify_credential_configuration", "assume_provider_outage"},
-		{"invalid input", "invalid_input", false, "verify_request_parameters", "assume_provider_outage"},
-		{"rate limited", "rate_limited", false, "retry_with_backoff", "retry_immediately"},
-		{"provider outage response only", "provider_outage", false, "check_provider_status", ""},
-		{"provider outage corroborated", "provider_outage", true, "check_provider_status", "reissue_credential"},
-	}
-	plan := diagnosticTestPlan()
-	startedAt := time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)
-	diagnosisAt := startedAt.Add(250 * time.Millisecond)
-	firstSuccessAt := startedAt.Add(1250 * time.Millisecond)
-	subject, ok := diagnosticSubjectForPlan(plan)
-	if !ok || subject.DatasetID != "15095335" || len(subject.OperationID) != 64 {
-		t.Fatalf("unstable discovery subject: %#v ok=%v", subject, ok)
+		{"bad request", 400, "invalid_input", "verify_request_parameters"},
+		{"unauthorized remains unknown", 401, "unknown", "gather_more_evidence"},
+		{"forbidden remains unknown", 403, "unknown", "gather_more_evidence"},
+		{"not found remains unknown", 404, "unknown", "gather_more_evidence"},
+		{"rate limited", 429, "rate_limited", "retry_with_backoff"},
+		{"provider unavailable", 503, "provider_outage", "check_provider_status"},
+		{"provider gateway failure", 502, "provider_outage", "check_provider_status"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := exactDiagnosticResult(tc.code, tc.corroborated)
-			if result.Code != tc.code || len(result.Recommended) != 1 || result.Recommended[0].ActionID != tc.wantAction {
-				t.Fatalf("diagnosis/next action = %#v", result)
-			}
-			if tc.wantAvoid == "" {
-				if len(result.Avoid) != 0 {
-					t.Fatalf("unexpected avoid action: %#v", result.Avoid)
+			for _, args := range [][]string{{"search", "기상", "--json"}, {"show", "15084084", "--json"}} {
+				code, stdout, stderr := runTest(args, nil, nil)
+				if code != exitOK || stderr != "" || !strings.Contains(stdout, `"15084084"`) {
+					t.Fatalf("discovery args=%v code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
 				}
-			} else if len(result.Avoid) != 1 || result.Avoid[0].ActionID != tc.wantAvoid {
-				t.Fatalf("avoid action = %#v", result.Avoid)
 			}
-			handoff := reviewedSuccessfulHandoff(plan, false, true)
-			handoff.Metrics = diagnosticJourneyMetricsFrom(startedAt, diagnosisAt, firstSuccessAt)
-			if handoff == nil || handoff.Result.Code != "unknown" {
-				t.Fatalf("HTTP success must remain unvalidated: %#v", handoff)
+
+			journeyStartedAt := time.Now().UTC().Add(-time.Second)
+			journeyStart := journeyStartedAt.Format(time.RFC3339Nano)
+			failureClient := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: tc.status, Header: make(http.Header), Body: http.NoBody}, nil
+			})
+			failureArgs := []string{"get", "15084084", "--json", "--journey-started-at", journeyStart, "base_date=20260622", "base_time=0500"}
+			code, failureJSON, stderr := runTest(failureArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, failureClient)
+			if code != exitRequest || stderr != "" {
+				t.Fatalf("failure code=%d stdout=%s stderr=%s", code, failureJSON, stderr)
 			}
-			if handoff.Capabilities.LocalReproduction.CredentialHandling != "local_only" || handoff.Capabilities.ReusableExport.Status != "available" || strings.Join(handoff.Capabilities.ReusableExport.Formats, ",") != "json,csv" || handoff.Capabilities.ReusableExport.EvidenceLevel != "parseable_transport_result" || handoff.Capabilities.ReusableExport.SemanticValidation != "not_proven" {
-				t.Fatalf("local/export handoff = %#v", handoff.Capabilities)
+			var failed struct {
+				Failure struct {
+					Diagnostic *localDiagnosticOutcome `json:"diagnostic"`
+				} `json:"failure"`
 			}
-			if handoff.Capabilities.PublicHealth.Status != "unavailable" || handoff.Capabilities.PublicHealth.Reason != "health_identity_dependency_unavailable" {
-				t.Fatalf("health dependency boundary = %#v", handoff.Capabilities.PublicHealth)
+			if err := json.Unmarshal([]byte(failureJSON), &failed); err != nil {
+				t.Fatal(err)
 			}
-			if handoff.Metrics == nil || handoff.Metrics.TimeToDiagnosisMS == nil || *handoff.Metrics.TimeToDiagnosisMS != 250 || handoff.Metrics.TimeToFirstSuccessMS == nil || *handoff.Metrics.TimeToFirstSuccessMS != 1250 {
-				t.Fatalf("credential-free journey metrics = %#v", handoff.Metrics)
+			diagnostic := failed.Failure.Diagnostic
+			if diagnostic == nil || diagnostic.ConsumerHandoff == nil || diagnostic.ConsumerHandoff.Result.Code != tc.wantCode || len(diagnostic.ConsumerHandoff.Result.Recommended) != 1 || diagnostic.ConsumerHandoff.Result.Recommended[0].ActionID != tc.wantAction {
+				t.Fatalf("runtime diagnosis/next action = %#v", diagnostic)
+			}
+			if diagnostic.ConsumerHandoff.Metrics == nil || diagnostic.ConsumerHandoff.Metrics.TimeToDiagnosisMS == nil || diagnostic.ConsumerHandoff.Metrics.TimeToFirstSuccessMS != nil || strings.Contains(failureJSON, "journey-secret") {
+				t.Fatalf("failure journey metrics/redaction = %#v output=%s", diagnostic.ConsumerHandoff.Metrics, failureJSON)
+			}
+			diagnosedAt := diagnostic.Timing.DiagnosisComputedAt
+
+			successClient := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"rows":[{"value":1}]}`))}, nil
+			})
+			journeyFlags := []string{"--journey-started-at", journeyStart, "--journey-diagnosed-at", diagnosedAt}
+			successArgs := append([]string{"get", "15084084", "--json"}, journeyFlags...)
+			successArgs = append(successArgs, "base_date=20260622", "base_time=0500")
+			code, successJSON, stderr := runTest(successArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, successClient)
+			if code != exitOK || stderr != "" || !strings.Contains(successJSON, `"time_to_diagnosis_ms":`) || !strings.Contains(successJSON, `"time_to_first_success_ms":`) || strings.Contains(successJSON, "journey-secret") {
+				t.Fatalf("successful retry code=%d stdout=%s stderr=%s", code, successJSON, stderr)
+			}
+
+			for _, format := range []string{"json", "csv"} {
+				exportArgs := append([]string{"export", "--format", format, "--json", "15084084"}, journeyFlags...)
+				exportArgs = append(exportArgs, "base_date=20260622", "base_time=0500")
+				code, exportJSON, stderr := runTest(exportArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "journey-secret"}, successClient)
+				if code != exitOK || stderr != "" || !strings.Contains(exportJSON, `"diagnostic":`) || !strings.Contains(exportJSON, `"time_to_first_success_ms":`) || strings.Contains(exportJSON, "journey-secret") {
+					t.Fatalf("%s export code=%d stdout=%s stderr=%s", format, code, exportJSON, stderr)
+				}
 			}
 		})
 	}
@@ -251,6 +271,66 @@ func TestDiagnosticSubjectApplicationAndRedactionBoundary(t *testing.T) {
 	}
 	if handoff.Contract.SchemaSHA256 != diagnosticSchemaSHA256 || handoff.Contract.MappingSHA256 != diagnosticMappingSHA256 {
 		t.Fatal("contract digest drift")
+	}
+}
+
+func TestDiagnosticConsumerHandoffDocumentsExactConsumedAndUnsupportedFields(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "diagnostic-consumer-handoff.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(doc)
+	for _, required := range []string{
+		"## Exact Web field policy", "contract", "subject", "result", "capabilities.dataset_application",
+		"capabilities.local_reproduction", "capabilities.reusable_export", "capabilities.public_health",
+		"time_to_diagnosis_ms", "time_to_first_success_ms", "ignored by Web", "unsupported handoff inputs",
+		"Unknown additive fields", "affected projection", "--journey-started-at", "--journey-diagnosed-at",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("consumer field policy missing %q", required)
+		}
+	}
+}
+
+func TestSyncCommandCarriesExplicitJourneyMetricsAcrossFailureAndSuccess(t *testing.T) {
+	startedAt := time.Now().UTC().Add(-time.Second).Format(time.RFC3339Nano)
+	failureClient := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header), Body: http.NoBody}, nil
+	})
+	base := []string{"sync", "15084084", "--json", "--journey-started-at", startedAt, "base_date=20260622", "base_time=0500"}
+	code, failedJSON, stderr := runTest(append(append([]string{}, base...), "--output-dir", filepath.Join(t.TempDir(), "failed")), fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "sync-secret"}, failureClient)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("failed sync code=%d stdout=%s stderr=%s", code, failedJSON, stderr)
+	}
+	var failed struct {
+		Failure struct {
+			Diagnostic *localDiagnosticOutcome `json:"diagnostic"`
+		} `json:"failure"`
+	}
+	if err := json.Unmarshal([]byte(failedJSON), &failed); err != nil || failed.Failure.Diagnostic == nil || failed.Failure.Diagnostic.ConsumerHandoff == nil || failed.Failure.Diagnostic.ConsumerHandoff.Metrics == nil {
+		t.Fatalf("failed sync metrics missing: err=%v value=%#v", err, failed)
+	}
+	diagnosedAt := failed.Failure.Diagnostic.Timing.DiagnosisComputedAt
+	successClient := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"rows":[{"value":1}]}`))}, nil
+	})
+	successArgs := []string{"sync", "15084084", "--json", "--journey-started-at", startedAt, "--journey-diagnosed-at", diagnosedAt, "--output-dir", filepath.Join(t.TempDir(), "success"), "base_date=20260622", "base_time=0500"}
+	code, successJSON, stderr := runTest(successArgs, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "sync-secret"}, successClient)
+	if code != exitOK || stderr != "" || !strings.Contains(successJSON, `"time_to_diagnosis_ms":`) || !strings.Contains(successJSON, `"time_to_first_success_ms":`) || strings.Contains(successJSON, "sync-secret") {
+		t.Fatalf("successful sync code=%d stdout=%s stderr=%s", code, successJSON, stderr)
+	}
+}
+
+func TestJourneyTimestampFlagsFailClosed(t *testing.T) {
+	for _, args := range [][]string{
+		{"get", "15084084", "--json", "--journey-started-at", "not-a-time"},
+		{"get", "15084084", "--json", "--journey-diagnosed-at", "2026-07-16T00:00:01Z"},
+		{"get", "15084084", "--json", "--journey-started-at", "2026-07-16T00:00:02Z", "--journey-diagnosed-at", "2026-07-16T00:00:01Z"},
+	} {
+		code, stdout, stderr := runTest(args, nil, nil)
+		if code != exitUsage || stdout != "" || stderr == "" {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout, stderr)
+		}
 	}
 }
 
