@@ -46,7 +46,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           $suffix = if ($IsWindows) { ".exe" } else { "" }
-          ./scripts/smoke-registry-journey.ps1 -Datapan "dist/datapan$suffix" -KeepWorkDir -WorkDir registry-journey
+          ./scripts/smoke-registry-journey.ps1 -Datapan "dist/datapan$suffix" -KeepWorkDir -WorkDir registry-journey -DistributionAttempts 3 -DistributionRetryDelaySeconds 2
 
       - name: Upload journey evidence
         if: always()
