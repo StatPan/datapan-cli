@@ -9015,6 +9015,7 @@ type executionFailure struct {
 	Reason               string                  `json:"reason"`
 	Retryable            bool                    `json:"retryable"`
 	NextSteps            []string                `json:"next_steps"`
+	Diagnostic           *localDiagnosticOutcome `json:"diagnostic,omitempty"`
 	RegistryRouting      *registryFailureRouting `json:"registry_routing,omitempty"`
 	RegistryRoutingError string                  `json:"registry_routing_error,omitempty"`
 }
@@ -9367,7 +9368,7 @@ func classifyRegistryTrustFailure(trust registryTrustContext) executionFailure {
 	return executionFailure{Category: "compatibility", Reason: reason, Retryable: false, NextSteps: steps}
 }
 
-func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryTrustContext, verification operationVerificationContext, plan requestPlan) map[string]any {
+func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryTrustContext, verification operationVerificationContext, plan requestPlan, startedAt, completedAt time.Time) map[string]any {
 	payload := map[string]any{
 		"ok":              envelope.OK,
 		"provider":        envelope.Provider,
@@ -9391,7 +9392,10 @@ func responseEnvelopeWithTrust(envelope datago.ResponseEnvelope, trust registryT
 	}
 	if !envelope.OK {
 		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), plan, &envelope, nil)
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: startedAt, EndedAt: completedAt})
 		payload["failure"] = failure
+	} else {
+		payload["diagnostic"] = localReadyDiagnosis(envelope, startedAt, completedAt)
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
 		payload["evidence_warning"] = warning
@@ -9698,6 +9702,15 @@ func registryClassificationCategory(classification, fallback string) string {
 
 func printExecutionFailureBrief(w io.Writer, failure executionFailure) {
 	fmt.Fprintf(w, "failure: %s (%s)\n", failure.Category, failure.Reason)
+	if diagnostic := failure.Diagnostic; diagnostic != nil {
+		fmt.Fprintf(w, "  diagnosis: %s (responsible=%s, evidence=%s)\n", diagnostic.Code, diagnostic.ResponsibleParty, diagnostic.EvidenceState)
+		for _, action := range diagnostic.RecommendedActions {
+			fmt.Fprintf(w, "  action: %s\n", action)
+		}
+		for _, action := range diagnostic.ProhibitedActions {
+			fmt.Fprintf(w, "  avoid: %s\n", action)
+		}
+	}
 	if failure.RegistryRouting != nil {
 		fmt.Fprintf(w, "  Registry rule: %s (%s, %s)\n", failure.RegistryRouting.RuleID, failure.RegistryRouting.Classification, failure.RegistryRouting.Severity)
 	} else if failure.RegistryRoutingError != "" {
@@ -10585,9 +10598,12 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		return exitOK
 	}
 
+	diagnosisStartedAt := time.Now().UTC()
 	respPayload, err := a.execute(reqPlan)
+	diagnosisCompletedAt := time.Now().UTC()
 	if err != nil {
 		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		if jsonOut || exportMode {
 			if code := a.writeJSON(map[string]any{
 				"ok":             false,
@@ -10610,7 +10626,7 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 		return a.fail(exitRequest, "%s", safeExecutionError(err, reqPlan))
 	}
 	if jsonOut || exportMode {
-		if code := a.writeJSON(responseEnvelopeWithTrust(respPayload, trust, verification, reqPlan)); code != exitOK {
+		if code := a.writeJSON(responseEnvelopeWithTrust(respPayload, trust, verification, reqPlan, diagnosisStartedAt, diagnosisCompletedAt)); code != exitOK {
 			return code
 		}
 		if !respPayload.OK {
@@ -10622,7 +10638,9 @@ func (a app) call(args []string, jsonOut bool, exportMode bool) int {
 	printVerificationBrief(a.stderr, verification)
 	fmt.Fprintln(a.stdout, respPayload.Body)
 	if !respPayload.OK {
-		printExecutionFailureBrief(a.stderr, applyRegistryFailureRouting(classifyResponseFailure(respPayload), reqPlan, &respPayload, nil))
+		failure := applyRegistryFailureRouting(classifyResponseFailure(respPayload), reqPlan, &respPayload, nil)
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &respPayload, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		printExecutionFailureBrief(a.stderr, failure)
 		return exitRequest
 	}
 	return exitOK
@@ -11168,9 +11186,12 @@ func (a app) sync(args []string, jsonOut bool) int {
 	}
 	reqPlan.Timeout = timeout
 	verification := verificationContextForOperation(installedOperationVerificationIndex(), reqPlan.Spec, reqPlan.Operation)
+	diagnosisStartedAt := time.Now().UTC()
 	envelope, err := a.execute(reqPlan)
+	diagnosisCompletedAt := time.Now().UTC()
 	if err != nil {
 		failure := applyRegistryFailureRouting(classifyExecutionError(err), reqPlan, nil, err)
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
 		if jsonOut {
 			if code := a.writeJSON(map[string]any{
 				"ok":             false,
@@ -11234,7 +11255,11 @@ func (a app) sync(args []string, jsonOut bool) int {
 		},
 	}
 	if !envelope.OK {
-		payload["failure"] = applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
+		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		payload["failure"] = failure
+	} else {
+		payload["diagnostic"] = localReadyDiagnosis(envelope, diagnosisStartedAt, diagnosisCompletedAt)
 	}
 	if warning := verificationEvidenceWarning(verification); warning != nil {
 		payload["evidence_warning"] = warning
@@ -11265,7 +11290,9 @@ func (a app) sync(args []string, jsonOut bool) int {
 		fmt.Fprintf(a.stdout, "  %s: %s\n", file.Kind, file.Path)
 	}
 	if !envelope.OK {
-		printExecutionFailureBrief(a.stderr, applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil))
+		failure := applyRegistryFailureRouting(classifyResponseFailure(envelope), reqPlan, &envelope, nil)
+		failure = attachLocalDiagnosis(localDiagnosticEvidence{Failure: failure, Envelope: &envelope, StartedAt: diagnosisStartedAt, EndedAt: diagnosisCompletedAt})
+		printExecutionFailureBrief(a.stderr, failure)
 		return exitRequest
 	}
 	return exitOK
