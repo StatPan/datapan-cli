@@ -51,6 +51,7 @@ type ImportResult struct {
 	TotalCount   int    `json:"total_count"`
 	SpecsWritten int    `json:"specs_written"`
 	Operations   int    `json:"operations"`
+	Timeout      string `json:"timeout,omitempty"`
 	Retries      int    `json:"retries,omitempty"`
 	FailedPage   int    `json:"failed_page,omitempty"`
 }
