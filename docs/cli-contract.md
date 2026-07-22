@@ -132,6 +132,30 @@ as `latest_fetch_failed`. An active env or custom registry must not be compared
 against unrelated default-install provenance. It should not print credential
 values.
 
+## Post-Publication Consumer Smoke Receipt
+
+`schemas/datapan.registry-consumer-smoke-receipt.v1.schema.json` defines the
+consumer-owned record for a future post-publication compatibility smoke. It
+binds the immutable CLI revision, the exact `StatPan/datapan-registry` Hugging
+Face Dataset revision, Registry and manifest SHA-256 values, installation and
+doctor outcomes, observation time, and an explicit rollback state.
+
+This schema does not add a smoke command or a Registry release gate. Its
+offline fixtures are marked `evidence_class:"fixture"` and must state
+`completion_evidence:false`, no network access, and no install or doctor
+execution. They are contract tests only, never evidence that a Registry
+revision was published, installed, compatible, or rolled back.
+
+Only an `evidence_class:"observed"` receipt with completion evidence may enter
+a later admission step. That step must supply its own reference time and
+maximum age, reject malformed, future, or stale `observed_at` values, and
+accept no fixture. A compatible observed receipt requires
+`rollback.state:"not_required"`. A failed observed receipt must either name
+one immutable rollback revision or remain `manual_hold` with
+`rollback.state:"no_safe_target"`; the latter is not a successful rollback.
+Registry may consume the completed receipt bytes later, but it must not check
+out, build, or execute this CLI contract.
+
 `datapan search --json`, `datapan list --json`, and `datapan ls --json` must
 include per-result `examples` for immediate next steps: `show`, `use`, `kit`,
 `params`, `get`, `curl`, `postman`, `openapi`, `codegen_go`, `codegen_node`,

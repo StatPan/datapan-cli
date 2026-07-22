@@ -56,6 +56,7 @@ func TestSchemaFilesAreValidJSON(t *testing.T) {
 		"datapan.runtime-evidence-growth.v1.schema.json",
 		"datapan.registry-shards.v1.schema.json",
 		"datapan.registry-install.v1.schema.json",
+		"datapan.registry-consumer-smoke-receipt.v1.schema.json",
 		"datapan.generated-artifact-provenance.v1.schema.json",
 		"datapan.release-manifest.v1.schema.json",
 		"datapan.release-verification.v1.schema.json",

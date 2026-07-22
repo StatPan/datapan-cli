@@ -1,0 +1,41 @@
+{
+  "schema_version": "datapan.registry-consumer-smoke-receipt.v1",
+  "receipt_id": "offline-incompatible-no-safe-target-fixture",
+  "observed_at": "2026-07-22T00:00:00Z",
+  "evidence_class": "fixture",
+  "completion_evidence": false,
+  "cli": {
+    "revision": "1111111111111111111111111111111111111111",
+    "version": "v0.0.0-fixture"
+  },
+  "registry": {
+    "distribution": "huggingface_dataset",
+    "dataset_id": "StatPan/datapan-registry",
+    "revision": "2222222222222222222222222222222222222222",
+    "registry_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "install": {
+    "execution": "not_run",
+    "result": "not_run",
+    "network_access": "none",
+    "reason_code": "fixture_install_failure"
+  },
+  "doctor": {
+    "execution": "not_run",
+    "result": "not_observed",
+    "reason_code": "fixture_install_failed"
+  },
+  "outcome": {
+    "status": "contract_validated",
+    "reason_code": "fixture_contract_only"
+  },
+  "rollback": {
+    "state": "not_required"
+  },
+  "redaction": {
+    "credentials_removed": true,
+    "query_values_removed": true,
+    "response_rows_removed": true
+  }
+}

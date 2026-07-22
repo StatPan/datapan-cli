@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.datapan.dev/datapan.registry-consumer-smoke-receipt.v1.schema.json",
+  "title": "Datapan Registry Consumer Smoke Receipt v1",
+  "description": "A redacted consumer-owned compatibility receipt for one immutable published datapan-registry Hugging Face Dataset revision. Offline fixtures validate this contract only; they cannot claim installation, doctor execution, compatibility, publication, or rollback evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "observed_at",
+    "evidence_class",
+    "completion_evidence",
+    "cli",
+    "registry",
+    "install",
+    "doctor",
+    "outcome",
+    "rollback",
+    "redaction"
+  ],
+  "properties": {
+    "schema_version": { "const": "datapan.registry-consumer-smoke-receipt.v1" },
+    "receipt_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "evidence_class": { "enum": ["fixture", "observed"] },
+    "completion_evidence": { "type": "boolean" },
+    "cli": { "$ref": "#/$defs/cli" },
+    "registry": { "$ref": "#/$defs/registry" },
+    "install": { "$ref": "#/$defs/install" },
+    "doctor": { "$ref": "#/$defs/doctor" },
+    "outcome": { "$ref": "#/$defs/outcome" },
+    "rollback": { "$ref": "#/$defs/rollback" },
+    "redaction": { "$ref": "#/$defs/redaction" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "evidence_class": { "const": "fixture" } }, "required": ["evidence_class"] },
+      "then": {
+        "properties": {
+          "completion_evidence": { "const": false },
+          "install": {
+            "properties": {
+              "execution": { "const": "not_run" },
+              "result": { "const": "not_run" },
+              "network_access": { "const": "none" }
+            }
+          },
+          "doctor": {
+            "properties": {
+              "execution": { "const": "not_run" },
+              "result": { "const": "not_observed" }
+            }
+          },
+          "outcome": { "properties": { "status": { "const": "contract_validated" } } },
+          "rollback": { "properties": { "state": { "const": "not_required" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "evidence_class": { "const": "observed" } }, "required": ["evidence_class"] },
+      "then": {
+        "properties": {
+          "completion_evidence": { "const": true },
+          "install": {
+            "properties": {
+              "execution": { "const": "completed" },
+              "network_access": { "const": "published_registry_only" }
+            }
+          },
+          "outcome": { "properties": { "status": { "enum": ["compatible", "failed", "manual_hold"] } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "properties": { "status": { "const": "compatible" } }, "required": ["status"] } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "install": { "properties": { "result": { "const": "succeeded" } } },
+          "doctor": {
+            "properties": {
+              "execution": { "const": "completed" },
+              "result": { "const": "compatible" }
+            }
+          },
+          "rollback": { "properties": { "state": { "const": "not_required" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "rollback": { "properties": { "state": { "const": "target_available" } }, "required": ["state"] } }, "required": ["rollback"] },
+      "then": { "properties": { "rollback": { "required": ["target_registry_revision"] } } }
+    },
+    {
+      "if": { "properties": { "rollback": { "properties": { "state": { "const": "no_safe_target" } }, "required": ["state"] } }, "required": ["rollback"] },
+      "then": {
+        "properties": {
+          "outcome": { "properties": { "status": { "const": "manual_hold" } } },
+          "rollback": { "not": { "required": ["target_registry_revision"] } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "rollback": { "properties": { "state": { "const": "target_available" } }, "required": ["state"] } }, "required": ["rollback"] },
+      "then": { "properties": { "outcome": { "properties": { "status": { "const": "failed" } } } } }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "immutable_revision": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "cli": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "version"],
+      "properties": {
+        "revision": { "$ref": "#/$defs/immutable_revision" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "dataset_id", "revision", "registry_sha256", "manifest_sha256"],
+      "properties": {
+        "distribution": { "const": "huggingface_dataset" },
+        "dataset_id": { "const": "StatPan/datapan-registry" },
+        "revision": { "$ref": "#/$defs/immutable_revision" },
+        "registry_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution", "result", "network_access"],
+      "properties": {
+        "execution": { "enum": ["completed", "not_run"] },
+        "result": { "enum": ["succeeded", "failed", "not_run"] },
+        "network_access": { "enum": ["none", "published_registry_only"] },
+        "reason_code": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+      }
+    },
+    "doctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution", "result"],
+      "properties": {
+        "execution": { "enum": ["not_run", "completed"] },
+        "result": { "enum": ["compatible", "incompatible", "not_observed"] },
+        "reason_code": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_code"],
+      "properties": {
+        "status": { "enum": ["contract_validated", "compatible", "failed", "manual_hold"] },
+        "reason_code": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["not_required", "target_available", "no_safe_target"] },
+        "target_registry_revision": { "$ref": "#/$defs/immutable_revision" }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentials_removed", "query_values_removed", "response_rows_removed"],
+      "properties": {
+        "credentials_removed": { "const": true },
+        "query_values_removed": { "const": true },
+        "response_rows_removed": { "const": true }
+      }
+    }
+  }
+}
