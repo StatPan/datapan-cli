@@ -1,22 +1,36 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // validateObservedRegistryConsumerSmokeReceiptAdmission checks the two
-// properties that JSON Schema cannot compare: an admission accepts only an
-// observed, completed receipt, and its observed_at must be within the
-// caller-owned reference time and maximum age. The caller must provide both
-// values; receipt producers cannot choose their own freshness window.
-func validateObservedRegistryConsumerSmokeReceiptAdmission(data []byte, referenceAt time.Time, maxAge time.Duration) error {
+// properties that JSON Schema cannot compare. It validates the complete
+// receipt schema first, then accepts only an observed, completed receipt whose
+// observed_at is within the caller-owned reference time and maximum age. The
+// caller must provide both values; receipt producers cannot choose their own
+// freshness window.
+func validateObservedRegistryConsumerSmokeReceiptAdmission(schema *jsonschema.Schema, data []byte, referenceAt time.Time, maxAge time.Duration) error {
+	if schema == nil {
+		return fmt.Errorf("registry consumer smoke admission requires schema validator")
+	}
 	if referenceAt.IsZero() {
 		return fmt.Errorf("registry consumer smoke admission requires reference time")
 	}
 	if maxAge <= 0 {
 		return fmt.Errorf("registry consumer smoke admission requires positive maximum age")
+	}
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("registry consumer smoke receipt schema validation failed")
+	}
+	if err := schema.Validate(instance); err != nil {
+		return fmt.Errorf("registry consumer smoke receipt schema validation failed")
 	}
 	var receipt struct {
 		EvidenceClass      string `json:"evidence_class"`

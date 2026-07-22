@@ -25,7 +25,7 @@ func TestRegistryConsumerSmokeReceiptFixturesAreContractOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 		validateSchemaBytesForTest(t, schema, data)
-		if err := validateObservedRegistryConsumerSmokeReceiptAdmission(data, time.Date(2026, 7, 22, 0, 10, 0, 0, time.UTC), 10*time.Minute); err == nil || !strings.Contains(err.Error(), "rejects \"fixture\" evidence") {
+		if err := validateObservedRegistryConsumerSmokeReceiptAdmission(schema, data, time.Date(2026, 7, 22, 0, 10, 0, 0, time.UTC), 10*time.Minute); err == nil || !strings.Contains(err.Error(), "rejects \"fixture\" evidence") {
 			t.Fatalf("fixture %s must not be accepted as published smoke evidence: %v", name, err)
 		}
 	}
@@ -182,10 +182,32 @@ func TestObservedRegistryConsumerSmokeReceiptSchemaBindsRollbackToOutcome(t *tes
 }
 
 func TestObservedRegistryConsumerSmokeReceiptAdmissionFailsClosed(t *testing.T) {
+	schema := compileRepositorySchemaForTest(t, "datapan.registry-consumer-smoke-receipt.v1.schema.json")
 	reference := time.Date(2026, 7, 22, 0, 10, 0, 0, time.UTC)
-	observed := func(at string) []byte {
-		return []byte(`{"evidence_class":"observed","completion_evidence":true,"observed_at":"` + at + `"}`)
+	base, err := os.ReadFile(filepath.Join("testdata", "registry-consumer-smoke-receipt", "compatible-fixture.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	observed := func(at string) []byte {
+		var payload map[string]any
+		if err := json.Unmarshal(base, &payload); err != nil {
+			t.Fatal(err)
+		}
+		payload["evidence_class"] = "observed"
+		payload["completion_evidence"] = true
+		payload["observed_at"] = at
+		payload["install"] = map[string]any{"execution": "completed", "result": "succeeded", "network_access": "published_registry_only"}
+		payload["doctor"] = map[string]any{"execution": "completed", "result": "compatible", "reason_code": "compatible"}
+		payload["outcome"] = map[string]any{"status": "compatible", "reason_code": "compatible"}
+		payload["rollback"] = map[string]any{"state": "not_required"}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	withUnknownField := observed("2026-07-22T00:00:00Z")
+	withUnknownField = append(withUnknownField[:len(withUnknownField)-1], []byte(`,"authorization":"secret-value"}`)...)
 	for _, tc := range []struct {
 		name string
 		data []byte
@@ -195,10 +217,12 @@ func TestObservedRegistryConsumerSmokeReceiptAdmissionFailsClosed(t *testing.T) 
 		{name: "future", data: observed("2026-07-22T00:10:01Z"), want: "future"},
 		{name: "stale", data: observed("2026-07-21T23:59:59Z"), want: "stale"},
 		{name: "malformed", data: observed("not-a-time"), want: "observed_at"},
-		{name: "fixture", data: []byte(`{"evidence_class":"fixture","completion_evidence":false,"observed_at":"2026-07-22T00:00:00Z"}`), want: "rejects \"fixture\" evidence"},
+		{name: "fixture", data: base, want: "rejects \"fixture\" evidence"},
+		{name: "minimal observed payload", data: []byte(`{"evidence_class":"observed","completion_evidence":true,"observed_at":"2026-07-22T00:00:00Z"}`), want: "schema validation failed"},
+		{name: "unknown secret field", data: withUnknownField, want: "schema validation failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateObservedRegistryConsumerSmokeReceiptAdmission(tc.data, reference, 10*time.Minute)
+			err := validateObservedRegistryConsumerSmokeReceiptAdmission(schema, tc.data, reference, 10*time.Minute)
 			if tc.want == "" {
 				if err != nil {
 					t.Fatalf("fresh observed receipt rejected: %v", err)
@@ -207,6 +231,9 @@ func TestObservedRegistryConsumerSmokeReceiptAdmissionFailsClosed(t *testing.T) 
 			}
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+			if err != nil && strings.Contains(err.Error(), "secret-value") {
+				t.Fatalf("admission diagnostic leaked a secret: %v", err)
 			}
 		})
 	}
