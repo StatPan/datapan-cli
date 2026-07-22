@@ -96,6 +96,40 @@
       "then": { "properties": { "rollback": { "properties": { "state": { "const": "no_safe_target" } } } } }
     },
     {
+      "if": {
+        "properties": {
+          "outcome": { "properties": { "status": { "enum": ["failed", "manual_hold"] } }, "required": ["status"] }
+        },
+        "required": ["outcome"]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "install": { "properties": { "result": { "const": "failed" } } },
+              "doctor": {
+                "properties": {
+                  "execution": { "const": "not_run" },
+                  "result": { "const": "not_observed" }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "install": { "properties": { "result": { "const": "succeeded" } } },
+              "doctor": {
+                "properties": {
+                  "execution": { "const": "completed" },
+                  "result": { "const": "incompatible" }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "if": { "properties": { "rollback": { "properties": { "state": { "const": "target_available" } }, "required": ["state"] } }, "required": ["rollback"] },
       "then": { "properties": { "rollback": { "required": ["target_registry_revision"] } } }
     },
@@ -156,7 +190,17 @@
         "execution": { "enum": ["not_run", "completed"] },
         "result": { "enum": ["compatible", "incompatible", "not_observed"] },
         "reason_code": { "type": "string", "pattern": "^[a-z0-9_]+$" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "execution": { "const": "not_run" } }, "required": ["execution"] },
+          "then": { "properties": { "result": { "const": "not_observed" } } }
+        },
+        {
+          "if": { "properties": { "execution": { "const": "completed" } }, "required": ["execution"] },
+          "then": { "properties": { "result": { "enum": ["compatible", "incompatible"] } } }
+        }
+      ]
     },
     "outcome": {
       "type": "object",

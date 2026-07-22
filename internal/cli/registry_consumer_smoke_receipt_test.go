@@ -43,6 +43,11 @@ func TestRegistryConsumerSmokeReceiptSchemaRejectsAmbiguousOrUnredactedPayloads(
 		"unredacted unknown field":            func(payload map[string]any) { payload["authorization"] = "secret-value" },
 		"missing immutable registry revision": func(payload map[string]any) { delete(payload["registry"].(map[string]any), "revision") },
 		"mutable registry revision":           func(payload map[string]any) { payload["registry"].(map[string]any)["revision"] = "main" },
+		"not run doctor claims compatibility": func(payload map[string]any) { payload["doctor"].(map[string]any)["result"] = "compatible" },
+		"completed doctor lacks observation": func(payload map[string]any) {
+			payload["doctor"].(map[string]any)["execution"] = "completed"
+			payload["doctor"].(map[string]any)["result"] = "not_observed"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var payload map[string]any
@@ -179,6 +184,28 @@ func TestObservedRegistryConsumerSmokeReceiptSchemaBindsRollbackToOutcome(t *tes
 				payload["doctor"] = map[string]any{"execution": "not_run", "result": "not_observed"}
 				payload["outcome"] = map[string]any{"status": "manual_hold", "reason_code": "no_safe_target"}
 				payload["rollback"] = map[string]any{"state": "not_required"}
+			},
+		},
+		{
+			name: "failed receipt cannot pair compatible doctor with rollback target",
+			mutate: func(payload map[string]any) {
+				payload["evidence_class"] = "observed"
+				payload["completion_evidence"] = true
+				payload["install"] = map[string]any{"execution": "completed", "result": "succeeded", "network_access": "published_registry_only"}
+				payload["doctor"] = map[string]any{"execution": "completed", "result": "compatible"}
+				payload["outcome"] = map[string]any{"status": "failed", "reason_code": "incompatible"}
+				payload["rollback"] = map[string]any{"state": "target_available", "target_registry_revision": "3333333333333333333333333333333333333333"}
+			},
+		},
+		{
+			name: "manual hold cannot pair compatible doctor with no safe target",
+			mutate: func(payload map[string]any) {
+				payload["evidence_class"] = "observed"
+				payload["completion_evidence"] = true
+				payload["install"] = map[string]any{"execution": "completed", "result": "succeeded", "network_access": "published_registry_only"}
+				payload["doctor"] = map[string]any{"execution": "completed", "result": "compatible"}
+				payload["outcome"] = map[string]any{"status": "manual_hold", "reason_code": "no_safe_target"}
+				payload["rollback"] = map[string]any{"state": "no_safe_target"}
 			},
 		},
 	} {
