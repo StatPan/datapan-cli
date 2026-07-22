@@ -159,6 +159,28 @@ func TestObservedRegistryConsumerSmokeReceiptSchemaBindsRollbackToOutcome(t *tes
 				payload["rollback"] = map[string]any{"state": "not_required"}
 			},
 		},
+		{
+			name: "failed observed receipt cannot omit rollback target",
+			mutate: func(payload map[string]any) {
+				payload["evidence_class"] = "observed"
+				payload["completion_evidence"] = true
+				payload["install"] = map[string]any{"execution": "completed", "result": "succeeded", "network_access": "published_registry_only"}
+				payload["doctor"] = map[string]any{"execution": "completed", "result": "incompatible"}
+				payload["outcome"] = map[string]any{"status": "failed", "reason_code": "incompatible"}
+				payload["rollback"] = map[string]any{"state": "not_required"}
+			},
+		},
+		{
+			name: "manual hold cannot claim rollback not required",
+			mutate: func(payload map[string]any) {
+				payload["evidence_class"] = "observed"
+				payload["completion_evidence"] = true
+				payload["install"] = map[string]any{"execution": "completed", "result": "failed", "network_access": "published_registry_only"}
+				payload["doctor"] = map[string]any{"execution": "not_run", "result": "not_observed"}
+				payload["outcome"] = map[string]any{"status": "manual_hold", "reason_code": "no_safe_target"}
+				payload["rollback"] = map[string]any{"state": "not_required"}
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var payload map[string]any

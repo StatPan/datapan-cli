@@ -88,6 +88,14 @@
       }
     },
     {
+      "if": { "properties": { "outcome": { "properties": { "status": { "const": "failed" } }, "required": ["status"] } }, "required": ["outcome"] },
+      "then": { "properties": { "rollback": { "properties": { "state": { "const": "target_available" } } } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "properties": { "status": { "const": "manual_hold" } }, "required": ["status"] } }, "required": ["outcome"] },
+      "then": { "properties": { "rollback": { "properties": { "state": { "const": "no_safe_target" } } } } }
+    },
+    {
       "if": { "properties": { "rollback": { "properties": { "state": { "const": "target_available" } }, "required": ["state"] } }, "required": ["rollback"] },
       "then": { "properties": { "rollback": { "required": ["target_registry_revision"] } } }
     },
