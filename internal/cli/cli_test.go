@@ -3853,6 +3853,9 @@ func TestCatalogImportWritesRegistry(t *testing.T) {
 	if !strings.Contains(stdout, `"specs_written": 2`) || !strings.Contains(stdout, `"operations": 2`) {
 		t.Fatalf("expected import summary: %s", stdout)
 	}
+	if strings.Contains(stdout, `"timeout"`) {
+		t.Fatalf("default import output must remain unchanged: %s", stdout)
+	}
 	data, err := osReadFile(tmp)
 	if err != nil {
 		t.Fatal(err)
@@ -4005,6 +4008,39 @@ func TestCatalogImportTimeoutExpandsForLinkDetailEnrichment(t *testing.T) {
 	}
 	if got := catalogImportTimeout(true, 0); got != 30*time.Minute {
 		t.Fatalf("full enrichment timeout=%v", got)
+	}
+}
+
+func TestCatalogImportAcceptsExplicitTimeoutAndRecordsIt(t *testing.T) {
+	tmp := t.TempDir() + "/registry.json"
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"currentCount":0,"data":[],"page":1,"perPage":100,"totalCount":0}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	code, stdout, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", tmp, "--timeout", "10m", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		client,
+	)
+	if code != exitOK {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"timeout": "10m0s"`) {
+		t.Fatalf("expected explicit timeout evidence: %s", stdout)
+	}
+}
+
+func TestCatalogImportRejectsInvalidTimeout(t *testing.T) {
+	code, _, stderr := runTest(
+		[]string{"catalog", "import", "data-go-kr", "--output", "registry.json", "--timeout", "0", "--json"},
+		fakeEnv{"DATA_PORTAL_API_KEY": "secret-value"},
+		nil,
+	)
+	if code != exitUsage || !strings.Contains(stderr, "--timeout requires a positive duration") {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 }
 

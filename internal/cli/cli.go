@@ -992,9 +992,10 @@ func (a app) catalog(args []string, jsonOut bool) int {
 
 func (a app) catalogImport(args []string, jsonOut bool) int {
 	if len(args) == 0 || args[0] != "data-go-kr" {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--timeout DURATION] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]")
 	}
 	args = args[1:]
+	timeoutProvided := hasAnyArg(args, "--timeout")
 	all, args := consumeBool(args, "--all")
 	enrichLinkDetails, args := consumeBool(args, "--enrich-link-details")
 	output, args, err := consumeString(args, "--output", defaultRegistryPath)
@@ -1047,8 +1048,12 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	timeout, args, err := consumeDuration(args, "--timeout", catalogImportTimeout(enrichLinkDetails, enrichLimit))
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if len(args) != 0 {
-		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]")
+		return a.fail(exitUsage, "usage: datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--timeout DURATION] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]")
 	}
 	if jsonOut && output == "-" {
 		return a.fail(exitUsage, "use --output PATH with --json; --output - writes the registry JSON to stdout")
@@ -1067,7 +1072,7 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		}
 		return a.fail(exitAuth, "missing data.go.kr API key; set one of: %s", strings.Join(datago.KeyEnvNames, ", "))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), catalogImportTimeout(enrichLinkDetails, enrichLimit))
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	rows, result, err := datago.FetchDataGoKrOpenDataList(ctx, a.http, datago.ImportOptions{
 		ServiceKey: key,
@@ -1082,24 +1087,31 @@ func (a app) catalogImport(args []string, jsonOut bool) int {
 		Retries:    retries,
 		RetryDelay: time.Duration(retryDelayMS) * time.Millisecond,
 	})
+	if timeoutProvided {
+		result.Timeout = timeout.String()
+	}
 	if err != nil {
 		if jsonOut {
+			catalogImport := map[string]any{
+				"provider":      result.Provider,
+				"source_url":    result.SourceURL,
+				"page":          result.Page,
+				"per_page":      result.PerPage,
+				"pages_fetched": result.PagesFetched,
+				"max_pages":     result.MaxPages,
+				"rows_fetched":  result.RowsFetched,
+				"total_count":   result.TotalCount,
+				"retries":       result.Retries,
+				"failed_page":   result.FailedPage,
+			}
+			if timeoutProvided {
+				catalogImport["timeout"] = timeout.String()
+			}
 			if code := a.writeJSON(map[string]any{
-				"ok":      false,
-				"error":   "request_failed",
-				"message": err.Error(),
-				"catalog_import": map[string]any{
-					"provider":      result.Provider,
-					"source_url":    result.SourceURL,
-					"page":          result.Page,
-					"per_page":      result.PerPage,
-					"pages_fetched": result.PagesFetched,
-					"max_pages":     result.MaxPages,
-					"rows_fetched":  result.RowsFetched,
-					"total_count":   result.TotalCount,
-					"retries":       result.Retries,
-					"failed_page":   result.FailedPage,
-				},
+				"ok":             false,
+				"error":          "request_failed",
+				"message":        err.Error(),
+				"catalog_import": catalogImport,
 			}); code != exitOK {
 				return code
 			}
@@ -12953,7 +12965,7 @@ Usage:
   datapan verify --ref REF --operation NAME --health [--timeout DURATION] [--output PATH] [--json]
   datapan list [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
   datapan ls [query] [--org NAME] [--category NAME] [--priority P0] [--provider NAME] [--callable] [--call-ready] [--json] [--limit N]
-  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
+  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--timeout DURATION] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
   datapan catalog update data-go-kr [--registry PATH] [--apply] [--backup] [--diff-limit N] [--retries N] [--retry-delay-ms N] [--enrich-link-details] [--enrich-limit N] [--json]
   datapan catalog enrich link-details [--registry PATH] [--output PATH|-] [--limit N] [--json]
   datapan catalog install datapan-registry [--registry PATH] [--url URL] [--release-url URL] [--json]
@@ -13175,7 +13187,7 @@ Operate on registry artifacts, release evidence, and repeatable catalog
 snapshots.`, true
 	case "catalog import":
 		return `Usage:
-  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
+  datapan catalog import data-go-kr [--output PATH|-] [--page N] [--per-page N] [--pages N|--all] [--max-pages N] [--retries N] [--retry-delay-ms N] [--timeout DURATION] [--query TEXT] [--org NAME] [--category NAME] [--enrich-link-details] [--enrich-limit N] [--json]
 
 Import data.go.kr catalog metadata into Datapan's normalized registry format.
 Use --enrich-link-details to fetch data.go.kr detail pages for LINK rows that
