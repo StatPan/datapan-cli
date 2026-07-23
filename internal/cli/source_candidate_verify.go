@@ -66,6 +66,7 @@ type sourceCandidateVerification struct {
 	Bounded              bool                    `json:"bounded"`
 	CredentialConfigured bool                    `json:"credential_configured"`
 	CredentialEnvNames   []string                `json:"credential_env_names"`
+	CredentialGroup      string                  `json:"credential_group"`
 	Summary              map[string]int          `json:"summary"`
 	Results              []sourceCandidateResult `json:"results"`
 	Redaction            map[string]bool         `json:"redaction"`
@@ -144,7 +145,7 @@ func (a app) sourceCandidateVerify(args []string, jsonOut bool) int {
 	report := sourceCandidateVerification{
 		SchemaVersion: "datapan.source-candidate-verification.v1", GeneratedAt: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
 		SourceID: profile.SourceID, Provider: profile.Provider, SourceProfile: profilePath, CandidateBatch: candidatePath,
-		Bounded: true, CredentialConfigured: credential != "", CredentialEnvNames: envs, Summary: summary, Results: results,
+		Bounded: true, CredentialConfigured: credential != "", CredentialEnvNames: envs, CredentialGroup: "explicit_generic_source", Summary: summary, Results: results,
 		Redaction: map[string]bool{"secret_values_present": false, "secret_hashes_present": false, "request_urls_present": false, "response_bodies_present": false},
 	}
 	if output != "" {
