@@ -5638,7 +5638,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	providerRegistry, _ := providers.DefaultRegistry()
 	for _, candidate := range candidates {
 		if adapter, ok := providerRegistry.MatchHost(candidate.EndpointHost); ok && (candidate.DependencyClass == "external_endpoint" || candidate.DependencyClass == "service_root") {
-			keyName, key, _ := a.resolveKeyValue()
+			credential, _ := a.credentialForGroup(credentialGroupForAdapter(adapter))
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			started := time.Now()
 			result := adapter.Verify(ctx, providers.VerificationRequest{
@@ -5646,14 +5646,14 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 				Operation:     candidate.Operation,
 				Params:        candidate.Params,
 				MissingParams: candidate.MissingParams,
-				Credential:    providers.Credential{Name: keyName, Value: key},
+				Credential:    credential,
 				HTTP:          a.http,
 				VerifiedAt:    generatedAt,
 			})
 			result.DurationMS = time.Since(started).Milliseconds()
 			cancel()
-			result.Reason = redactCredentialText(result.Reason, key)
-			result.URL = redactCredentialText(result.URL, key)
+			result.Reason = redactCredentialText(result.Reason, credential.Value)
+			result.URL = redactCredentialText(result.URL, credential.Value)
 			result.Params = publicProbeParams(result.Params)
 			if result.Reason == "missing_auth" {
 				authMissing = true
@@ -8725,8 +8725,11 @@ func (a app) resolveOne(ref string, jsonOut bool) (datago.Spec, int, bool) {
 func (a app) auth(args []string, jsonOut bool) int {
 	localJSON, args := consumeBool(args, "--json")
 	jsonOut = jsonOut || localJSON
+	if len(args) > 0 && args[0] == "audit" {
+		return a.authAudit(args[1:], jsonOut)
+	}
 	if len(args) != 1 || args[0] != "check" {
-		return a.fail(exitUsage, "usage: datapan auth check [--json]")
+		return a.fail(exitUsage, "usage: datapan auth check [--json]\n       datapan auth audit --live --ref REF --operation NAME --output PATH [--timeout DURATION] [--json]")
 	}
 	name, ok := a.resolveKey()
 	status := map[string]any{
@@ -8735,6 +8738,11 @@ func (a app) auth(args []string, jsonOut bool) int {
 		"selected_env_var":   name,
 		"accepted_env_vars":  datago.KeyEnvNames,
 		"credential_present": ok,
+		"credential_groups":  a.credentialReadiness(),
+		"redaction": map[string]bool{
+			"credential_values_present": false,
+			"credential_hashes_present": false,
+		},
 	}
 	if jsonOut {
 		if code := a.writeJSON(status); code != exitOK {
@@ -8746,7 +8754,7 @@ func (a app) auth(args []string, jsonOut bool) int {
 		return exitOK
 	}
 	if ok {
-		fmt.Fprintf(a.stdout, "data.go.kr API key found in %s.\n", name)
+		fmt.Fprintf(a.stdout, "data.go.kr API key found in %s. Use --json for all provider credential groups.\n", name)
 		return exitOK
 	}
 	fmt.Fprintf(a.stdout, "No data.go.kr API key found. Set one of: %s\n", strings.Join(datago.KeyEnvNames, ", "))
@@ -8807,6 +8815,8 @@ func (a app) doctor(args []string, jsonOut bool) int {
 			"credential_present": keyOK,
 			"selected_env_var":   keyName,
 			"accepted_env_vars":  datago.KeyEnvNames,
+			"credential_groups":  a.credentialReadiness(),
+			"live_verified":      false,
 		},
 		"providers":        providerRegistry.IndexReport(time.Now().UTC().Format(time.RFC3339), version),
 		"release_evidence": releaseEvidence,
@@ -8837,6 +8847,14 @@ func (a app) doctor(args []string, jsonOut bool) int {
 		fmt.Fprintf(a.stdout, "  data.go.kr key: found in %s\n", keyName)
 	} else {
 		fmt.Fprintf(a.stdout, "  data.go.kr key: missing\n")
+	}
+	for _, group := range a.credentialReadiness() {
+		fmt.Fprintf(a.stdout, "  credential %s: ", group["group"])
+		if group["credential_present"] == true {
+			fmt.Fprintf(a.stdout, "found in %s (locally configured; not live-verified)\n", group["selected_env_var"])
+		} else {
+			fmt.Fprintln(a.stdout, "missing")
+		}
 	}
 	index := providerRegistry.IndexReport("", version)
 	fmt.Fprintf(a.stdout, "  provider adapters: %d adapters, %d hosts\n", index.AdapterCount, index.HostCount)
@@ -12679,10 +12697,6 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 	if err := unsupportedOperationError(spec, op); err != nil {
 		return requestPlan{}, "", err
 	}
-	keyName, key, ok := a.resolveKeyValue()
-	if !ok {
-		return requestPlan{}, "", errAuth{}
-	}
 	effectiveParams, missingParams := datago.VerificationParams(spec, op)
 	for k, v := range params {
 		if strings.TrimSpace(k) != "" {
@@ -12693,6 +12707,13 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 	u, err := parseCallableEndpoint(op.Endpoint)
 	if err != nil {
 		return requestPlan{}, "", err
+	}
+	_, credential, ok, err := a.credentialForOperation(op)
+	if err != nil {
+		return requestPlan{}, "", err
+	}
+	if !ok {
+		return requestPlan{}, "", errAuth{}
 	}
 	var adapter providers.Adapter
 	providerRegistry, err := providers.DefaultRegistry()
@@ -12711,7 +12732,7 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 			Operation:     op,
 			Params:        effectiveParams,
 			MissingParams: missingParams,
-			Credential:    providers.Credential{Name: keyName, Value: key},
+			Credential:    credential,
 		})
 		if err != nil {
 			return requestPlan{}, "", err
@@ -12726,8 +12747,8 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 			MissingParams: missingParams,
 			Timeout:       defaultCallTimeout,
 			Adapter:       adapter,
-			Credential:    providers.Credential{Name: keyName, Value: key},
-		}, keyName, nil
+			Credential:    credential,
+		}, credential.Name, nil
 	}
 	q := u.Query()
 	for k, v := range effectiveParams {
@@ -12738,7 +12759,7 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 			q.Set(k, v)
 		}
 	}
-	u.RawQuery = datago.QueryWithServiceKey(q, key)
+	u.RawQuery = datago.QueryWithServiceKey(q, credential.Value)
 	redacted := *u
 	rq := redacted.Query()
 	rq.Set("serviceKey", "REDACTED")
@@ -12759,8 +12780,8 @@ func (a app) requestPlanForOperation(spec datago.Spec, op datago.Operation, para
 		MissingParams: missingParams,
 		Timeout:       defaultCallTimeout,
 		Adapter:       adapter,
-		Credential:    providers.Credential{Name: keyName, Value: key},
-	}, keyName, nil
+		Credential:    credential,
+	}, credential.Name, nil
 }
 
 func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
@@ -12991,6 +13012,7 @@ Usage:
   datapan kit <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--params-file PATH|-] [--output-dir DIR] [--json]
   datapan params <ref> [KEY=VALUE ...] [--operation NAME] [--param k=v] [--output PATH|-] [--provenance-output PATH] [--json]
   datapan auth check [--json]
+  datapan auth audit --live --ref REF --operation NAME --output PATH [--timeout DURATION] [--json]
   datapan status [--json]
   datapan doctor [--json]
   datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
@@ -13166,8 +13188,12 @@ Write reusable request params without credential material.`, true
 	case "auth":
 		return `Usage:
   datapan auth check [--json]
+  datapan auth audit --live --ref REF --operation NAME --output PATH [--timeout DURATION] [--json]
 
-Check whether a supported data.go.kr API key environment variable is present.`, true
+Check value-free local readiness for each declared provider credential group.
+The opt-in audit makes at most one provider request and writes a redacted
+receipt; a present credential is not claimed live-valid until that receipt is
+verified.`, true
 	case "status", "doctor":
 		return `Usage:
   datapan status [--json]

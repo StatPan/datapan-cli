@@ -214,6 +214,7 @@ datapan catalog release readiness --manifest .datapan/release/manifest.json --ou
 datapan catalog update data-go-kr --registry .datapan/data-go-kr.registry.json --json
 datapan show "국토교통부_아파트 매매 실거래가 자료"
 datapan auth check --json
+datapan auth audit --live --ref 15084084 --operation getVilageFcst --output .datapan/credential-audit.json --json
 datapan access 15126469 --purpose
 datapan access 15126469 --open
 datapan access 15126469 --start
@@ -274,6 +275,29 @@ marks routes Datapan currently treats as stable for `get`, such as the
 data.go.kr gateway or a call-capable provider adapter.
 Credential parameters such as `serviceKey` and `authApiKey` stay out of those
 examples because Datapan reads the key from environment variables.
+
+### Provider credential readiness and bounded audits
+
+`datapan auth check --json` and `datapan doctor --json` report value-free
+readiness for data.go.kr, OpenDART, and Seoul Open Data. A configured value is
+only local readiness: it is not evidence that a provider approved the key.
+OpenDART uses `OPENDART_API_KEY` (or `DART_API_KEY`); Seoul Open Data uses
+`SEOUL_OPEN_DATA_KEY`; neither falls back to a data.go.kr key. Generic source
+candidate verification remains explicit through its `--credential-env` flag.
+
+To make one opt-in, read-only live observation, select exactly one registry
+operation and write a receipt. The command has a one-request budget and stops
+before HTTP when its provider group is missing or the operation needs input.
+
+```bash
+datapan auth audit --live --ref 15084084 --operation getVilageFcst \
+  --output .datapan/credential-audit.json --json
+```
+
+The receipt has no credential value, hash, request URL, parameter value, or
+response body. Its outcome is distinct from local readiness and is classified
+as `verified`, `approval_required`, `rate_limited`, `credential_invalid`,
+`missing_auth`, `input_required`, `provider_unavailable`, or `unknown`.
 
 To move beyond the embedded seed catalog, run `datapan init`. This is the
 normal consumer path: it resolves the latest public
