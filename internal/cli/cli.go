@@ -43,6 +43,7 @@ const (
 var version = "0.1.0-dev"
 
 const defaultStorageStatePath = ".datapan/data-go-kr-browser-state.json"
+const defaultAccessStatePath = ".datapan/access-state.json"
 const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 const defaultRegistryInstallProvenancePath = ".datapan/registry-install.json"
@@ -234,7 +235,13 @@ func shouldLoadDefaultRegistry(args []string) bool {
 	case "search", "try", "ready", "coverage", "studio", "providers", "targets", "ops", "verify", "list", "ls", "status", "info", "show", "use", "kit", "params", "get", "curl", "save", "sync", "call", "apply", "export", "codegen", "doctor":
 		return true
 	case "access":
-		return len(args) < 2 || args[1] != "login"
+		if len(args) < 2 || args[1] == "login" {
+			return len(args) < 2
+		}
+		if args[1] == "record" || args[1] == "status" {
+			return hasAnyArg(args[2:], "--ref")
+		}
+		return true
 	case "catalog":
 		return len(args) > 1 && defaultRegistryCatalogCommand(args[1])
 	default:
@@ -10331,6 +10338,10 @@ func (a app) access(args []string, jsonOut bool) int {
 	jsonOut = jsonOut || localJSON
 	if len(args) > 0 {
 		switch args[0] {
+		case "record":
+			return a.accessRecord(args[1:], jsonOut)
+		case "status":
+			return a.accessStatus(args[1:], jsonOut)
 		case "login":
 			return a.accessLogin(args[1:], jsonOut)
 		case "request", "submit":
@@ -13299,13 +13310,17 @@ Create, inspect, summarize, and merge bounded runtime verification evidence.`, t
 Draft and verify repeatable datapan-registry release artifacts.`, true
 	case "access":
 		return `Usage:
-  datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
+	  datapan access record (--ref REF [--operation NAME] | --provider NAME --service NAME) --application-state unknown|requested|approved|rejected [--quota-state unknown|available|exhausted] [--rate-limit-state unknown|not_observed|observed] --observed-at RFC3339 [--source-contract manual_operator_observation] [--output PATH] [--json]
+	  datapan access status (--ref REF [--operation NAME] | --provider NAME --service NAME) [--input PATH] [--json]
+	  datapan access <ref> [--open] [--copy-purpose] [--start] [--purpose] [--json]
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
   datapan access <ref> [--dry-run|--apply] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]
   datapan access plan --input VERIFICATION [--output PATH] [--limit N] [--browser-debug-url URL] [--json]
   datapan access apply --plan PLAN --limit N [--output PATH] [--browser-debug-url URL] [--json]
 
-Open or assist data.go.kr API access application workflows.`, true
+Record and inspect value-free local access evidence, or assist data.go.kr API
+access application workflows. Access records are local-only and never trigger
+provider requests, credential changes, or application submission.`, true
 	case "access login":
 		return `Usage:
   datapan access login [--headed] [--manual-login-wait-ms N] [--profile-dir PATH] [--browser-path PATH] [--browser-debug-url URL] [--json]

@@ -299,6 +299,26 @@ response body. Its outcome is distinct from local readiness and is classified
 as `verified`, `approval_required`, `rate_limited`, `credential_invalid`,
 `missing_auth`, `input_required`, `provider_unavailable`, or `unknown`.
 
+### Local access management
+
+`datapan access record` and `datapan access status` keep operator-entered
+application, quota, and rate-limit evidence in `.datapan/access-state.json`.
+They are local-only: they do not resolve, create, rotate, persist, or emit
+credential values; do not open a browser; and never contact a provider. A missing record is reported
+as explicit `unknown`, rather than inferred from credential readiness.
+
+```bash
+datapan access record --ref 15084084 --operation getVilageFcst \
+  --application-state requested --observed-at 2026-07-24T09:00:00Z --json
+datapan access status --ref 15084084 --operation getVilageFcst --json
+```
+
+For an access state that belongs to a provider service rather than one Registry
+operation, use `--provider NAME --service NAME`. The fielded manual-entry
+boundary intentionally does not import provider pages, request URLs, headers,
+response bodies, or opaque provider exports, so those materials cannot become
+part of the local evidence file.
+
 To move beyond the embedded seed catalog, run `datapan init`. This is the
 normal consumer path: it resolves the latest public
 `StatPan/datapan-registry` Hugging Face Dataset commit, downloads the Registry
