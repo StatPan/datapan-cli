@@ -132,6 +132,34 @@ as `latest_fetch_failed`. An active env or custom registry must not be compared
 against unrelated default-install provenance. It should not print credential
 values.
 
+## Local Access Management
+
+`datapan access record` is a value-free, local-only operator evidence command.
+It accepts either a Registry operation (`--ref` and, when needed,
+`--operation`) or a named provider service (`--provider` and `--service`), and
+records the explicit application state (`unknown`, `requested`, `approved`, or
+`rejected`) plus optional quota (`unknown`, `available`, `exhausted`) and
+rate-limit (`unknown`, `not_observed`, `observed`) observations. Every update
+requires an RFC3339 observation time and the only accepted source contract is
+`manual_operator_observation`. Older observations cannot overwrite newer local
+evidence.
+
+The default file is `.datapan/access-state.json`, with schema version
+`datapan.local-access-state.v1` and owner-only file permissions. It contains
+only subject identity, states, observation times, source contract, and explicit
+redaction booleans. It must never contain credential values or hashes, request
+URLs, parameter values, response bodies, headers, or user identity.
+
+`datapan access status` returns an explicit unknown state when no matching
+local record exists. Access state is separate from `auth check`, `doctor`, and
+the opt-in `auth audit --live`: it does not assert a credential is configured,
+approved, quota-valid, or live-verified. Neither access-state command opens a
+browser, submits an application, calls a provider, or changes credentials.
+
+There is deliberately no opaque provider-page or response import. Operators
+enter only the reviewed state fields above, keeping unbounded provider material
+out of local Datapan evidence.
+
 ## Post-Publication Consumer Smoke Receipt
 
 `schemas/datapan.registry-consumer-smoke-receipt.v1.schema.json` defines the
