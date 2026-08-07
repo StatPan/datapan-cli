@@ -1151,10 +1151,30 @@ datapan access apply --plan PLAN --limit N --browser-debug-url URL --json
 The implementation should use Go-native browser automation and a local browser
 profile directory, without requiring Python or Playwright. `access login` may
 persist a browser profile only after the user completes any CAPTCHA/security
-gate manually. Browser-backed `access <list-id>` must default to inspection and
-must submit only when `--apply` is present. It must reuse the saved profile,
-fill visible purpose/usage fields, accept visible checkboxes, and stop with a
-machine-readable status if the session is expired or a human gate appears.
+gate manually. Browser-backed `access <list-id>` is currently a read-only
+compatibility inspection. It uses the local browser session only to inspect the
+portal; it does not read, copy, or submit the local API service key. Its bounded
+`datapan.data-go-kr.portal-compatibility.v1` receipt reports one of
+`logged_out`, `eligible_to_apply`, `already_requested_or_approved`,
+`unsupported_form`, `human_gate`, or `unknown`, together with a redacted portal
+path, classification codes, and the next safe action.
+`already_requested_or_approved` deliberately does not claim that a service is
+approved. A visible button label alone is not eligibility evidence: the CLI
+returns `unsupported_form` until a reviewed selector binds that control to a
+specific service and a deterministic renewed DOM/URL contract.
+
+`--apply`, batch `access apply`, and `--http-session` are fail-closed while the
+renewed form's fields, consent semantics, confirmation path, and duplicate
+behavior lack deterministic evidence. They return
+`portal_submission_blocked_pending_form_contract`; they do not fill fields,
+check consent boxes, or send a portal POST. Complete the application manually
+in the portal after reviewing its current consent and submission flow. Batch
+apply writes that same structured `portal_compatibility` receipt to its report;
+the legacy `--http-session` flag records that an HTTP session was not started.
+Read-only plan items with `unsupported_form` or `unknown` are valid fail-closed
+handoffs, not `inspection_failed`; their next action remains in the structured
+receipt. Navigation and browser-start failures remain separate inspection
+failures.
 An already authenticated Chrome may instead be reused through a loopback-only
 DevTools browser WebSocket supplied by `--browser-debug-url` or
 `DATAPAN_BROWSER_DEBUG_URL`. This attach mode must not relaunch Chrome, add
@@ -1162,10 +1182,10 @@ automation flags, or serialize the debugger URL into a receipt.
 Batch planning consumes a verification report, deduplicates HTTP-403 dataset
 IDs, and only inspects their application pages. Its
 `datapan.approval-plan.v1` output records Registry trust and redacted states.
-Batch apply accepts only that dry-run plan, requires a positive limit, resolves
-every item again through the current trusted Registry, and writes a
-`datapan.approval-apply.v1` report. It must not count a submitted or pending
-request as final provider approval.
+Batch apply accepts only that dry-run plan and requires a positive limit, but
+is currently fail-closed before browser or HTTP submission. Its result records
+the blocked handoff and must not count a requested or pending state as final
+provider approval.
 Every browser-backed dataset result, including browser start and navigation
 failures, must preserve the same `registry_trust` context that authorized the
 workflow.

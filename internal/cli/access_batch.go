@@ -43,16 +43,17 @@ type approvalPlanSummary struct {
 }
 
 type approvalPlanItem struct {
-	ListID            string         `json:"list_id"`
-	Title             string         `json:"title"`
-	ApplicationURL    string         `json:"application_url"`
-	Status            string         `json:"status"`
-	HumanGateDetected bool           `json:"human_gate_detected"`
-	Action            string         `json:"action"`
-	DependencyClass   string         `json:"dependency_class,omitempty"`
-	ExternalHosts     []string       `json:"external_hosts,omitempty"`
-	DetectedState     map[string]any `json:"detected_state,omitempty"`
-	Error             string         `json:"error,omitempty"`
+	ListID              string                       `json:"list_id"`
+	Title               string                       `json:"title"`
+	ApplicationURL      string                       `json:"application_url"`
+	Status              string                       `json:"status"`
+	HumanGateDetected   bool                         `json:"human_gate_detected"`
+	Action              string                       `json:"action"`
+	DependencyClass     string                       `json:"dependency_class,omitempty"`
+	ExternalHosts       []string                     `json:"external_hosts,omitempty"`
+	DetectedState       map[string]any               `json:"detected_state,omitempty"`
+	PortalCompatibility *dataGoKrPortalCompatibility `json:"portal_compatibility,omitempty"`
+	Error               string                       `json:"error,omitempty"`
 }
 
 type approvalApplyReport struct {
@@ -76,12 +77,13 @@ type approvalApplySummary struct {
 }
 
 type approvalApplyResult struct {
-	ListID            string         `json:"list_id"`
-	Status            string         `json:"status"`
-	Action            string         `json:"action"`
-	HumanGateDetected bool           `json:"human_gate_detected"`
-	Error             string         `json:"error,omitempty"`
-	Details           map[string]any `json:"details,omitempty"`
+	ListID              string                       `json:"list_id"`
+	Status              string                       `json:"status"`
+	Action              string                       `json:"action"`
+	HumanGateDetected   bool                         `json:"human_gate_detected"`
+	PortalCompatibility *dataGoKrPortalCompatibility `json:"portal_compatibility,omitempty"`
+	Error               string                       `json:"error,omitempty"`
+	Details             map[string]any               `json:"details,omitempty"`
 }
 
 type approvalDependencyProfile struct {
@@ -215,8 +217,11 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 			Command: "submit", ListID: spec.ID, ApplicationURL: spec.ApplicationURL(), ProfileDir: profileDir,
 			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: false, RegistryTrust: &trust,
 		})
-		item := approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL(), Status: resultStatus(result), Action: result.Action, DetectedState: result.DetectedState, HumanGateDetected: result.HumanGateDetected}
-		if err != nil {
+		item := approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL(), Status: resultStatus(result), Action: result.Action, DetectedState: result.DetectedState, HumanGateDetected: result.HumanGateDetected, PortalCompatibility: result.PortalCompatibility}
+		if result.PortalCompatibility != nil {
+			item.Status = result.PortalCompatibility.State
+			item.Action = result.PortalCompatibility.NextAction
+		} else if err != nil {
 			item.Status, item.Action, item.Error = "inspection_failed", "not_inspected", err.Error()
 		}
 		plan.Items = append(plan.Items, item)
@@ -272,16 +277,10 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 	if !trust.ExecutionAllowed {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
 	}
+	// Retain the flag for command compatibility, but do not create a browser
+	// HTTP session while submission is fail-closed. The resulting report keeps
+	// the same structured blocked receipt as the normal browser path.
 	var httpSession *dataGoKrHTTPSession
-	if httpSessionEnabled {
-		if strings.TrimSpace(debugURL) == "" {
-			return a.fail(exitUsage, "--http-session requires --browser-debug-url or DATAPAN_BROWSER_DEBUG_URL")
-		}
-		httpSession, err = newDataGoKrHTTPSessionFromBrowser(debugURL)
-		if err != nil {
-			return a.fail(exitRequest, "create authenticated HTTP session: %v", err)
-		}
-	}
 	report := approvalApplyReport{SchemaVersion: approvalApplySchemaVersion, GeneratedAt: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339), Provider: "data.go.kr", Plan: planPath, Limit: limit, RegistryTrust: trust}
 	processed := map[string]bool{}
 	if resume {
@@ -349,13 +348,18 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 		}
 		result, invokeErr := invokeBrowserWorkflow(browserWorkflowOptions{
 			Command: "submit", ListID: spec.ID, ApplicationURL: spec.ApplicationURL(), ProfileDir: profileDir,
-			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: true, RegistryTrust: &trust, HTTPSession: httpSession,
+			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: true, HTTPSubmissionRequested: httpSessionEnabled, RegistryTrust: &trust, HTTPSession: httpSession,
 		})
 		runAttempts++
 		report.Summary.Attempted++
-		entry := approvalApplyResult{ListID: item.ListID, Status: result.Status, Action: result.Action, HumanGateDetected: result.HumanGateDetected, Details: result.ApplyResult}
+		entry := approvalApplyResult{ListID: item.ListID, Status: result.Status, Action: result.Action, HumanGateDetected: result.HumanGateDetected, PortalCompatibility: result.PortalCompatibility, Details: result.ApplyResult}
 		stopBatch := shouldStopApprovalBatch(result)
-		if invokeErr != nil {
+		if result.Action == "portal_submission_blocked_pending_form_contract" {
+			// The exit code remains a request failure, but the report must retain
+			// the precise fail-closed handoff instead of rewriting it as a generic
+			// apply failure.
+			report.Summary.Failed++
+		} else if invokeErr != nil {
 			entry.Status, entry.Action, entry.Error = "apply_failed", "not_submitted", invokeErr.Error()
 			report.Summary.Failed++
 		} else if result.Action == "access_requested_not_confirmed" {
@@ -409,6 +413,9 @@ func shouldStopApprovalBatch(result browserResult) bool {
 		return true
 	}
 	if result.Action == "portal_rate_limited" {
+		return true
+	}
+	if result.Action == "portal_submission_blocked_pending_form_contract" {
 		return true
 	}
 	return result.Action == "access_user_action_required" && result.HumanGateDetected
@@ -489,6 +496,10 @@ func summarizeApprovalPlan(items []approvalPlanItem) approvalPlanSummary {
 			summary.ApplicationRequired++
 		case "access_requested_not_confirmed":
 			summary.RequestedOrGranted++
+		case portalStateAlreadyRequested:
+			summary.RequestedOrGranted++
+		case portalStateEligibleToApply:
+			summary.ApplicationRequired++
 		case "external_provider_review":
 			summary.ExternalProviderReview++
 		case "not_applicable":

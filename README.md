@@ -148,6 +148,12 @@ accepted; Datapan avoids double-encoding the key when building request URLs.
 When running from a project directory, Datapan also reads `.env` automatically
 if the variable is not already present in the process environment.
 
+These names are only for local API request injection. Browser-backed
+`datapan access` uses a local data.go.kr browser session to inspect a portal
+workflow; it never copies a service key into a browser receipt and currently
+does not submit applications because the renewed form contract is not yet
+evidenced.
+
 ## MVP Commands
 
 ```bash
@@ -796,13 +802,14 @@ bound to loopback; Datapan attaches to the existing session and never records
 the debugger URL in browser receipts.
 `access plan` selects unique HTTP-403 dataset IDs from a verification report
 and performs read-only application-state inspection. `access apply` accepts
-only a versioned dry-run plan and requires an explicit positive `--limit`;
-already requested, unknown, human-gated, and duplicate entries are not
-submitted. Submission means only that a request was sent or requires review,
-not that data.go.kr granted final approval.
+only a versioned dry-run plan and requires an explicit positive `--limit`, but
+is currently fail-closed before any portal submission. Use its explicit blocked
+receipt to hand the application back to the portal; it does not claim that
+data.go.kr granted final approval.
 
-Browser-backed access defaults to inspection/dry-run behavior. It submits only
-when `--apply` is explicitly present. `datapan apply` and
+Browser-backed access defaults to inspection/dry-run behavior. Until the
+renewed data.go.kr form contract has fixture-backed evidence, `--apply` is
+blocked before any form fill, consent selection, or submission. `datapan apply` and
 `datapan access request` remain compatibility aliases for early builds; new docs
 and scripts should use `datapan access`.
 
