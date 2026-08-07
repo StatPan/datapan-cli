@@ -43,16 +43,17 @@ type approvalPlanSummary struct {
 }
 
 type approvalPlanItem struct {
-	ListID            string         `json:"list_id"`
-	Title             string         `json:"title"`
-	ApplicationURL    string         `json:"application_url"`
-	Status            string         `json:"status"`
-	HumanGateDetected bool           `json:"human_gate_detected"`
-	Action            string         `json:"action"`
-	DependencyClass   string         `json:"dependency_class,omitempty"`
-	ExternalHosts     []string       `json:"external_hosts,omitempty"`
-	DetectedState     map[string]any `json:"detected_state,omitempty"`
-	Error             string         `json:"error,omitempty"`
+	ListID              string                       `json:"list_id"`
+	Title               string                       `json:"title"`
+	ApplicationURL      string                       `json:"application_url"`
+	Status              string                       `json:"status"`
+	HumanGateDetected   bool                         `json:"human_gate_detected"`
+	Action              string                       `json:"action"`
+	DependencyClass     string                       `json:"dependency_class,omitempty"`
+	ExternalHosts       []string                     `json:"external_hosts,omitempty"`
+	DetectedState       map[string]any               `json:"detected_state,omitempty"`
+	PortalCompatibility *dataGoKrPortalCompatibility `json:"portal_compatibility,omitempty"`
+	Error               string                       `json:"error,omitempty"`
 }
 
 type approvalApplyReport struct {
@@ -216,8 +217,11 @@ func (a app) accessPlan(args []string, jsonOut bool) int {
 			Command: "submit", ListID: spec.ID, ApplicationURL: spec.ApplicationURL(), ProfileDir: profileDir,
 			BrowserPath: browserPath, BrowserDebugURL: debugURL, PurposeText: "", Apply: false, RegistryTrust: &trust,
 		})
-		item := approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL(), Status: resultStatus(result), Action: result.Action, DetectedState: result.DetectedState, HumanGateDetected: result.HumanGateDetected}
-		if err != nil {
+		item := approvalPlanItem{ListID: spec.ID, Title: spec.Title, ApplicationURL: spec.ApplicationURL(), Status: resultStatus(result), Action: result.Action, DetectedState: result.DetectedState, HumanGateDetected: result.HumanGateDetected, PortalCompatibility: result.PortalCompatibility}
+		if result.PortalCompatibility != nil {
+			item.Status = result.PortalCompatibility.State
+			item.Action = result.PortalCompatibility.NextAction
+		} else if err != nil {
 			item.Status, item.Action, item.Error = "inspection_failed", "not_inspected", err.Error()
 		}
 		plan.Items = append(plan.Items, item)
@@ -492,6 +496,10 @@ func summarizeApprovalPlan(items []approvalPlanItem) approvalPlanSummary {
 			summary.ApplicationRequired++
 		case "access_requested_not_confirmed":
 			summary.RequestedOrGranted++
+		case portalStateAlreadyRequested:
+			summary.RequestedOrGranted++
+		case portalStateEligibleToApply:
+			summary.ApplicationRequired++
 		case "external_provider_review":
 			summary.ExternalProviderReview++
 		case "not_applicable":

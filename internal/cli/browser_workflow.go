@@ -275,7 +275,7 @@ func runBrowserSubmit(ctx context.Context, opts browserWorkflowOptions, stdout i
 	controls := inspectApplicationControls(ctx)
 	compatibility := inspectDataGoKrPortalCompatibility(currentURL, body, controls)
 	detected := compatibility.detectedState()
-	detected["apply_controls"] = controls
+	detected["apply_controls"] = safeApplicationControls(controls)
 	result := browserResult{
 		OK:                  compatibility.inspectionOK(),
 		Command:             "submit",
@@ -313,17 +313,47 @@ func inspectApplicationControls(ctx context.Context) []map[string]string {
 	script := `(() => Array.from(document.querySelectorAll("a,button,input[type=button],input[type=submit]"))
   .filter((el) => el.offsetParent !== null)
   .map((el) => ({
-    text: ((el.innerText || el.textContent || el.value || "") + "").trim().replace(/\s+/g, " ").slice(0, 120),
-    href: el.href || "",
-    id: el.id || "",
-    name: el.name || "",
-    class: el.className || "",
-    onclick: (el.getAttribute("onclick") || "").slice(0, 240)
+    text: ((el.innerText || el.textContent || el.value || "") + "").trim().replace(/\s+/g, " ").slice(0, 120)
   }))
   .filter((item) => item.text.includes("활용신청") || item.text === "신청")
   .slice(0, 20))()`
 	_ = chromedp.Run(ctx, chromedp.Evaluate(script, &controls, chromedp.EvalAsValue))
 	return controls
+}
+
+// safeApplicationControls is the only control representation allowed in a
+// read-only receipt. Browser hrefs and handlers can carry session, list, or
+// provider data, so neither is retained even in redacted output.
+func safeApplicationControls(controls []map[string]string) []map[string]string {
+	safe := make([]map[string]string, 0, len(controls))
+	for _, control := range controls {
+		label := strings.Join(strings.Fields(control["text"]), " ")
+		if label == "" {
+			label = strings.Join(strings.Fields(control["label"]), " ")
+		}
+		if label == "" {
+			continue
+		}
+		safe = append(safe, map[string]string{
+			"label":          label,
+			"classification": "possible_apply_control",
+		})
+	}
+	return safe
+}
+
+func redactBrowserDetectedState(state map[string]any) map[string]any {
+	if state == nil {
+		return nil
+	}
+	redacted := make(map[string]any, len(state))
+	for key, value := range state {
+		redacted[key] = value
+	}
+	if controls, ok := state["apply_controls"].([]map[string]string); ok {
+		redacted["apply_controls"] = safeApplicationControls(controls)
+	}
+	return redacted
 }
 
 func submitApplication(ctx context.Context, listID, purposeText, browserDebugURL string) map[string]any {
@@ -342,11 +372,7 @@ func inspectSubmitControls(ctx context.Context) []map[string]string {
   .filter((el) => el.offsetParent !== null)
   .map((el) => ({
     text: ((el.innerText || el.textContent || el.value || "") + "").trim().replace(/\s+/g, " ").slice(0, 120),
-    type: el.getAttribute("type") || "",
-    id: el.id || "",
-    name: el.name || "",
-    class: el.className || "",
-    onclick: (el.getAttribute("onclick") || "").slice(0, 240)
+    type: el.getAttribute("type") || ""
   }))
   .filter((item) => item.text)
   .slice(0, 40))()`
@@ -414,6 +440,7 @@ func writeWorkflowResultForOptions(stdout io.Writer, result browserResult, opts 
 	// canonical application URL.
 	result.ApplicationURL = redactedDataGoKrPortalURL(result.ApplicationURL)
 	result.URL = redactedDataGoKrPortalURL(result.URL)
+	result.DetectedState = redactBrowserDetectedState(result.DetectedState)
 	result.RegistryTrust = opts.RegistryTrust
 	return writeWorkflowResult(stdout, result, opts.Output)
 }

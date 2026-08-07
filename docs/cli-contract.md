@@ -1171,6 +1171,10 @@ check consent boxes, or send a portal POST. Complete the application manually
 in the portal after reviewing its current consent and submission flow. Batch
 apply writes that same structured `portal_compatibility` receipt to its report;
 the legacy `--http-session` flag records that an HTTP session was not started.
+Read-only plan items with `unsupported_form` or `unknown` are valid fail-closed
+handoffs, not `inspection_failed`; their next action remains in the structured
+receipt. Navigation and browser-start failures remain separate inspection
+failures.
 An already authenticated Chrome may instead be reused through a loopback-only
 DevTools browser WebSocket supplied by `--browser-debug-url` or
 `DATAPAN_BROWSER_DEBUG_URL`. This attach mode must not relaunch Chrome, add

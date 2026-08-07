@@ -68,6 +68,37 @@ func TestDataGoKrPortalCompatibilityDoesNotTreatButtonTextAsEligible(t *testing.
 	}
 }
 
+func TestReadOnlyControlReceiptRemovesHrefAndOnclickFromStdoutAndFile(t *testing.T) {
+	controls := []map[string]string{{
+		"text":    "활용신청",
+		"href":    "https://www.data.go.kr/data/15126469/openapi.do?sentinel-query=must-not-leak",
+		"onclick": "submitApplication('sentinel-onclick-must-not-leak')",
+	}}
+	output := filepath.Join(t.TempDir(), "receipt.json")
+	var stdout bytes.Buffer
+	code := writeWorkflowResultForOptions(&stdout, browserResult{
+		OK: true, Command: "submit", Provider: "data.go.kr", Status: "inspected", DryRun: true,
+		DetectedState: map[string]any{"apply_controls": controls},
+	}, browserWorkflowOptions{Output: output})
+	if code != exitOK {
+		t.Fatalf("code=%d output=%s", code, stdout.String())
+	}
+	file, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, receipt := range []string{stdout.String(), string(file)} {
+		for _, forbidden := range []string{"sentinel-query", "sentinel-onclick", "href", "onclick"} {
+			if strings.Contains(receipt, forbidden) {
+				t.Fatalf("read-only receipt leaked %q: %s", forbidden, receipt)
+			}
+		}
+		if !strings.Contains(receipt, "possible_apply_control") || !strings.Contains(receipt, "활용신청") {
+			t.Fatalf("safe control summary missing: %s", receipt)
+		}
+	}
+}
+
 func TestPortalSubmissionIsBlockedBeforeBrowserOrHTTPActivity(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "profile")
 	var stdout bytes.Buffer

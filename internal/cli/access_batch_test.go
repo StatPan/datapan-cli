@@ -70,6 +70,72 @@ func TestAccessPlanIsReadOnlyAndDeduplicatesDatasets(t *testing.T) {
 	}
 }
 
+func TestAccessPlanPreservesFailClosedCompatibilityAndSeparatesNavigationFailures(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		compatibility       *dataGoKrPortalCompatibility
+		wantCode            int
+		wantStatus          string
+		wantInspectionFails int
+	}{
+		{
+			name: "unsupported-form", compatibility: &dataGoKrPortalCompatibility{State: portalStateUnsupportedForm, NextAction: "review_renewed_portal_form_and_capture_contract_evidence"},
+			wantCode: exitOK, wantStatus: portalStateUnsupportedForm,
+		},
+		{
+			name: "unknown", compatibility: &dataGoKrPortalCompatibility{State: portalStateUnknown, NextAction: "open_portal_manually_and_repeat_dry_run"},
+			wantCode: exitOK, wantStatus: portalStateUnknown,
+		},
+		{
+			name: "navigation-failure", wantCode: exitRequest, wantStatus: "inspection_failed", wantInspectionFails: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			registry := `[{"id":"100","title":"첫 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+			writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+			verification := datago.VerificationReport{Provider: "data.go.kr", Results: []datago.VerificationResult{{DatasetID: "100", HTTPStatus: 403}}}
+			input := filepath.Join(t.TempDir(), "verification.json")
+			if err := writeJSONFile(input, verification); err != nil {
+				t.Fatal(err)
+			}
+			output := filepath.Join(t.TempDir(), "plan.json")
+			original := runBrowserWorkflowFunc
+			runBrowserWorkflowFunc = func(opts browserWorkflowOptions, stdout, _ io.Writer) int {
+				result := browserResult{OK: false, Command: "submit", Provider: "data.go.kr", Status: "application_navigation_error"}
+				if test.compatibility != nil {
+					result.Status, result.Action, result.PortalCompatibility = "inspected", "dry_run_inspection", test.compatibility
+					result.DetectedState = test.compatibility.detectedState()
+				}
+				return writeWorkflowResultForOptions(stdout, result, opts)
+			}
+			defer func() { runBrowserWorkflowFunc = original }()
+			code, stdout, stderr := runTest([]string{"access", "plan", "--input", input, "--output", output, "--json"}, nil, nil)
+			if code != test.wantCode || stderr != "" {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			plan, err := readApprovalPlan(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Summary.InspectionFailed != test.wantInspectionFails || len(plan.Items) != 1 {
+				t.Fatalf("plan=%#v", plan)
+			}
+			item := plan.Items[0]
+			if item.Status != test.wantStatus {
+				t.Fatalf("item=%#v", item)
+			}
+			if test.compatibility != nil {
+				if item.Action != test.compatibility.NextAction || item.PortalCompatibility == nil || item.Error != "" {
+					t.Fatalf("fail-closed outcome was not preserved: %#v", item)
+				}
+			} else if item.Action != "not_inspected" || item.Error == "" {
+				t.Fatalf("navigation failure was not separated: %#v", item)
+			}
+		})
+	}
+}
+
 func TestAccessApplyPlanRequiresPositiveLimitAndBoundsSubmissions(t *testing.T) {
 	t.Chdir(t.TempDir())
 	registry := `[
