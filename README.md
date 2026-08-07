@@ -885,4 +885,11 @@ complete.
 
 ## License
 
-Apache-2.0
+Datapan-authored CLI code, scripts, documentation, schemas, and examples are
+licensed under [Apache-2.0](LICENSE). Provider data, APIs, documentation,
+credentials, and other third-party material remain subject to their own terms;
+see [source rights](docs/source-rights.md).
+
+See [NOTICE](NOTICE), [contributing guidance](CONTRIBUTING.md),
+[security reporting](SECURITY.md), and [Datapan name and logo
+guidance](TRADEMARKS.md).
