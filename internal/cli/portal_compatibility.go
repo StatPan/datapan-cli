@@ -51,9 +51,11 @@ func inspectDataGoKrPortalCompatibility(currentURL, pageText string, controls []
 		compatibility.State, compatibility.NextAction, compatibility.Evidence = portalStateAlreadyRequested, "confirm_per_service_state_in_portal", []string{"duplicate_request_redirect"}
 	case hasExplicitRequestedState(pageText):
 		compatibility.State, compatibility.NextAction, compatibility.Evidence = portalStateAlreadyRequested, "confirm_per_service_state_in_portal", []string{"explicit_request_status_marker"}
-	case hasSupportedApplyControl(controls):
+	case hasEvidencedServiceApplyControl(controls):
 		compatibility.State, compatibility.NextAction, compatibility.Evidence = portalStateEligibleToApply, "review_and_submit_in_portal", []string{"visible_supported_apply_control"}
 		compatibility.Submission = portalSubmissionManual
+	case hasApplyControlText(controls):
+		compatibility.State, compatibility.NextAction, compatibility.Evidence = portalStateUnsupportedForm, "review_renewed_portal_form_and_capture_contract_evidence", []string{"apply_control_without_evidenced_service_contract"}
 	case strings.Contains(pageText, "활용신청") || strings.Contains(pageText, "개발계정"):
 		compatibility.State, compatibility.NextAction, compatibility.Evidence = portalStateUnsupportedForm, "review_renewed_portal_form_and_capture_contract_evidence", []string{"application_markup_without_supported_control"}
 	default:
@@ -95,7 +97,22 @@ func (c dataGoKrPortalCompatibility) inspectionOK() bool {
 	return c.State == portalStateEligibleToApply || c.State == portalStateAlreadyRequested
 }
 
-func hasSupportedApplyControl(controls []map[string]string) bool {
+func hasEvidencedServiceApplyControl(controls []map[string]string) bool {
+	for _, control := range controls {
+		if !hasApplyControlText([]map[string]string{control}) {
+			continue
+		}
+		// No current renewal selector is trusted. A future selector must bind a
+		// control to one service and record the reviewed DOM/URL contract before
+		// this state can be emitted. Text alone is intentionally insufficient.
+		if control["portal_contract"] == "data_go_kr_renewed_apply_v1" && isEvidencedServiceTarget(control["target_url"], control["dataset_id"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasApplyControlText(controls []map[string]string) bool {
 	for _, control := range controls {
 		switch strings.Join(strings.Fields(control["text"]), " ") {
 		case "활용신청", "활용 신청", "신청하기":
@@ -103,6 +120,19 @@ func hasSupportedApplyControl(controls []map[string]string) bool {
 		}
 	}
 	return false
+}
+
+func isEvidencedServiceTarget(rawURL, datasetID string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || !trustedDataGoKrURL(parsed) || !allDigits(datasetID) {
+		return false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	return len(parts) == 3 && parts[0] == "data" && parts[1] == datasetID && parts[2] == "openapi.do"
+}
+
+func allDigits(value string) bool {
+	return value != "" && strings.Trim(value, "0123456789") == ""
 }
 
 func hasExplicitRequestedState(pageText string) bool {

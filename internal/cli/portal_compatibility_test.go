@@ -57,6 +57,17 @@ func TestDataGoKrPortalCompatibilityDoesNotInferApprovalFromGenericText(t *testi
 	}
 }
 
+func TestDataGoKrPortalCompatibilityDoesNotTreatButtonTextAsEligible(t *testing.T) {
+	got := inspectDataGoKrPortalCompatibility(
+		"https://www.data.go.kr/data/15126469/openapi.do",
+		"API 상세",
+		[]map[string]string{{"text": "활용신청", "target_url": "https://www.data.go.kr/data/15126469/openapi.do", "dataset_id": "15126469"}},
+	)
+	if got.State != portalStateUnsupportedForm || got.Evidence[0] != "apply_control_without_evidenced_service_contract" {
+		t.Fatalf("button text was treated as deterministic eligibility: %#v", got)
+	}
+}
+
 func TestPortalSubmissionIsBlockedBeforeBrowserOrHTTPActivity(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "profile")
 	var stdout bytes.Buffer
@@ -82,5 +93,8 @@ func TestPortalSubmissionIsBlockedBeforeBrowserOrHTTPActivity(t *testing.T) {
 	resultMap := (&dataGoKrHTTPSession{}).apply("15126469", "ignored")
 	if resultMap["action"] != "portal_submission_blocked_pending_form_contract" {
 		t.Fatalf("HTTP submission was not blocked: %#v", resultMap)
+	}
+	if compatibility, ok := resultMap["portal_compatibility"].(dataGoKrPortalCompatibility); !ok || compatibility.Submission != portalSubmissionBlocked {
+		t.Fatalf("HTTP receipt was not preserved: %#v", resultMap)
 	}
 }

@@ -112,3 +112,41 @@ func TestAccessApplyPlanRequiresPositiveLimitAndBoundsSubmissions(t *testing.T) 
 		t.Fatalf("unexpected apply output: %s", stdout)
 	}
 }
+
+func TestAccessApplyPlanPreservesBlockedCompatibilityReceiptForBrowserAndHTTPModes(t *testing.T) {
+	for _, httpSession := range []bool{false, true} {
+		t.Run(map[bool]string{false: "browser", true: "http-session"}[httpSession], func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			registry := `[{"id":"100","title":"첫 API","provider":"data.go.kr","priority":"P1","operations":[]}]`
+			writeRegistryInstallStateForTest(t, defaultRegistryPath, registry, "v1")
+			planPath := filepath.Join(t.TempDir(), "plan.json")
+			plan := approvalPlan{SchemaVersion: approvalPlanSchemaVersion, Provider: "data.go.kr", DryRun: true, Items: []approvalPlanItem{{ListID: "100", Status: "access_user_action_required"}}}
+			if err := writeAtomicJSON(planPath, plan); err != nil {
+				t.Fatal(err)
+			}
+			output := filepath.Join(t.TempDir(), "apply.json")
+			args := []string{"access", "apply", "--plan", planPath, "--limit", "1", "--output", output, "--json"}
+			if httpSession {
+				args = append(args, "--http-session")
+			}
+			code, stdout, stderr := runTest(args, nil, nil)
+			if code != exitRequest || stderr != "" || strings.Contains(stdout, "apply_failed") {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			report, err := readApprovalApplyReport(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report.Results) != 1 {
+				t.Fatalf("results=%#v", report.Results)
+			}
+			result := report.Results[0]
+			if result.Status != "portal_submission_disabled" || result.Action != "portal_submission_blocked_pending_form_contract" || result.PortalCompatibility == nil || result.PortalCompatibility.Submission != portalSubmissionBlocked || result.Error != "" {
+				t.Fatalf("blocked receipt was rewritten: %#v", result)
+			}
+			if httpSession && !strings.Contains(strings.Join(result.PortalCompatibility.Evidence, ","), "http_session_submission_not_started") {
+				t.Fatalf("HTTP request mode was not recorded in blocked receipt: %#v", result.PortalCompatibility)
+			}
+		})
+	}
+}

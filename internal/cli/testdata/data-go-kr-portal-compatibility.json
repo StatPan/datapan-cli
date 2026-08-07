@@ -6,10 +6,17 @@
     "expected_state": "logged_out"
   },
   {
-    "name": "eligible-to-apply",
+    "name": "button-text-is-not-eligibility",
     "url": "https://www.data.go.kr/data/15126469/openapi.do?token=redacted",
     "page_text": "API 상세",
     "controls": [{"text": "활용신청"}],
+    "expected_state": "unsupported_form"
+  },
+  {
+    "name": "evidenced-eligible-to-apply",
+    "url": "https://www.data.go.kr/data/15126469/openapi.do?token=redacted",
+    "page_text": "API 상세",
+    "controls": [{"text": "활용신청", "portal_contract": "data_go_kr_renewed_apply_v1", "dataset_id": "15126469", "target_url": "https://www.data.go.kr/data/15126469/openapi.do"}],
     "expected_state": "eligible_to_apply"
   },
   {

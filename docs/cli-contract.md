@@ -1159,14 +1159,18 @@ portal; it does not read, copy, or submit the local API service key. Its bounded
 `unsupported_form`, `human_gate`, or `unknown`, together with a redacted portal
 path, classification codes, and the next safe action.
 `already_requested_or_approved` deliberately does not claim that a service is
-approved.
+approved. A visible button label alone is not eligibility evidence: the CLI
+returns `unsupported_form` until a reviewed selector binds that control to a
+specific service and a deterministic renewed DOM/URL contract.
 
 `--apply`, batch `access apply`, and `--http-session` are fail-closed while the
 renewed form's fields, consent semantics, confirmation path, and duplicate
 behavior lack deterministic evidence. They return
 `portal_submission_blocked_pending_form_contract`; they do not fill fields,
 check consent boxes, or send a portal POST. Complete the application manually
-in the portal after reviewing its current consent and submission flow.
+in the portal after reviewing its current consent and submission flow. Batch
+apply writes that same structured `portal_compatibility` receipt to its report;
+the legacy `--http-session` flag records that an HTTP session was not started.
 An already authenticated Chrome may instead be reused through a loopback-only
 DevTools browser WebSocket supplied by `--browser-debug-url` or
 `DATAPAN_BROWSER_DEBUG_URL`. This attach mode must not relaunch Chrome, add

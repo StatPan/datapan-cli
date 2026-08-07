@@ -20,19 +20,20 @@ const (
 )
 
 type browserWorkflowOptions struct {
-	Command         string
-	ListID          string
-	ApplicationURL  string
-	ProfileDir      string
-	BrowserPath     string
-	BrowserDebugURL string
-	PurposeText     string
-	ManualWait      time.Duration
-	Headed          bool
-	Apply           bool
-	Output          string
-	RegistryTrust   *registryTrustContext
-	HTTPSession     *dataGoKrHTTPSession
+	Command                 string
+	ListID                  string
+	ApplicationURL          string
+	ProfileDir              string
+	BrowserPath             string
+	BrowserDebugURL         string
+	PurposeText             string
+	ManualWait              time.Duration
+	Headed                  bool
+	Apply                   bool
+	HTTPSubmissionRequested bool
+	Output                  string
+	RegistryTrust           *registryTrustContext
+	HTTPSession             *dataGoKrHTTPSession
 }
 
 func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) int {
@@ -45,6 +46,9 @@ func runBrowserWorkflow(opts browserWorkflowOptions, stdout, stderr io.Writer) i
 	}
 	if opts.Command == "submit" && opts.Apply {
 		compatibility := blockedDataGoKrPortalSubmissionCompatibility(opts.ApplicationURL)
+		if opts.HTTPSubmissionRequested {
+			compatibility.Evidence = append(compatibility.Evidence, "http_session_submission_not_started")
+		}
 		return writeWorkflowResultForOptions(stdout, browserResult{
 			OK:                  false,
 			Command:             opts.Command,
