@@ -272,16 +272,10 @@ func (a app) accessApplyPlan(args []string, jsonOut bool) int {
 	if !trust.ExecutionAllowed {
 		return a.rejectBlockedRegistryExecution(jsonOut, trust)
 	}
-	var httpSession *dataGoKrHTTPSession
 	if httpSessionEnabled {
-		if strings.TrimSpace(debugURL) == "" {
-			return a.fail(exitUsage, "--http-session requires --browser-debug-url or DATAPAN_BROWSER_DEBUG_URL")
-		}
-		httpSession, err = newDataGoKrHTTPSessionFromBrowser(debugURL)
-		if err != nil {
-			return a.fail(exitRequest, "create authenticated HTTP session: %v", err)
-		}
+		return a.fail(exitUsage, "--http-session is disabled until the renewed data.go.kr form contract is evidenced")
 	}
+	var httpSession *dataGoKrHTTPSession
 	report := approvalApplyReport{SchemaVersion: approvalApplySchemaVersion, GeneratedAt: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339), Provider: "data.go.kr", Plan: planPath, Limit: limit, RegistryTrust: trust}
 	processed := map[string]bool{}
 	if resume {
@@ -409,6 +403,9 @@ func shouldStopApprovalBatch(result browserResult) bool {
 		return true
 	}
 	if result.Action == "portal_rate_limited" {
+		return true
+	}
+	if result.Action == "portal_submission_blocked_pending_form_contract" {
 		return true
 	}
 	return result.Action == "access_user_action_required" && result.HumanGateDetected

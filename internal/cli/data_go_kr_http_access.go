@@ -105,15 +105,14 @@ func dataGoKrHTTPClientFromBrowser(ctx context.Context) (*http.Client, error) {
 }
 
 func (s *dataGoKrHTTPSession) apply(listID, purposeText string) map[string]any {
-	result := s.applyOnce(listID, purposeText)
-	if fmt.Sprint(result["action"]) != "session_expired_or_login_required" {
-		return result
+	// The old HTTP path encoded a legacy form contract and could issue a POST.
+	// Keep this internal helper fail-closed even if a future caller bypasses the
+	// normal browser workflow guard.
+	compatibility := blockedDataGoKrPortalSubmissionCompatibility("")
+	return map[string]any{
+		"action":               "portal_submission_blocked_pending_form_contract",
+		"portal_compatibility": compatibility,
 	}
-	if err := s.refreshFromBrowserSSO(); err != nil {
-		result["refresh_error"] = err.Error()
-		return result
-	}
-	return s.applyOnce(listID, purposeText)
 }
 
 func (s *dataGoKrHTTPSession) refreshFromBrowserSSO() error {
@@ -144,67 +143,11 @@ func (s *dataGoKrHTTPSession) refreshFromBrowserSSO() error {
 }
 
 func (s *dataGoKrHTTPSession) applyOnce(listID, purposeText string) map[string]any {
-	formURL := dataGoKrBaseURL + "/tcs/dss/redirectDevAcountRequestForm.do?publicDataPk=" + url.QueryEscape(strings.TrimSpace(listID))
-	resp, body, err := s.request(http.MethodGet, formURL, "", "")
-	if err != nil {
-		if errors.Is(err, errDataGoKrRateLimited) {
-			return map[string]any{"action": "portal_rate_limited"}
-		}
-		if errors.Is(err, errExternalProviderRedirect) {
-			return map[string]any{"action": "external_provider_redirect_blocked"}
-		}
-		return map[string]any{"action": "apply_form_navigation_error", "error": err.Error()}
+	compatibility := blockedDataGoKrPortalSubmissionCompatibility("")
+	return map[string]any{
+		"action":               "portal_submission_blocked_pending_form_contract",
+		"portal_compatibility": compatibility,
 	}
-	currentURL := resp.Request.URL.String()
-	if isHTTPLoginResult(resp, body) {
-		return map[string]any{"action": "session_expired_or_login_required", "url": currentURL}
-	}
-	if action := classifyApplyResultAtURL(currentURL, ""); action == "access_already_requested" {
-		return confirmedApplyResult(action, currentURL, nil)
-	}
-	if parsed, parseErr := url.Parse(currentURL); parseErr == nil && parsed.Path == "/iim/api/selectAcountList.do" && looksRequestedOrGranted(body) {
-		return confirmedApplyResult("access_already_requested", currentURL, nil)
-	}
-	form, err := parseDataGoKrApplicationForm(currentURL, body, purposeText)
-	if err != nil {
-		if parsed, parseErr := url.Parse(currentURL); parseErr == nil && parsed.Path == "/index.do" {
-			return map[string]any{"action": "session_expired_or_login_required", "url": currentURL}
-		}
-		return map[string]any{"action": "apply_form_parse_error", "error": err.Error(), "url": currentURL}
-	}
-	if form.method != http.MethodPost {
-		return map[string]any{"action": "apply_form_unsafe_method", "method": form.method, "url": currentURL}
-	}
-	resp, resultBody, err := s.request(http.MethodPost, form.action, "application/x-www-form-urlencoded", form.values.Encode())
-	if err != nil {
-		if errors.Is(err, errDataGoKrRateLimited) {
-			return map[string]any{"action": "portal_rate_limited"}
-		}
-		return map[string]any{"action": "apply_form_submit_error", "error": err.Error()}
-	}
-	resultURL := resp.Request.URL.String()
-	if isHTTPLoginResult(resp, resultBody) {
-		return map[string]any{"action": "session_expired_or_login_required", "url": resultURL}
-	}
-	action := classifyPortalSaveResponse(resultBody)
-	if action == "apply_result_unconfirmed" {
-		action = classifyApplyResultAtURL(resultURL, resultBody)
-	}
-	result := map[string]any{
-		"action":         action,
-		"detected_state": detectApplicationState(resultBody),
-		"transport":      "authenticated_http",
-		"url":            resultURL,
-		"response":       safePortalResponse(resultBody),
-	}
-	if action != "access_requested_not_confirmed" && action != "access_already_requested" {
-		result["form_action"] = form.action
-		result["form_fields"] = sortedValueKeys(form.values)
-		result["operation_tokens"] = form.operationTokens
-		result["form_endpoints"] = form.endpoints
-		result["validation_messages"] = dataGoKrAlertMessages(resultBody)
-	}
-	return result
 }
 
 func trustedDataGoKrURL(candidate *url.URL) bool {

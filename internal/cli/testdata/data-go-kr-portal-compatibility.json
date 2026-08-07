@@ -1,0 +1,45 @@
+[
+  {
+    "name": "logged-out",
+    "url": "https://www.data.go.kr/uim/login/loginView.do?returnUrl=redacted",
+    "page_text": "통합 로그인",
+    "expected_state": "logged_out"
+  },
+  {
+    "name": "eligible-to-apply",
+    "url": "https://www.data.go.kr/data/15126469/openapi.do?token=redacted",
+    "page_text": "API 상세",
+    "controls": [{"text": "활용신청"}],
+    "expected_state": "eligible_to_apply"
+  },
+  {
+    "name": "duplicate-request",
+    "url": "https://www.data.go.kr/iim/api/selectAcountList.do?status=dupReq&account=redacted",
+    "page_text": "내 활용 목록",
+    "expected_state": "already_requested_or_approved"
+  },
+  {
+    "name": "explicit-requested-state",
+    "url": "https://www.data.go.kr/data/15126469/openapi.do",
+    "page_text": "이미 신청한 API입니다",
+    "expected_state": "already_requested_or_approved"
+  },
+  {
+    "name": "unsupported-form",
+    "url": "https://www.data.go.kr/data/15126469/openapi.do",
+    "page_text": "활용신청",
+    "expected_state": "unsupported_form"
+  },
+  {
+    "name": "human-gate",
+    "url": "https://www.data.go.kr/data/15126469/openapi.do",
+    "page_text": "보안문자를 입력하세요",
+    "expected_state": "human_gate"
+  },
+  {
+    "name": "unknown",
+    "url": "https://www.data.go.kr/data/15126469/openapi.do",
+    "page_text": "portal layout changed",
+    "expected_state": "unknown"
+  }
+]
