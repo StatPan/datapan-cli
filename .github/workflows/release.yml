@@ -36,6 +36,10 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
+      - name: Check open-source governance
+        if: runner.os != 'Windows'
+        run: sh scripts/check-governance.sh
+
       - name: Build commands
         run: go build ./cmd/datapan ./cmd/dp
 
@@ -92,7 +96,9 @@ jobs:
 
           go build -trimpath -ldflags="${ldflags}" -o "${outdir}/datapan${suffix}" ./cmd/datapan
           go build -trimpath -ldflags="${ldflags}" -o "${outdir}/dp${suffix}" ./cmd/dp
-          cp README.md LICENSE "${outdir}/"
+          cp README.md LICENSE NOTICE CONTRIBUTING.md SECURITY.md TRADEMARKS.md "${outdir}/"
+          mkdir -p "${outdir}/docs"
+          cp docs/source-rights.md "${outdir}/docs/"
           mkdir -p "${outdir}/scripts"
           cp scripts/install.sh scripts/install.ps1 "${outdir}/scripts/"
 
@@ -167,6 +173,19 @@ jobs:
           $dp = Join-Path $payload "${{ matrix.dp_executable }}"
           if (-not (Test-Path -LiteralPath $datapan) -or -not (Test-Path -LiteralPath $dp)) {
             throw "datapan or dp executable missing from archive"
+          }
+          $governanceFiles = @(
+            "LICENSE",
+            "NOTICE",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+            "TRADEMARKS.md",
+            "docs/source-rights.md"
+          )
+          foreach ($governanceFile in $governanceFiles) {
+            if (-not (Test-Path -LiteralPath (Join-Path $payload $governanceFile))) {
+              throw "release archive missing governance file: $governanceFile"
+            }
           }
           $expectedVersion = "${env:GITHUB_REF_NAME}"
           $datapanVersion = (& $datapan version --json | ConvertFrom-Json).version

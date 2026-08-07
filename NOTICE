@@ -1,0 +1,14 @@
+Datapan CLI
+Copyright 2026 Datapan contributors
+
+The Apache License, Version 2.0 in LICENSE applies only to original
+Datapan-authored code, scripts, documentation, schemas, examples, and other
+original CLI material. It does not grant rights in upstream datasets, API
+responses, provider documentation, provider marks, credentials, or other
+third-party material.
+
+Each provider's current terms, required attribution, access conditions, and
+redistribution limits remain controlling. Datapan CLI requests, exports,
+generated clients, cache files, and diagnostic receipts are not a sublicense
+or a statement that Datapan can grant rights in provider material. See
+docs/source-rights.md.
