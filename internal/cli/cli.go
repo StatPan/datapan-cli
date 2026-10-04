@@ -12827,7 +12827,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		return datago.ResponseEnvelope{}, err
 	}
 	contentType := resp.Header.Get("Content-Type")
-	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, contentType, body)
+	ok, semanticStatus, message, providerStatus := datago.ClassifyEndpointResponse(plan.Operation.Endpoint, resp.StatusCode, contentType, body)
 	return redactResponseEnvelope(datago.ResponseEnvelope{
 		OK:             ok,
 		Provider:       "data.go.kr",

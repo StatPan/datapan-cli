@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -151,6 +152,44 @@ func ClassifyResponse(statusCode int, contentType string, body []byte) (bool, st
 		return true, "xml_response", "", nil
 	}
 	return true, "unclassified_response", "", nil
+}
+
+// ClassifyEndpointResponse preserves generic code handling except for the
+// Daejeon restaurant API's observed C00 normal-service envelope. This is a
+// provider contract for one endpoint, not a global success-code alias.
+func ClassifyEndpointResponse(endpoint string, statusCode int, contentType string, body []byte) (bool, string, string, *ProviderStatus) {
+	ok, semantic, message, status := ClassifyResponse(statusCode, contentType, body)
+	if ok || statusCode < 200 || statusCode >= 300 || semantic != "provider_error" {
+		return ok, semantic, message, status
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() != "apis.data.go.kr" || u.Port() != "" || u.User != nil || u.EscapedPath() != "/6300000/openapi2022/restrnt/getrestrnt" {
+		return ok, semantic, message, status
+	}
+	var payload struct {
+		Response struct {
+			Header struct {
+				Code    string `json:"resultCode"`
+				Message string `json:"resultMsg"`
+			} `json:"header"`
+			Body json.RawMessage `json:"body"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(body, &payload) != nil || payload.Response.Header.Code != "C00" || len(payload.Response.Body) == 0 || bytes.Equal(bytes.TrimSpace(payload.Response.Body), []byte("null")) {
+		return ok, semantic, message, status
+	}
+	var responseBody map[string]json.RawMessage
+	if json.Unmarshal(payload.Response.Body, &responseBody) != nil || responseBody == nil {
+		return ok, semantic, message, status
+	}
+	normalMessage := strings.ToUpper(strings.TrimSpace(payload.Response.Header.Message))
+	switch normalMessage {
+	case "NORMAL SERVICE", "NORMAL_SERVICE", "SUCCESS", "정상", "정상 처리", "정상처리", "성공":
+	default:
+		return ok, semantic, message, status
+	}
+	status = &ProviderStatus{Source: "resultCode/resultMsg", Code: "C00", Message: payload.Response.Header.Message, OK: true}
+	return true, "provider_ok", status.Message, status
 }
 
 func providerResult(value any) (ProviderStatus, bool) {
