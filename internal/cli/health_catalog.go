@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -44,6 +45,7 @@ type manifestHealthCatalogEntry struct {
 	} `json:"aliases"`
 	Provider string `json:"provider"`
 	Endpoint struct {
+		Scheme          string `json:"scheme,omitempty"`
 		Host            string `json:"host"`
 		Path            string `json:"path"`
 		DependencyClass string `json:"dependency_class"`
@@ -170,7 +172,11 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 			params[parameter.Name] = value
 			requestParams = append(requestParams, datago.Param{Name: parameter.Name})
 		}
-		spec := datago.Spec{ID: entry.Aliases.DatasetID, Title: entry.Aliases.DatasetID, Provider: entry.Provider, Priority: "P2", Operations: []datago.Operation{{Name: entry.Aliases.OperationName, Endpoint: "https://" + strings.ToLower(entry.Endpoint.Host) + entry.Endpoint.Path, DefaultParams: params, RequestParams: requestParams}}}
+		endpoint, err := healthCatalogEndpoint(entry)
+		if err != nil {
+			return datago.Registry{}, registryTrustContext{}, err
+		}
+		spec := datago.Spec{ID: entry.Aliases.DatasetID, Title: entry.Aliases.DatasetID, Provider: entry.Provider, Priority: "P2", Operations: []datago.Operation{{Name: entry.Aliases.OperationName, Endpoint: endpoint, DefaultParams: params, RequestParams: requestParams}}}
 		op := spec.Operations[0]
 		dependency := datago.OperationDependencyClass(spec, op)
 		if dependency != entry.Endpoint.DependencyClass {
@@ -191,6 +197,42 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	}
 	trust := registryTrustContext{Status: "trusted", RegistrySource: "health_catalog", RegistryPath: defaultRegistryPath, ProvenancePresent: true, ReleaseTag: provenance.ReleaseTag, RegistrySHA256: strings.ToLower(provenance.RegistrySHA256), Distribution: provenance.Distribution, DatasetID: datasetID, DatasetRevision: options.RegistryRevision, Integrity: "verified", ManifestBinding: "verified", RegistryDigestMatches: &matches, ReleaseReadiness: "health_catalog_bound", VerificationEvidence: "manifest_bound_health_catalog", VerificationFreshness: "not_evaluated", ExecutionAllowed: true, HealthPolicies: healthPolicies}
 	return datago.NewRegistry(specs), trust, nil
+}
+
+// The scheme is Registry-owned and covered by the catalog's manifest digest.
+// Older catalogs preserve their existing HTTPS behavior. A failed request is
+// never retried using a different protocol.
+func healthCatalogEndpoint(entry manifestHealthCatalogEntry) (string, error) {
+	scheme := entry.Endpoint.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("health catalog endpoint scheme is invalid")
+	}
+	host := strings.ToLower(entry.Endpoint.Host)
+	if len(host) == 0 || len(host) > 253 {
+		return "", errors.New("health catalog endpoint host is invalid")
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", errors.New("health catalog endpoint host is invalid")
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return "", errors.New("health catalog endpoint host is invalid")
+			}
+		}
+	}
+	path := entry.Endpoint.Path
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "?#\\\r\n") {
+		return "", errors.New("health catalog endpoint path is invalid")
+	}
+	u, err := url.Parse(scheme + "://" + host + path)
+	if err != nil || u.Host != host || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.EscapedPath() != path {
+		return "", errors.New("health catalog endpoint path is invalid")
+	}
+	return u.String(), nil
 }
 
 func readBoundedFile(path string, maximum int64) ([]byte, error) {

@@ -113,10 +113,13 @@ type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type RealHTTPClient struct{}
+type RealHTTPClient struct{ rejectRedirects bool }
 
-func (RealHTTPClient) Do(req *http.Request) (*http.Response, error) {
+func (c RealHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
+	if c.rejectRedirects {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	return client.Do(req)
 }
 
@@ -5576,6 +5579,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	}
 	if health {
 		limit = 1
+		a.http = healthSingleRequestClient(a.http)
 	}
 	if len(args) != 0 {
 		return a.fail(exitUsage, "usage: datapan catalog verify [--registry PATH] [--ref REF] [--operation NAME] [--limit N] [--provider NAME] [--org NAME] [--host HOST] [--kind KIND] [--exclude-input REPORT] [--probe-unadapted] [--timeout DURATION] [--output PATH|-] [--json]\n       datapan catalog verify --input REPORT [--status STATUS] [--limit N] [--json]\n       datapan catalog verify plan [--registry PATH] [--verification REPORT] [--org NAME] [--json]\n       datapan catalog verify summary --input REPORT [--limit N] [--json]")
@@ -12827,7 +12831,7 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		return datago.ResponseEnvelope{}, err
 	}
 	contentType := resp.Header.Get("Content-Type")
-	ok, semanticStatus, message, providerStatus := datago.ClassifyResponse(resp.StatusCode, contentType, body)
+	ok, semanticStatus, message, providerStatus := datago.ClassifyEndpointResponse(plan.Operation.Endpoint, resp.StatusCode, contentType, body)
 	return redactResponseEnvelope(datago.ResponseEnvelope{
 		OK:             ok,
 		Provider:       "data.go.kr",

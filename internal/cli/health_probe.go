@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +16,31 @@ import (
 
 	"github.com/StatPan/datapan-cli/internal/datago"
 )
+
+// The production client must not turn a single bounded Health invocation into
+// multiple provider requests or forward its query credential to another URL.
+// Injected clients are responsible for their own Do implementation; clone a
+// standard HTTP client so its transport can be tested without mutating callers.
+func healthSingleRequestClient(client HTTPClient) HTTPClient {
+	switch c := client.(type) {
+	case nil:
+		return RealHTTPClient{rejectRedirects: true}
+	case RealHTTPClient:
+		c.rejectRedirects = true
+		return c
+	case *RealHTTPClient:
+		return RealHTTPClient{rejectRedirects: true}
+	case *http.Client:
+		if c == nil {
+			return RealHTTPClient{rejectRedirects: true}
+		}
+		copy := *c
+		copy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		return &copy
+	default:
+		return client
+	}
+}
 
 type healthProbeReceipt struct {
 	SchemaVersion string                 `json:"schema_version"`
