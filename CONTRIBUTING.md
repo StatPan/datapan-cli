@@ -32,3 +32,12 @@ provider integration, example, fixture, or generated artifact.
 
 For sensitive security reports, use the private route in
 [SECURITY.md](SECURITY.md), not a public issue.
+# Repository finish evidence
+
+Use Gira's issue, PR, self-review, checks and finish lifecycle, with dry-runs
+before mutations. Before finish, record source review and appropriate QA for
+the exact current PR head, and resolve outstanding findings. The repository's
+`finish_review_policy: none` removes only the GitHub `APPROVED` gate; it does
+not remove source review, functional checks, issue acceptance or deployment
+authorization. Source merge, release publication and actual runtime acceptance
+must be reported as separate evidence states.
