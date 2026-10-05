@@ -1,0 +1,7 @@
+repo: StatPan/datapan-cli
+finish_review_policy: none
+profiles:
+  default:
+    review_policy:
+      required_approvals: 0
+      require_code_owners: false
