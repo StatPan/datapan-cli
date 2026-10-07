@@ -87,6 +87,36 @@
       },
       "allOf": [
         {
+          "if": { "properties": { "assertion_kind": { "const": "observation_only" } }, "required": ["assertion_kind"] },
+          "then": {
+            "properties": {
+              "outcome": { "enum": ["unhealthy", "blocked", "indeterminate"] },
+              "assertion_status": { "enum": ["not_run", "failed"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "assertion_kind": { "const": "observation_only" }, "outcome": { "const": "unhealthy" } },
+            "required": ["assertion_kind", "outcome"]
+          },
+          "then": { "properties": { "reason_code": { "const": "response_http_failure" }, "assertion_status": { "const": "failed" } } }
+        },
+        {
+          "if": {
+            "properties": { "assertion_kind": { "const": "observation_only" }, "outcome": { "const": "indeterminate" } },
+            "required": ["assertion_kind", "outcome"]
+          },
+          "then": { "properties": { "assertion_status": { "const": "not_run" } } }
+        },
+        {
+          "if": {
+            "properties": { "assertion_kind": { "const": "observation_only" }, "outcome": { "const": "blocked" } },
+            "required": ["assertion_kind", "outcome"]
+          },
+          "then": { "properties": { "assertion_status": { "const": "not_run" } } }
+        },
+        {
           "if": { "properties": { "reason_code": { "const": "response_semantics_unestablished" } }, "required": ["reason_code"] },
           "then": {
             "required": ["observed_at", "http_status"],
@@ -129,5 +159,25 @@
         "quota_details_removed": { "const": true }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "observation": {
+            "properties": { "reason_code": { "enum": ["response_semantics_unestablished", "response_http_failure"] } },
+            "required": ["reason_code"]
+          }
+        },
+        "required": ["observation"]
+      },
+      "then": {
+        "properties": {
+          "execution": {
+            "properties": { "request_started": { "const": true }, "request_budget": { "const": 1 } }
+          }
+        }
+      }
+    }
+  ]
 }

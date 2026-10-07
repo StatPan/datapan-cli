@@ -225,6 +225,15 @@ func (a app) executeHealthOperationPlanRequest(output string, receipt healthOper
 		receipt.Observation.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	if requestErr != nil {
+		// Observation-only contracts need no response body to classify HTTP
+		// status. A bounded body read error on a non-2xx response cannot erase
+		// the already observed HTTP failure.
+		if a.healthOperationPlan.ResponseAssertion.ObservationOnly && response.StatusCode >= 100 && response.StatusCode <= 599 && (response.StatusCode < 200 || response.StatusCode >= 300) {
+			receipt.Observation.Outcome = "unhealthy"
+			receipt.Observation.ReasonCode = "response_http_failure"
+			receipt.Observation.AssertionStatus = "failed"
+			return writeReceipt()
+		}
 		receipt.Observation.Outcome = "indeterminate"
 		var transportErr healthTransportError
 		if errors.As(requestErr, &transportErr) {

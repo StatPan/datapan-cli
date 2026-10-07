@@ -149,6 +149,7 @@ func TestHealthObservationOnlyResponseOutcomes(t *testing.T) {
 		{"204 remains semantically unknown", 204, nil, healthResponseIndeterminate, "response_semantics_unestablished"},
 		{"redirect is an HTTP failure", 302, []byte("redirect target"), healthResponseUnhealthy, "response_http_failure"},
 		{"server failure is an HTTP failure", 500, []byte("provider response"), healthResponseUnhealthy, "response_http_failure"},
+		{"server failure outranks oversized body", 500, bytes.Repeat([]byte("x"), int(healthTransportMaxBytes+1)), healthResponseUnhealthy, "response_http_failure"},
 		{"invalid status is indeterminate", 99, nil, healthResponseIndeterminate, "response_status_invalid"},
 		{"body beyond global bound is indeterminate", 200, bytes.Repeat([]byte("x"), int(healthTransportMaxBytes+1)), healthResponseIndeterminate, "response_body_limit_exceeded"},
 	}
@@ -157,6 +158,9 @@ func TestHealthObservationOnlyResponseOutcomes(t *testing.T) {
 			got := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: test.status, Body: test.body})
 			if got.Outcome != test.outcome || got.ReasonCode != test.reasonCode {
 				t.Fatalf("observation-only result = %#v, want outcome %q reason %q", got, test.outcome, test.reasonCode)
+			}
+			if test.reasonCode == "response_http_failure" && got.ProviderErrorClass != "" {
+				t.Fatalf("HTTP-only failure was assigned a provider error class: %#v", got)
 			}
 		})
 	}

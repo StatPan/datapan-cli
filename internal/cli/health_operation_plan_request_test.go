@@ -91,13 +91,20 @@ func setHealthPlanObservationOnlyAssertion(t *testing.T, plan *healthOperationPl
 }
 
 type healthPlanCaptureClient struct {
-	calls    int
-	method   string
-	url      *url.URL
-	header   http.Header
-	body     []byte
-	status   int
-	response string
+	calls       int
+	method      string
+	url         *url.URL
+	header      http.Header
+	body        []byte
+	status      int
+	response    string
+	readFailure bool
+}
+
+type healthPlanReadFailureBody struct{}
+
+func (healthPlanReadFailureBody) Read([]byte) (int, error) {
+	return 0, errors.New("synthetic response read failure")
 }
 
 func (c *healthPlanCaptureClient) Do(req *http.Request) (*http.Response, error) {
@@ -116,10 +123,14 @@ func (c *healthPlanCaptureClient) Do(req *http.Request) (*http.Response, error) 
 	if status == 0 {
 		status = http.StatusOK
 	}
+	var responseBody io.ReadCloser = io.NopCloser(strings.NewReader(c.response))
+	if c.readFailure {
+		responseBody = io.NopCloser(healthPlanReadFailureBody{})
+	}
 	return &http.Response{
 		StatusCode: status,
 		Header:     http.Header{"Content-Type": []string{"text/xml; charset=utf-8"}},
-		Body:       io.NopCloser(strings.NewReader(c.response)),
+		Body:       responseBody,
 		Request:    req,
 	}, nil
 }
@@ -482,6 +493,9 @@ func TestHealthOperationPlanProbeReceiptIsBoundRedactedAndAtomic(t *testing.T) {
 			candidate.Observation.AssertionKind = "json_contract"
 		}},
 		{"wrong assertion status", func(candidate *healthOperationPlanProbeReceipt) { candidate.Observation.AssertionStatus = "passed" }},
+		{"observation-only cannot be healthy", func(candidate *healthOperationPlanProbeReceipt) { candidate.Observation.Outcome = "healthy" }},
+		{"observed result requires request start", func(candidate *healthOperationPlanProbeReceipt) { candidate.Execution.RequestStarted = false }},
+		{"observed result requires one request budget", func(candidate *healthOperationPlanProbeReceipt) { candidate.Execution.RequestBudget = 0 }},
 	} {
 		candidate := receipt
 		candidate.Observation.Outcome = "indeterminate"
@@ -595,18 +609,21 @@ func TestHealthOperationPlanOversizedResponseIsIndeterminate(t *testing.T) {
 
 func TestHealthOperationPlanObservationOnlyReceiptSemantics(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		status    int
-		body      string
-		maxBytes  int64
-		outcome   string
-		reason    string
-		assertion string
+		name        string
+		status      int
+		body        string
+		maxBytes    int64
+		outcome     string
+		reason      string
+		assertion   string
+		readFailure bool
 	}{
-		{"HTTP 200 remains unknown", http.StatusOK, `{"items":[{"secret":"do-not-publish"}]}`, 4096, "indeterminate", "response_semantics_unestablished", "not_run"},
-		{"HTTP 204 remains unknown", http.StatusNoContent, "", 4096, "indeterminate", "response_semantics_unestablished", "not_run"},
-		{"HTTP 500 is an HTTP failure", http.StatusInternalServerError, `{"message":"do-not-publish"}`, 4096, "unhealthy", "response_http_failure", "failed"},
-		{"response cap remains indeterminate", http.StatusOK, "too many bytes", 4, "indeterminate", "response_limit_exceeded", "not_run"},
+		{"HTTP 200 remains unknown", http.StatusOK, `{"items":[{"secret":"do-not-publish"}]}`, 4096, "indeterminate", "response_semantics_unestablished", "not_run", false},
+		{"HTTP 204 remains unknown", http.StatusNoContent, "", 4096, "indeterminate", "response_semantics_unestablished", "not_run", false},
+		{"HTTP 500 is an HTTP failure", http.StatusInternalServerError, `{"message":"do-not-publish"}`, 4096, "unhealthy", "response_http_failure", "failed", false},
+		{"HTTP 500 outranks body cap", http.StatusInternalServerError, "too many bytes", 4, "unhealthy", "response_http_failure", "failed", false},
+		{"HTTP 500 outranks body read error", http.StatusInternalServerError, "ignored", 4096, "unhealthy", "response_http_failure", "failed", true},
+		{"response cap remains indeterminate", http.StatusOK, "too many bytes", 4, "indeterminate", "response_limit_exceeded", "not_run", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
@@ -628,7 +645,7 @@ func TestHealthOperationPlanObservationOnlyReceiptSemantics(t *testing.T) {
 				Plan:              plan,
 				ResponseAssertion: healthNormalizedResponseAssertion{ObservationOnly: true},
 			}
-			client := &healthPlanCaptureClient{status: test.status, response: test.body}
+			client := &healthPlanCaptureClient{status: test.status, response: test.body, readFailure: test.readFailure}
 			var stdout bytes.Buffer
 			a := app{http: client, stdout: &stdout, healthOperationPlan: &loaded}
 			receipt := newHealthOperationPlanProbeReceipt(loaded, strings.Repeat("3", 64))

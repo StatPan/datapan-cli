@@ -129,11 +129,11 @@ func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 		if response.StatusCode < 100 || response.StatusCode > 599 {
 			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_status_invalid"}
 		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_http_failure"}
+		}
 		if int64(len(response.Body)) > healthTransportMaxBytes {
 			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_body_limit_exceeded"}
-		}
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_http_failure", ProviderErrorClass: "provider_failure"}
 		}
 		return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_semantics_unestablished"}
 	}
