@@ -384,6 +384,24 @@ func TestHealthNormalizedResponseAssertionBranches(t *testing.T) {
 			t.Fatalf("selected invalid empty collection was not unhealthy: %#v", got)
 		}
 	})
+	t.Run("unknown provider code precedes empty-collection failure", func(t *testing.T) {
+		branch := healthNormalizedResponseBranch{
+			ID: "success", Classification: "success", PayloadKind: "json",
+			AcceptedHTTPStatusCodes: []int{200}, RootKind: "object",
+			ProviderResultCodeMode: "documented", ProviderResultCodePath: healthNormalizedResponsePath{JSONPointer: "#/code"},
+			ProviderResultCodeType: "string", ProviderResultCodeValues: []healthAssertionScalar{{ValueType: "string", Value: "OK"}},
+			ResultCollection: &healthNormalizedResponseCollection{JSONPointer: "#/items", EmptySemantics: "invalid"},
+		}
+		assertion := healthNormalizedResponseAssertion{Branches: []healthNormalizedResponseBranch{branch}}
+		unknown := evaluateHealthResponseTest(assertion, 200, `{"code":"UNKNOWN","items":[]}`)
+		if unknown.Outcome != healthResponseIndeterminate || unknown.ReasonCode != "response_provider_code_unknown" {
+			t.Fatalf("unknown code was masked by empty collection semantics: %#v", unknown)
+		}
+		known := evaluateHealthResponseTest(assertion, 200, `{"code":"OK","items":[]}`)
+		if known.Outcome != healthResponseUnhealthy || known.ReasonCode != "response_collection_empty" {
+			t.Fatalf("recognized success code did not reach empty semantics: %#v", known)
+		}
+	})
 	t.Run("required and forbidden member selectors separate branches", func(t *testing.T) {
 		branches := []healthNormalizedResponseBranch{
 			{

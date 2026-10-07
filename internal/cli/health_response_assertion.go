@@ -386,17 +386,13 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 			return indeterminate("response_shape_mismatch")
 		}
 	}
+	collectionEmptyFailure := false
 	if collection := selected.ResultCollection; collection != nil {
 		count, exists := healthResponseCollectionCount(xmlDocument, jsonDocument, selected.PayloadKind, *collection)
 		if !exists {
 			return indeterminate("response_shape_mismatch")
 		}
-		if count == 0 && collection.EmptySemantics == "invalid" {
-			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_collection_empty"}
-		}
-	}
-	if selectedMatch.soapFault {
-		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
+		collectionEmptyFailure = count == 0 && collection.EmptySemantics == "invalid"
 	}
 
 	matchedProviderCode := false
@@ -419,8 +415,14 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 			ProviderErrorClass: healthResponseBranchErrorClass(selected.ErrorClasses, providerCode),
 		}
 	}
+	if selectedMatch.soapFault {
+		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
+	}
 	if selected.Classification == "provider_error" {
 		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
+	}
+	if collectionEmptyFailure {
+		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_collection_empty"}
 	}
 	return healthResponseAssertionResult{Outcome: healthResponseHealthy, ReasonCode: "response_assertion_passed"}
 }
