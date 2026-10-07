@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestManifestBoundHealthCatalogSkipsMonolithAndResolvesTenOperations(t *testing.T) {
@@ -39,6 +40,109 @@ func TestManifestBoundHealthCatalogSkipsMonolithAndResolvesTenOperations(t *test
 	}
 }
 
+func TestManifestBoundHealthCatalogAcceptsElevenEntries(t *testing.T) {
+	root, catalogPath := setupManifestBoundHealthCatalogWithEntries(t, 11)
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("pageNo") != "1" {
+			t.Fatal("eleventh operation did not use its bounded parameters")
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"00"},"body":{"items":[]}}}`))}, nil
+	})
+	output := filepath.Join(root, "receipt.json")
+	code, _, stderr := runTest([]string{"verify", "--ref", "15000011", "--operation", "operation-11", "--health", "--health-catalog", catalogPath, "--health-registry-revision", strings.Repeat("a", 40), "--timeout", "10s", "--output", output, "--json"}, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "credential-secret"}, client)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	assertHealthReceipt(t, output, "healthy", "empty")
+}
+
+func TestManifestBoundHealthCatalogRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(t *testing.T, path string)
+		want   string
+	}{
+		{name: "empty", change: func(t *testing.T, path string) {
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "bounded file is unavailable"},
+		{name: "empty entries", change: func(t *testing.T, path string) {
+			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) { c.Entries = nil })
+		}, want: "health catalog contract is invalid"},
+		{name: "duplicate identity", change: func(t *testing.T, path string) {
+			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) { c.Entries = append(c.Entries, c.Entries[0]) })
+		}, want: "health catalog entry policy is invalid"},
+		{name: "duplicate selector", change: func(t *testing.T, path string) {
+			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) {
+				entry := c.Entries[0]
+				entry.OperationID = "dpr-op-00000011"
+				entry.Policy.Key = entry.OperationID
+				c.Entries = append(c.Entries, entry)
+			})
+		}, want: "health catalog selector is invalid"},
+		{name: "excess entry count", change: func(t *testing.T, path string) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var catalog manifestHealthCatalog
+			if err := json.Unmarshal(data, &catalog); err != nil {
+				t.Fatal(err)
+			}
+			entries := strings.TrimSuffix(strings.Repeat("null,", healthCatalogMaxEntries+1), ",")
+			replacement := []byte(fmt.Sprintf(`{"schema_version":%q,"authority":%q,"source_registry":{"sha256":%q},"entries":[%s]}`, catalog.SchemaVersion, catalog.Authority, catalog.SourceRegistry.SHA256, entries))
+			writeBoundCatalogAndUpdatePins(t, path, replacement)
+		}, want: "health catalog contract is invalid"},
+		{name: "oversized file", change: func(t *testing.T, path string) {
+			file, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Truncate(healthCatalogMaxBytes + 1); err != nil {
+				_ = file.Close()
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "bounded file is unavailable"},
+		{name: "incomplete JSON", change: func(t *testing.T, path string) {
+			writeBoundCatalogAndUpdatePins(t, path, []byte(`{"schema_version":"datapan.health-probe-catalog.v1","entries":[`))
+		}, want: "decode health catalog"},
+		{name: "incomplete entry", change: func(t *testing.T, path string) {
+			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) { c.Entries[0].Execution.RequestBudget = 0 })
+		}, want: "health catalog entry policy is invalid"},
+		{name: "trailing JSON", change: func(t *testing.T, path string) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeBoundCatalogAndUpdatePins(t, path, append(data, []byte(` {}`)...))
+		}, want: "decode health catalog"},
+		{name: "manifest hash pin", change: func(t *testing.T, path string) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = append(data, ' ')
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "health catalog is not bound to the installed Registry release"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, path := setupManifestBoundHealthCatalog(t)
+			tt.change(t, path)
+			_, _, err := loadManifestBoundHealthCatalog(healthCatalogOptions{Path: path, RegistryRevision: strings.Repeat("a", 40)}, time.Now().UTC())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestManifestBoundHealthCatalogRejectsTamperBeforeProviderExecution(t *testing.T) {
 	_, catalogPath := setupManifestBoundHealthCatalog(t)
 	if err := os.WriteFile(catalogPath, []byte(`{"schema_version":"datapan.health-probe-catalog.v1"}`), 0o600); err != nil {
@@ -55,6 +159,10 @@ func TestManifestBoundHealthCatalogRejectsTamperBeforeProviderExecution(t *testi
 }
 
 func setupManifestBoundHealthCatalog(t *testing.T) (string, string) {
+	return setupManifestBoundHealthCatalogWithEntries(t, 10)
+}
+
+func setupManifestBoundHealthCatalogWithEntries(t *testing.T, entryCount int) (string, string) {
 	t.Helper()
 	root := t.TempDir()
 	old, err := os.Getwd()
@@ -76,7 +184,7 @@ func setupManifestBoundHealthCatalog(t *testing.T) (string, string) {
 
 	catalog := manifestHealthCatalog{SchemaVersion: healthCatalogSchema, Authority: "datapan-registry"}
 	catalog.SourceRegistry.SHA256 = fmt.Sprintf("%x", registrySum)
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= entryCount; i++ {
 		var entry manifestHealthCatalogEntry
 		entry.OperationID = fmt.Sprintf("dpr-op-%08d", i)
 		entry.Policy.Key, entry.Policy.Version, entry.Policy.Authority, entry.Policy.MaxLevel = entry.OperationID, 1, "datapan-registry", "L4"

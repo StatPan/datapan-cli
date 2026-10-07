@@ -620,11 +620,14 @@ assessment. The receipt contains parameter names but no values, credentials,
 authorization headers, full query URL, response body, or response rows.
 
 Owned Health runners may add `--health-catalog PATH` and
-`--health-registry-revision COMMIT`. This narrow path accepts only the ten-entry
-Registry health catalog, verifies its bytes against the installed release
-manifest and source Registry digest, and resolves the selected operation
-without decoding the 100+ MB Registry monolith. The revision must be an
-immutable commit and is retained in the receipt. These flags are invalid
+`--health-registry-revision COMMIT`. This narrow path accepts 1 through 32,000
+entries in the manifest-bound Registry health catalog, capped at 32 MiB. The
+count and byte ceilings cap v1 decode and validation work for the CLI; they do
+not assert that the Registry has admitted its full operation population. The
+CLI reads and hashes the same bounded bytes, verifies them against the installed
+release manifest and source Registry digest, and resolves the selected
+operation without decoding the 100+ MB Registry monolith. The revision must be
+an immutable commit and is retained in the receipt. These flags are invalid
 outside `verify --health`; they do not change the `--timeout` request budget.
 
 Health mode exits 0 for `healthy`, 4 for `unhealthy`, 3 for skipped or

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -18,7 +19,10 @@ import (
 const (
 	healthCatalogSchema       = "datapan.health-probe-catalog.v1"
 	healthCatalogArtifactPath = "reports/health-probe-catalog.json"
-	healthCatalogMaxBytes     = 64 << 10
+	// These limits cap v1 input and validation work for the CLI. They do not
+	// describe or imply admission of the Registry's full operation set.
+	healthCatalogMaxBytes   = 32 << 20
+	healthCatalogMaxEntries = 32_000
 )
 
 type manifestHealthCatalog struct {
@@ -118,7 +122,7 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		return datago.Registry{}, registryTrustContext{}, errors.New("decode health catalog")
 	}
-	if catalog.SchemaVersion != healthCatalogSchema || catalog.Authority != "datapan-registry" || len(catalog.Entries) != 10 || !validSHA256(catalog.SourceRegistry.SHA256) {
+	if catalog.SchemaVersion != healthCatalogSchema || catalog.Authority != "datapan-registry" || len(catalog.Entries) < 1 || len(catalog.Entries) > healthCatalogMaxEntries || !validSHA256(catalog.SourceRegistry.SHA256) {
 		return datago.Registry{}, registryTrustContext{}, errors.New("health catalog contract is invalid")
 	}
 
@@ -236,11 +240,23 @@ func healthCatalogEndpoint(entry manifestHealthCatalogEntry) (string, error) {
 }
 
 func readBoundedFile(path string, maximum int64) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maximum {
+	if maximum < 1 {
 		return nil, errors.New("bounded file is unavailable")
 	}
-	return os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || len(data) == 0 || int64(len(data)) > maximum {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	return data, nil
 }
 
 func manifestArtifact(manifest releaseManifest, path string) (releaseManifestArtifact, bool) {
