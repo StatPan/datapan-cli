@@ -46,7 +46,7 @@ func loadSelectedHealthOperationPolicy(root string, plan healthOperationPlanReco
 			continue
 		}
 		if ref.ArtifactPath == healthOperationResponseAssertionArtifactPathPrefix+plan.OperationIdentity.OperationID+".json" {
-			if ref.JSONPointer != "#/assertion" {
+			if ref.JSONPointer != "#/assertion" && ref.JSONPointer != "#/review" {
 				return healthSelectedOperationPolicy{}, errors.New("response assertion artifact pointer is invalid")
 			}
 			continue

@@ -171,6 +171,33 @@ func loadSelectedHealthResponseAssertion(root string, plan healthOperationPlanRe
 	if err := json.Unmarshal(data, &artifactValue); err != nil {
 		return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact cannot be decoded")
 	}
+	var artifactDocument map[string]any
+	if err := json.Unmarshal(data, &artifactDocument); err != nil {
+		return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact pointers cannot be decoded")
+	}
+	assertionPointerCount, reviewPointerCount := 0, 0
+	for _, ref := range refs {
+		if ref.ArtifactPath != assertionPath {
+			continue
+		}
+		if ref.EvidenceKind != "reviewed_policy" || !strings.EqualFold(ref.SHA256, artifact.SHA256) {
+			return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact evidence is not manifest-bound")
+		}
+		switch ref.JSONPointer {
+		case "#/assertion":
+			assertionPointerCount++
+		case "#/review":
+			reviewPointerCount++
+		default:
+			return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact pointer is unsupported")
+		}
+		if _, ok := healthJSONPointer(artifactDocument, ref.JSONPointer); !ok {
+			return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact pointer does not resolve")
+		}
+	}
+	if assertionPointerCount != 1 || reviewPointerCount > 1 {
+		return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact pointers are duplicated or incomplete")
+	}
 	if artifactValue.SchemaVersion != "datapan.operation-response-assertion.v2" || artifactValue.ArtifactKind != "operation_response_assertion" ||
 		artifactValue.SourceBinding.SourceID != plan.SourceBinding.SourceID || artifactValue.SourceBinding.Provider != plan.SourceBinding.Provider || artifactValue.SourceBinding.Protocol != plan.OperationIdentity.Protocol ||
 		artifactValue.OperationIdentity.OperationID != plan.OperationIdentity.OperationID || artifactValue.OperationIdentity.DatasetID != plan.OperationIdentity.DatasetID ||

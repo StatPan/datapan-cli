@@ -48,6 +48,12 @@ const (
 	healthOperationPlanIndexMaxBytes             = 8 << 20
 	healthOperationPlanShardMaxBytes             = 16 << 20
 	healthOperationPlanMaxJSONTokens             = 100_000
+	// A Registry shard can contain up to 256 operation plans plus their
+	// manifest-bound evidence references. The largest current production shard
+	// is 246,400 JSON decoder tokens; keep a separate 500,000-token ceiling for
+	// that bounded fleet artifact without widening the per-operation or
+	// provider-response budget.
+	healthOperationPlanMaxShardJSONTokens = 500_000
 	// An index can carry tens of thousands of compact artifact refs. Keep its
 	// larger token budget separate from the plan and provider-response budget.
 	healthOperationPlanMaxIndexJSONTokens = 500_000
@@ -513,7 +519,7 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 	if err != nil || int64(len(shardData)) != shardRef.Bytes || !healthOperationPlanDigestMatches(shardRef.SHA256, shardData) {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan shard is unavailable or altered")
 	}
-	if err := validateHealthOperationPlanJSON(shardData); err != nil {
+	if err := validateHealthOperationPlanShardJSON(shardData); err != nil {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan shard contract is invalid")
 	}
 	if err := validateHealthOperationPlanArtifactReferences(shardData, manifest); err != nil {
@@ -683,6 +689,13 @@ func validateHealthOperationPlanJSON(data []byte) error {
 	return validateHealthOperationPlanSchemaJSON(data)
 }
 
+func validateHealthOperationPlanShardJSON(data []byte) error {
+	if err := preflightHealthOperationPlanShardJSON(data); err != nil {
+		return err
+	}
+	return validateHealthOperationPlanSchemaJSON(data)
+}
+
 func validateHealthOperationPlanIndexJSON(data []byte) error {
 	if err := preflightHealthOperationPlanIndexJSON(data); err != nil {
 		return err
@@ -797,6 +810,10 @@ func normalizeHealthJSONSchemaRegexps(value any) error {
 
 func preflightHealthOperationPlanJSON(data []byte) error {
 	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxJSONTokens, 0, true)
+}
+
+func preflightHealthOperationPlanShardJSON(data []byte) error {
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxShardJSONTokens, 0, true)
 }
 
 func preflightHealthOperationPlanIndexJSON(data []byte) error {

@@ -660,8 +660,10 @@ references only, never secret values.
 Plan loading bounds the index to 8 MiB, 500,000 JSON decoder tokens, 32,000
 combined generation/source/shard artifact references, 4,096 source scopes,
 and 2,048 shards. This index-specific token budget accommodates the bounded
-fleet inventory while leaving the 100,000-token budget on each selected plan
-shard, operation-document evidence file, and JSON provider response unchanged.
+fleet inventory. A shard has a separate 500,000-token limit; the largest shard
+in the current 54-shard closed package is 246,400 tokens. The 100,000-token
+limit for individual operation metadata, operation-document evidence, and JSON
+provider responses remains unchanged.
 
 This command requires a new receipt path outside the installed Registry and
 emits a `datapan.health-operation-plan-probe.v1` receipt atomically with mode

@@ -2289,6 +2289,30 @@ func (a app) fetchHuggingFaceDistributionRelease(datasetID, pointerRevision stri
 			registryData = data
 		}
 	}
+	manifestData := evidence["manifest.json"]
+	if len(manifestData) == 0 {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face distribution is missing the installed Registry manifest")
+	}
+	planProjection, err := datapanRegistryHealthOperationPlanProjection(manifestData, evidence, func(path string, maximumBytes int64) ([]byte, error) {
+		record, ok := records[path]
+		if !ok || record.Bytes < 1 || record.Bytes > maximumBytes {
+			return nil, fmt.Errorf("artifact is absent or exceeds its declared operation-plan byte bound")
+		}
+		data, err := a.downloadBytesBounded(huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, path), maximumBytes)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyHuggingFaceDistributionArtifact(record, data); err != nil {
+			return nil, err
+		}
+		return data, nil
+	})
+	if err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("load Hugging Face operation-plan install projection: %w", err)
+	}
+	for path, data := range planProjection {
+		evidence[path] = data
+	}
 	registryRecord := records[datapanRegistryHFRegistryPath]
 	return datapanRegistryRelease{
 		TagName: manifest.Dataset.Revision, ZipAssetURL: huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, datapanRegistryHFRegistryPath),
@@ -2351,8 +2375,12 @@ func normalizeGitHubReleaseURL(raw string) string {
 }
 
 func (a app) downloadBytes(rawURL string) ([]byte, error) {
+	return a.downloadBytesBounded(rawURL, 256<<20)
+}
+
+func (a app) downloadBytesBounded(rawURL string, maximumBytes int64) ([]byte, error) {
 	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
+	if rawURL == "" || maximumBytes < 1 {
 		return nil, fmt.Errorf("download URL is empty")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -2380,12 +2408,15 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maximumBytes+1))
 	if err != nil {
 		if strings.EqualFold(req.URL.Host, "huggingface.co") {
 			return nil, registryDistributionError{Category: "distribution_interrupted", Action: "retry the immutable Hugging Face Registry download", Err: err}
 		}
 		return nil, err
+	}
+	if int64(len(body)) > maximumBytes {
+		return nil, fmt.Errorf("download exceeds its %d-byte resource ceiling", maximumBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if strings.EqualFold(req.URL.Host, "huggingface.co") {
@@ -2458,16 +2489,35 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 		return datapanRegistryZipSnapshot{}, fmt.Errorf("open registry zip: %w", err)
 	}
 	entries := map[string][]byte{}
+	archiveFiles := make(map[string]*zip.File, len(reader.File))
 	for _, file := range reader.File {
 		name := filepath.ToSlash(file.Name)
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		if _, duplicate := archiveFiles[name]; duplicate {
+			return datapanRegistryZipSnapshot{}, fmt.Errorf("registry zip contains duplicate path %s", name)
+		}
+		archiveFiles[name] = file
 		if !datapanRegistryInstallKeepsZipEntry(name) {
 			continue
 		}
-		data, err := readZipFile(file)
-		if err != nil {
-			return datapanRegistryZipSnapshot{}, err
+		if datapanRegistryDeferZipProjectionPath(name) {
+			// The index determines the exact transitive projection. Keep ZIP
+			// entries addressable here, but do not read unrelated sidecars.
+			continue
 		}
-		entries[name] = data
+		maximumBytes := int64(datapanRegistryZipDefaultEntryMaxBytes)
+		if name == datapanRegistryZipRegistryPath {
+			maximumBytes = int64(datapanRegistryZipRegistryMaxBytes)
+		} else if name == "manifest.json" {
+			maximumBytes = 4 << 20
+		}
+		entryData, err := readBoundedRegistryZipFile(file, maximumBytes)
+		if err != nil {
+			return datapanRegistryZipSnapshot{}, fmt.Errorf("read registry zip entry %s: %w", name, err)
+		}
+		entries[name] = entryData
 	}
 	registryData, ok := entries[datapanRegistryZipRegistryPath]
 	if !ok {
@@ -2478,6 +2528,19 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 		return datapanRegistryZipSnapshot{}, err
 	}
 	if data, ok := entries["manifest.json"]; ok {
+		projection, err := datapanRegistryHealthOperationPlanProjection(data, entries, func(path string, maximumBytes int64) ([]byte, error) {
+			file := archiveFiles[path]
+			if file == nil {
+				return nil, fmt.Errorf("missing ZIP entry %s", path)
+			}
+			return readBoundedRegistryZipFile(file, maximumBytes)
+		})
+		if err != nil {
+			return datapanRegistryZipSnapshot{}, fmt.Errorf("validate Registry operation-plan install projection: %w", err)
+		}
+		for path, artifact := range projection {
+			entries[path] = artifact
+		}
 		if err := verifyInstalledRegistryManifestArtifact(data, registryData); err != nil {
 			return datapanRegistryZipSnapshot{}, err
 		}
@@ -2557,6 +2620,12 @@ func verifyInstalledRegistryManifestArtifact(manifestData, registryData []byte) 
 }
 
 func datapanRegistryInstallKeepsZipEntry(name string) bool {
+	if datapanRegistryIsPlanProjectionPath(name) {
+		return true
+	}
+	if strings.HasPrefix(name, "policy/") && strings.HasSuffix(name, ".json") {
+		return true
+	}
 	switch name {
 	case datapanRegistryZipRegistryPath,
 		"manifest.json",
@@ -2731,27 +2800,8 @@ func printConsumerCompatibility(w io.Writer, release datapanRegistryInstallRelea
 
 func installReleaseFilesFromZip(entries map[string][]byte) map[string][]byte {
 	files := map[string][]byte{}
-	for _, name := range []string{
-		"manifest.json",
-		"RELEASE_NOTES.md",
-		"policy/sustainable-coverage.json",
-		"schemas/datapan.sustainable-coverage-policy.v1.schema.json",
-		"schemas/datapan.release-consumer-decision.v1.schema.json",
-		"schemas/datapan.error-action-catalog.v1.schema.json",
-		"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
-		datapanRegistryConsumerCompatibilityPath,
-		"reports/latest-release-verification.json",
-		"reports/latest-release-readiness.json",
-		"reports/latest-verification.json",
-		"reports/latest-verification-summary.json",
-		"reports/coverage.json",
-		"reports/route-disposition.json",
-		"reports/sustainable-coverage.json",
-		"reports/release-consumer-decision.json",
-		"reports/data-go-kr/error-action-catalog.json",
-		"reports/source-runtime-remediation-map.json",
-	} {
-		if data, ok := entries[name]; ok {
+	for name, data := range entries {
+		if name != datapanRegistryZipRegistryPath && datapanRegistryInstallKeepsZipEntry(name) {
 			files[name] = data
 		}
 	}

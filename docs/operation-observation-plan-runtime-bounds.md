@@ -23,10 +23,22 @@ The current per-invocation local-file byte ceilings are:
 The selected artifacts are read with a `maximum+1` limiter, so the maximum
 aggregate file input is 46 MiB plus 320 KiB plus 15 bytes, including the
 one-byte overflow checks. Index parsing has a separate 500,000-token limit and
-32,000 artifact-reference limit; the policy artifact has its own 500,000-token
-and 32,000-reference limits. At most 8 policy rows are decoded, and only the
-selected assertion and document sidecars are opened. These are consumer
-resource ceilings, not claims about Registry population size.
+32,000 artifact-reference limit. A selected shard has its own 500,000-token
+limit; the largest of all 54 shards in the current closed Registry package has
+246,400 tokens and is 7,908,478 bytes. This shard limit is separate from the
+100,000-token budget used for individual operation metadata and provider
+responses. The policy artifact has its own 500,000-token and 32,000-reference
+limits. At most 8 policy rows are decoded, and only the selected assertion and
+document sidecars are opened. These are consumer resource ceilings, not claims
+about Registry population size.
+
+During install, the CLI builds the local manifest-bound runtime projection
+from the index, its indexed shards, pinned schemas, shared policy, and only
+operation-document/assertion/policy artifacts referenced by plan records. The
+aggregate projection is capped at 128 MiB and at 34,064 files. The current
+closed package projects 233 files totaling 60,948,739 bytes; every projected
+file matched the package manifest. The 139 MiB raw Registry snapshot remains
+outside `.datapan/release` and is not reopened or re-hashed on each probe.
 
 On Linux, the child hashes the opened `/proc/self/exe` descriptor to attest the
 running image, with a 128 MiB maximum and one-byte overflow check. Combining

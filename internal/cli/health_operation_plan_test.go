@@ -149,6 +149,41 @@ func TestHealthOperationPlanJSONPreflightBoundsAndStrictness(t *testing.T) {
 	}
 }
 
+func TestHealthOperationPlanShardUsesSeparateBoundedTokenBudget(t *testing.T) {
+	// Real Registry shards contain up to 256 operation records, so their
+	// aggregate token count can exceed the per-operation/response limit while
+	// remaining within a separately bounded artifact budget.
+	withinBudget := []byte("[" + strings.TrimSuffix(strings.Repeat("0,", healthOperationPlanMaxJSONTokens+1), ",") + "]")
+	tokens, err := countJSONDecoderTokens(withinBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokens <= healthOperationPlanMaxJSONTokens || tokens >= healthOperationPlanMaxShardJSONTokens {
+		t.Fatalf("synthetic shard has %d tokens; expected above the per-operation limit and below the shard limit", tokens)
+	}
+	if err := preflightHealthOperationPlanJSON(withinBudget); err == nil {
+		t.Fatal("generic operation preflight accepted a shard-sized token stream")
+	}
+	if err := preflightHealthOperationPlanShardJSON(withinBudget); err != nil {
+		t.Fatalf("shard-specific bounded preflight rejected a valid-sized token stream: %v", err)
+	}
+
+	overBudget := []byte("[" + strings.TrimSuffix(strings.Repeat("0,", healthOperationPlanMaxShardJSONTokens), ",") + "]")
+	if int64(len(overBudget)) > healthOperationPlanShardMaxBytes {
+		t.Fatalf("synthetic over-budget shard is %d bytes, above the shard byte ceiling", len(overBudget))
+	}
+	tokens, err = countJSONDecoderTokens(overBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokens <= healthOperationPlanMaxShardJSONTokens {
+		t.Fatalf("synthetic over-budget shard has only %d tokens", tokens)
+	}
+	if err := preflightHealthOperationPlanShardJSON(overBudget); err == nil {
+		t.Fatal("shard preflight accepted a token stream above its explicit ceiling")
+	}
+}
+
 func TestHealthOperationPlanIndexUsesFleetSizedTokenBudget(t *testing.T) {
 	index := syntheticOperationPlanIndexWithDocumentEvidence(t, 12_666)
 	data, err := json.Marshal(index)
@@ -361,6 +396,68 @@ func TestPlanArtifactReferencesMustBePresentInInstalledManifest(t *testing.T) {
 	}
 }
 
+func TestRegistryZipInstallPreservesManifestBoundHealthPlanClosure(t *testing.T) {
+	t.Chdir(t.TempDir())
+	operationID := "synthetic-incomplete-operation"
+	indexPath := writeSyntheticIncompletePlanInstallation(t, strings.Repeat("a", 40), strings.Repeat("d", 40), operationID)
+	_ = indexPath
+	manifestData, err := os.ReadFile(defaultReleaseManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{"manifest.json": string(manifestData)}
+	for _, artifact := range manifest.Artifacts {
+		data, err := os.ReadFile(filepath.Join(".", filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[artifact.Path] = string(data)
+	}
+	snapshot, err := datapanRegistrySnapshotFromZip(zipFilesForTest(t, files))
+	if err != nil {
+		t.Fatalf("manifest-bound operation-plan closure was not installable: %v", err)
+	}
+	for _, path := range []string{
+		healthOperationPlanIndexPath,
+		"reports/operation-observation-plan/shards/synthetic_scope/0000.json",
+		"reports/operation-document-evidence/synthetic/synthetic-incomplete-operation.json",
+		healthOperationResponseAssertionArtifactPathPrefix + operationID + ".json",
+		healthOperationPlanSchemaPath, healthOperationPolicySchemaPath,
+		healthOperationResponseAssertionSchemaPath, healthOperationDocumentEvidencePath,
+		healthOperationDocumentEvidenceV2Path, healthOperationPolicyArtifactPath,
+	} {
+		if _, ok := snapshot.ReleaseFiles[path]; !ok {
+			t.Fatalf("installed Registry release omitted transitive runtime file %s", path)
+		}
+	}
+	if _, copied := snapshot.ReleaseFiles[healthOperationPlanSourceRegistryPath]; copied {
+		t.Fatal("operation-plan runtime projection copied the 139 MiB source snapshot into release evidence")
+	}
+
+	missing := make(map[string]string, len(files)-1)
+	for path, data := range files {
+		if path != "reports/operation-document-evidence/synthetic/synthetic-incomplete-operation.json" {
+			missing[path] = data
+		}
+	}
+	if _, err := datapanRegistrySnapshotFromZip(zipFilesForTest(t, missing)); err == nil || !strings.Contains(err.Error(), "operation-plan") {
+		t.Fatalf("install accepted a ZIP with a missing referenced document sidecar: %v", err)
+	}
+
+	altered := make(map[string]string, len(files))
+	for path, data := range files {
+		altered[path] = data
+	}
+	altered["reports/operation-document-evidence/synthetic/synthetic-incomplete-operation.json"] += " "
+	if _, err := datapanRegistrySnapshotFromZip(zipFilesForTest(t, altered)); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("install accepted a modified referenced document sidecar: %v", err)
+	}
+}
+
 func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, datasetRevision, operationID string) string {
 	t.Helper()
 	manifest := releaseManifest{SchemaVersion: "datapan.release-manifest.v1", Provider: "datapan-registry", OutputDir: "."}
@@ -380,7 +477,28 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 		sum := sha256.Sum256(data)
 		ref := healthOperationPlanArtifactRef{Path: path, SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(data))}
 		artifacts[path] = ref
-		manifest.Artifacts = append(manifest.Artifacts, releaseManifestArtifact{Path: path, Kind: kind, Bytes: ref.Bytes, SHA256: ref.SHA256})
+		schema := ""
+		switch kind {
+		case "schema":
+			schema = map[string]string{
+				healthOperationPlanSchemaPath:              healthOperationPlanSchemaID,
+				healthOperationPolicySchemaPath:            healthOperationPolicySchemaID,
+				healthOperationResponseAssertionSchemaPath: healthOperationResponseAssertionSchemaID,
+				healthOperationDocumentEvidencePath:        healthOperationDocumentEvidenceSchemaID,
+				healthOperationDocumentEvidenceV2Path:      healthOperationDocumentEvidenceV2SchemaID,
+			}[path]
+		case "operation_document_evidence":
+			schema = healthOperationDocumentEvidenceSchemaID
+		case "operation_observation_policy":
+			schema = healthOperationPolicySchemaID
+		case "operation_response_assertion":
+			schema = healthOperationResponseAssertionSchemaID
+		case "operation_observation_plan":
+			schema = healthOperationPlanSchemaID
+		case "operation_observation_plan_shard":
+			schema = healthOperationPlanSchemaID
+		}
+		manifest.Artifacts = append(manifest.Artifacts, releaseManifestArtifact{Path: path, Kind: kind, Schema: schema, Bytes: ref.Bytes, SHA256: ref.SHA256})
 		return ref
 	}
 
@@ -390,6 +508,8 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 	generator := store("scripts/generate-operation-observation-plan.py", []byte("synthetic generator digest fixture"), "generator")
 	legacyPolicyRef := store("policy/health-probe-canaries.json", []byte(`{"selectors":[]}`), "policy")
 	providerIndexRef := store("data/provider-index.json", []byte(`{"adapters":[]}`), "provider_index")
+	documentPath := "reports/operation-document-evidence/synthetic/" + operationID + ".json"
+	documentRef := store(documentPath, []byte(`{"schema_version":"datapan.operation-document-evidence.v1"}`), "operation_document_evidence")
 	denominators := make([]healthOperationPlanArtifactRef, 4)
 	for index := range denominators {
 		path := "reports/synthetic/operation-denominator-" + string(rune('1'+index)) + ".json"
@@ -400,6 +520,23 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 	store(healthOperationPolicySchemaPath, embeddedHealthOperationPolicySchema, "schema")
 	store(healthOperationResponseAssertionSchemaPath, embeddedHealthOperationResponseAssertionSchema, "schema")
 	store(healthOperationDocumentEvidenceV2Path, embeddedHealthOperationDocumentEvidenceV2Schema, "schema")
+	store(healthOperationPolicyArtifactPath, []byte(`{"schema_version":"datapan.operation-observation-policy.v1","artifact_kind":"operation_observation_policy_set","policies":[],"profiles":[],"effect_profiles":[]}`), "operation_observation_policy")
+	assertionPath := healthOperationResponseAssertionArtifactPathPrefix + operationID + ".json"
+	assertionData, err := json.Marshal(map[string]any{
+		"schema_version": "datapan.operation-response-assertion.v2",
+		"artifact_kind":  "operation_response_assertion",
+		"source_binding": map[string]any{"source_id": "synthetic_scope", "provider": "data.go.kr", "protocol": "REST"},
+		"operation_identity": map[string]any{
+			"operation_id": operationID, "dataset_id": "synthetic-dataset", "operation_name": operationID, "upstream_operation_key": operationID,
+		},
+		"document_evidence": map[string]any{"path": documentRef.Path, "sha256": documentRef.SHA256, "bytes": documentRef.Bytes},
+		"review":            map[string]any{"review_ref": "https://example.invalid/review", "reviewed_by": "synthetic test", "rationale": "test pointer closure only"},
+		"assertion":         map[string]any{"mode": "observation_only"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertionRef := store(assertionPath, assertionData, "operation_response_assertion")
 	_ = planSchema
 	_ = evidenceSchema
 
@@ -415,7 +552,12 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 			RegisteredEndpoint: &healthOperationPlanRegisteredEndpoint{Host: "api.example.invalid", Path: "/v1/items"},
 		},
 		RequestPlan: healthOperationPlanRequestPlan{
-			Status: "incomplete", EvidenceRefs: []healthOperationPlanEvidenceRef{operationEvidence},
+			Status: "incomplete", EvidenceRefs: []healthOperationPlanEvidenceRef{
+				operationEvidence,
+				{ArtifactPath: documentRef.Path, SHA256: documentRef.SHA256, JSONPointer: "#/identity", EvidenceKind: "operation_document"},
+				{ArtifactPath: assertionRef.Path, SHA256: assertionRef.SHA256, JSONPointer: "#/assertion", EvidenceKind: "reviewed_policy"},
+				{ArtifactPath: assertionRef.Path, SHA256: assertionRef.SHA256, JSONPointer: "#/review", EvidenceKind: "reviewed_policy"},
+			},
 			MissingFields: []string{"response_assertion_and_empty_result_semantics"},
 		},
 		RuntimeBinding: healthOperationPlanRuntimeBinding{
@@ -435,7 +577,7 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 	if err := validateHealthOperationPlanJSON(shardData); err != nil {
 		t.Fatalf("synthetic incomplete plan shard does not match the pinned schema: %v", err)
 	}
-	shardFile := store("reports/operation-observation-plan/shards/synthetic_scope/0000.json", shardData, "operation_plan_shard")
+	shardFile := store("reports/operation-observation-plan/shards/synthetic_scope/0000.json", shardData, "operation_observation_plan_shard")
 	identitySet := sha256.Sum256([]byte(operationID))
 	index := healthOperationPlanIndex{SchemaVersion: healthOperationPlanSchemaVersion, ArtifactKind: "index", RegistryRevision: registryRevision}
 	index.GenerationInputs.GeneratorPath = generator.Path
@@ -444,6 +586,7 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 	index.GenerationInputs.OperationDenominators = denominators
 	index.GenerationInputs.LegacyPolicy = legacyPolicyRef
 	index.GenerationInputs.ProviderIndex = providerIndexRef
+	index.GenerationInputs.DocumentEvidence = []healthOperationPlanArtifactRef{documentRef}
 	index.InventoryContext = struct {
 		SeparateLinkOperations                  int  `json:"separate_link_operations"`
 		ProviderIndexAdapterEntries             int  `json:"provider_index_adapter_entries"`
@@ -466,7 +609,7 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 	if err != nil {
 		t.Fatal(err)
 	}
-	indexFile := store(healthOperationPlanIndexPath, indexData, "operation_plan_index")
+	indexFile := store(healthOperationPlanIndexPath, indexData, "operation_observation_plan")
 	manifest.SourceRegistry = registryRef.Path
 	manifest.ArtifactCount = len(manifest.Artifacts)
 	manifestData, err := json.Marshal(manifest)
