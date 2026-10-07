@@ -64,6 +64,34 @@ func healthXMLAssertionFixture() healthNormalizedResponseAssertion {
 	}
 }
 
+func healthNormalizedJSONResponseBranchesFixture() []healthNormalizedResponseBranch {
+	return []healthNormalizedResponseBranch{
+		{
+			ID: "success", Classification: "success", PayloadKind: "json",
+			AcceptedHTTPStatusCodes: []int{200}, RootKind: "object",
+			Discriminators: []healthNormalizedResponseDiscriminator{{
+				Path: healthNormalizedResponsePath{JSONPointer: "#/success"}, Predicate: "node_type", ValueType: "object",
+			}},
+			RequiredFields: []healthNormalizedResponseField{{
+				Path: healthNormalizedResponsePath{JSONPointer: "#/success"}, ValueType: "object", MinimumCount: 1, MaximumCount: 1,
+			}},
+			ProviderResultCodeMode: "none",
+			ResultCollection:       &healthNormalizedResponseCollection{JSONPointer: "#/success/items", EmptySemantics: "valid"},
+		},
+		{
+			ID: "error", Classification: "provider_error", PayloadKind: "json",
+			AcceptedHTTPStatusCodes: []int{200}, RootKind: "object",
+			Discriminators: []healthNormalizedResponseDiscriminator{{
+				Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, Predicate: "node_type", ValueType: "object",
+			}},
+			RequiredFields: []healthNormalizedResponseField{{
+				Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, ValueType: "object", MinimumCount: 1, MaximumCount: 1,
+			}},
+			ProviderResultCodeMode: "none",
+		},
+	}
+}
+
 func evaluateHealthResponseTest(assertion healthNormalizedResponseAssertion, status int, body string) healthResponseAssertionResult {
 	return evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: status, Body: []byte(body)})
 }
@@ -192,6 +220,149 @@ func TestHealthNormalizedResponseAssertionTypedScalars(t *testing.T) {
 	})
 }
 
+func TestHealthNormalizedResponseAssertionBranches(t *testing.T) {
+	assertion := healthNormalizedResponseAssertion{Branches: healthNormalizedJSONResponseBranchesFixture()}
+	tests := []struct {
+		name       string
+		status     int
+		body       string
+		wantState  healthResponseAssertionOutcome
+		wantReason string
+		wantClass  string
+	}{
+		{name: "success object branch with valid empty collection", status: 200, body: `{"success":{"items":[]}}`, wantState: healthResponseHealthy, wantReason: "response_assertion_passed"},
+		{name: "documented object error branch", status: 200, body: `{"error":{"message":"bad"}}`, wantState: healthResponseUnhealthy, wantReason: "response_provider_error", wantClass: "provider_failure"},
+		{name: "two positive member selectors are ambiguous", status: 200, body: `{"success":{"items":[]},"error":{"message":"bad"}}`, wantState: healthResponseIndeterminate, wantReason: "response_branch_ambiguous"},
+		{name: "no member selector match is indeterminate", status: 200, body: `{"other":{}}`, wantState: healthResponseIndeterminate, wantReason: "response_branch_unmatched"},
+		{name: "malformed candidate payload is indeterminate", status: 200, body: `not-json`, wantState: healthResponseIndeterminate, wantReason: "response_payload_invalid"},
+		{name: "missing success collection is indeterminate", status: 200, body: `{"success":{}}`, wantState: healthResponseIndeterminate, wantReason: "response_shape_mismatch"},
+		{name: "unlisted HTTP failure remains unhealthy with unknown cause", status: 500, body: `not-json`, wantState: healthResponseUnhealthy, wantReason: "response_status_not_accepted", wantClass: "provider_failure"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: test.status, Body: []byte(test.body)})
+			if result.Outcome != test.wantState || result.ReasonCode != test.wantReason || result.ProviderErrorClass != test.wantClass {
+				t.Fatalf("got outcome=%q reason=%q class=%q, want %q/%q/%q", result.Outcome, result.ReasonCode, result.ProviderErrorClass, test.wantState, test.wantReason, test.wantClass)
+			}
+		})
+	}
+	t.Run("documented HTTP error status stays unhealthy", func(t *testing.T) {
+		branch := healthNormalizedResponseBranch{
+			ID: "forbidden", Classification: "provider_error", PayloadKind: "json",
+			AcceptedHTTPStatusCodes: []int{403}, RootKind: "object",
+			Discriminators:         []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, Predicate: "node_type", ValueType: "object"}},
+			RequiredFields:         []healthNormalizedResponseField{{Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, ValueType: "object", MinimumCount: 1, MaximumCount: 1}},
+			ProviderResultCodeMode: "none",
+		}
+		assertion := healthNormalizedResponseAssertion{Branches: []healthNormalizedResponseBranch{branch}}
+		result := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: 403, Body: []byte(`{"error":{}}`)})
+		if result.Outcome != healthResponseUnhealthy || result.ProviderErrorClass != "provider_failure" {
+			t.Fatalf("explicit error status was lost: %#v", result)
+		}
+	})
+	t.Run("required and forbidden member selectors separate branches", func(t *testing.T) {
+		branches := []healthNormalizedResponseBranch{
+			{
+				ID: "success-without-error", Classification: "success", PayloadKind: "json", AcceptedHTTPStatusCodes: []int{200}, RootKind: "object",
+				Discriminators:         []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, Predicate: "absent"}},
+				RequiredFields:         []healthNormalizedResponseField{{Path: healthNormalizedResponsePath{JSONPointer: "#/items"}, ValueType: "array", MinimumCount: 1, MaximumCount: 1}},
+				ProviderResultCodeMode: "none",
+				ResultCollection:       &healthNormalizedResponseCollection{JSONPointer: "#/items", EmptySemantics: "valid"},
+			},
+			{
+				ID: "error-present", Classification: "provider_error", PayloadKind: "json", AcceptedHTTPStatusCodes: []int{200}, RootKind: "object",
+				Discriminators:         []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, Predicate: "node_type", ValueType: "object"}},
+				RequiredFields:         []healthNormalizedResponseField{{Path: healthNormalizedResponsePath{JSONPointer: "#/error"}, ValueType: "object", MinimumCount: 1, MaximumCount: 1}},
+				ProviderResultCodeMode: "none",
+			},
+		}
+		assertion := healthNormalizedResponseAssertion{Branches: branches}
+		if result := evaluateHealthResponseTest(assertion, 200, `{"items":[]}`); result.Outcome != healthResponseHealthy {
+			t.Fatalf("forbidden member selector rejected success body: %#v", result)
+		}
+		if result := evaluateHealthResponseTest(assertion, 200, `{"error":{}}`); result.Outcome != healthResponseUnhealthy {
+			t.Fatalf("required member selector missed error body: %#v", result)
+		}
+	})
+
+	t.Run("source-mapped provider class is preserved", func(t *testing.T) {
+		branches := []healthNormalizedResponseBranch{
+			{
+				ID: "auth-error", Classification: "provider_error", PayloadKind: "json",
+				AcceptedHTTPStatusCodes: []int{200}, RootKind: "object",
+				Discriminators: []healthNormalizedResponseDiscriminator{{
+					Path: healthNormalizedResponsePath{JSONPointer: "#/kind"}, Predicate: "equals_any", ValueType: "string", Values: []healthAssertionScalar{{ValueType: "string", Value: "error"}},
+				}},
+				ProviderResultCodeMode: "documented", ProviderResultCodePath: healthNormalizedResponsePath{JSONPointer: "#/code"}, ProviderResultCodeType: "string",
+				ProviderResultCodeValues: []healthAssertionScalar{{ValueType: "string", Value: "AUTH"}},
+				ErrorClasses:             []healthNormalizedProviderErrorClass{{Category: "credential_rejected", Values: []healthAssertionScalar{{ValueType: "string", Value: "AUTH"}}}},
+			},
+		}
+		result := evaluateHealthNormalizedResponseAssertion(healthNormalizedResponseAssertion{Branches: branches}, healthHTTPResponse{StatusCode: 200, Body: []byte(`{"kind":"error","code":"AUTH"}`)})
+		if result.Outcome != healthResponseUnhealthy || result.ProviderErrorClass != "credential_rejected" {
+			t.Fatalf("documented provider-error category was not preserved: %#v", result)
+		}
+		unknown := evaluateHealthNormalizedResponseAssertion(healthNormalizedResponseAssertion{Branches: branches}, healthHTTPResponse{StatusCode: 200, Body: []byte(`{"kind":"error","code":"OTHER"}`)})
+		if unknown.Outcome != healthResponseIndeterminate || unknown.ReasonCode != "response_provider_code_unknown" {
+			t.Fatalf("unknown error code was not indeterminate: %#v", unknown)
+		}
+	})
+	t.Run("overlapping same-path exact selector values reject contract", func(t *testing.T) {
+		branches := healthNormalizedJSONResponseBranchesFixture()
+		branches[0].Discriminators = []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{JSONPointer: "#/state"}, Predicate: "equals_any", ValueType: "string", Values: []healthAssertionScalar{{ValueType: "string", Value: "x"}}}}
+		branches[1].Discriminators = []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{JSONPointer: "#/state"}, Predicate: "equals_any", ValueType: "string", Values: []healthAssertionScalar{{ValueType: "string", Value: "x"}}}}
+		if err := validateHealthNormalizedResponseBranches(branches); err == nil {
+			t.Fatal("overlapping exact same-path selectors passed branch validation")
+		}
+	})
+}
+
+func TestHealthNormalizedXMLResponseAssertionBranches(t *testing.T) {
+	const ns = "urn:branch:response"
+	branches := []healthNormalizedResponseBranch{
+		{
+			ID: "success", Classification: "success", PayloadKind: "xml", AcceptedHTTPStatusCodes: []int{200},
+			RootKind: "xml_element", RootQName: xml.Name{Space: ns, Local: "Envelope"},
+			Discriminators:         []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{XMLPath: []xml.Name{{Space: ns, Local: "Envelope"}, {Space: ns, Local: "Data"}}}, Predicate: "node_type", ValueType: "object"}},
+			RequiredFields:         []healthNormalizedResponseField{{Path: healthNormalizedResponsePath{XMLPath: []xml.Name{{Space: ns, Local: "Envelope"}, {Space: ns, Local: "Data"}}}, ValueType: "object", MinimumCount: 1, MaximumCount: 1}},
+			ProviderResultCodeMode: "none",
+			ResultCollection:       &healthNormalizedResponseCollection{XMLContainer: []xml.Name{{Space: ns, Local: "Envelope"}, {Space: ns, Local: "Data"}, {Space: ns, Local: "Items"}}, XMLItemPath: []xml.Name{{Space: ns, Local: "Item"}}, EmptySemantics: "valid"},
+		},
+		{
+			ID: "error", Classification: "provider_error", PayloadKind: "xml", AcceptedHTTPStatusCodes: []int{200},
+			RootKind: "xml_element", RootQName: xml.Name{Space: ns, Local: "Envelope"},
+			Discriminators:         []healthNormalizedResponseDiscriminator{{Path: healthNormalizedResponsePath{XMLPath: []xml.Name{{Space: ns, Local: "Envelope"}, {Space: ns, Local: "Error"}}}, Predicate: "node_type", ValueType: "object"}},
+			RequiredFields:         []healthNormalizedResponseField{{Path: healthNormalizedResponsePath{XMLPath: []xml.Name{{Space: ns, Local: "Envelope"}, {Space: ns, Local: "Error"}}}, ValueType: "object", MinimumCount: 1, MaximumCount: 1}},
+			ProviderResultCodeMode: "none",
+		},
+	}
+	assertion := healthNormalizedResponseAssertion{Branches: branches}
+	t.Run("success branch container empty semantics", func(t *testing.T) {
+		result := evaluateHealthResponseTest(assertion, 200, `<r:Envelope xmlns:r="`+ns+`"><r:Data><r:Items/></r:Data></r:Envelope>`)
+		if result.Outcome != healthResponseHealthy {
+			t.Fatalf("documented empty XML collection did not pass: %#v", result)
+		}
+	})
+	t.Run("missing XML container is indeterminate", func(t *testing.T) {
+		result := evaluateHealthResponseTest(assertion, 200, `<r:Envelope xmlns:r="`+ns+`"><r:Data><r:Other/></r:Data></r:Envelope>`)
+		if result.Outcome != healthResponseIndeterminate || result.ReasonCode != "response_shape_mismatch" {
+			t.Fatalf("missing XML container was not indeterminate: %#v", result)
+		}
+	})
+	t.Run("same root error member selects provider error", func(t *testing.T) {
+		result := evaluateHealthResponseTest(assertion, 200, `<r:Envelope xmlns:r="`+ns+`"><r:Error><r:Code>bad</r:Code></r:Error></r:Envelope>`)
+		if result.Outcome != healthResponseUnhealthy || result.ProviderErrorClass != "provider_failure" {
+			t.Fatalf("XML error shape was not classified generically: %#v", result)
+		}
+	})
+	t.Run("both XML shapes are indeterminate", func(t *testing.T) {
+		result := evaluateHealthResponseTest(assertion, 200, `<r:Envelope xmlns:r="`+ns+`"><r:Data><r:Items/></r:Data><r:Error><r:Code>bad</r:Code></r:Error></r:Envelope>`)
+		if result.Outcome != healthResponseIndeterminate || result.ReasonCode != "response_branch_ambiguous" {
+			t.Fatalf("coexisting XML shapes were not made indeterminate: %#v", result)
+		}
+	})
+}
+
 func TestHealthNormalizedXMLResponseAssertionOutcomes(t *testing.T) {
 	const prefix = `<r:Envelope xmlns:r="urn:example:response">`
 	const suffix = `</r:Envelope>`
@@ -232,7 +403,7 @@ func TestHealthNormalizedXMLSOAPAndParserBounds(t *testing.T) {
 		wantState healthResponseAssertionOutcome
 		wantCode  string
 	}{
-		{name: "fault is unhealthy", body: `<s:Envelope xmlns:s="` + soapNS + `"><s:Body><s:Fault/></s:Body></s:Envelope>`, wantState: healthResponseUnhealthy, wantCode: "response_provider_fault"},
+		{name: "fault is unhealthy", body: `<s:Envelope xmlns:s="` + soapNS + `"><s:Body><s:Fault/></s:Body></s:Envelope>`, wantState: healthResponseUnhealthy, wantCode: "response_provider_error"},
 		{name: "missing SOAP body is indeterminate", body: `<s:Envelope xmlns:s="` + soapNS + `"><s:Header/></s:Envelope>`, wantState: healthResponseIndeterminate, wantCode: "response_payload_invalid"},
 		{name: "wrong namespace is indeterminate", body: `<s:Envelope xmlns:s="urn:wrong"><s:Body/></s:Envelope>`, wantState: healthResponseIndeterminate, wantCode: "response_payload_invalid"},
 		{name: "doctype is rejected", body: `<!DOCTYPE x [<!ENTITY y "z">]><x/>`, wantState: healthResponseIndeterminate, wantCode: "response_payload_invalid"},
@@ -258,6 +429,15 @@ func TestHealthNormalizedXMLSOAPAndParserBounds(t *testing.T) {
 		result := evaluateHealthResponseTest(assertion, 200, body)
 		if result.Outcome != healthResponseIndeterminate || result.ReasonCode != "response_payload_invalid" {
 			t.Fatalf("wide XML was accepted: %#v", result)
+		}
+	})
+	t.Run("invalid UTF-8 XML is rejected", func(t *testing.T) {
+		body := []byte(`<x:Envelope xmlns:x="` + soapNS + `"><x:Body><x:Fault>`)
+		body = append(body, 0xff)
+		body = append(body, []byte(`</x:Fault></x:Body></x:Envelope>`)...)
+		result := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: 200, Body: body})
+		if result.Outcome != healthResponseIndeterminate || result.ReasonCode != "response_payload_invalid" {
+			t.Fatalf("invalid UTF-8 XML was accepted: %#v", result)
 		}
 	})
 }

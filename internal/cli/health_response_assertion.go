@@ -27,6 +27,40 @@ type healthNormalizedResponseAssertion struct {
 	ProviderSuccessCodes    []healthAssertionScalar
 	ProviderErrorCodes      []healthAssertionScalar
 	ResultCollection        *healthNormalizedResponseCollection
+	Branches                []healthNormalizedResponseBranch
+}
+
+// Branches are used by the Registry-owned response-assertion union. Wire
+// decoding must bind every branch selector and predicate to the immutable
+// assertion artifact and its source/review evidence before constructing these
+// values.
+type healthNormalizedResponseBranch struct {
+	ID                       string
+	Classification           string
+	PayloadKind              string
+	AcceptedHTTPStatusCodes  []int
+	RootKind                 string
+	RootQName                xml.Name
+	Discriminators           []healthNormalizedResponseDiscriminator
+	RequiredFields           []healthNormalizedResponseField
+	ProviderResultCodeMode   string
+	ProviderResultCodePath   healthNormalizedResponsePath
+	ProviderResultCodeType   string
+	ProviderResultCodeValues []healthAssertionScalar
+	ErrorClasses             []healthNormalizedProviderErrorClass
+	ResultCollection         *healthNormalizedResponseCollection
+}
+
+type healthNormalizedResponseDiscriminator struct {
+	Path      healthNormalizedResponsePath
+	Predicate string
+	ValueType string
+	Values    []healthAssertionScalar
+}
+
+type healthNormalizedProviderErrorClass struct {
+	Category string
+	Values   []healthAssertionScalar
 }
 
 type healthNormalizedResponsePath struct {
@@ -67,6 +101,9 @@ const (
 type healthResponseAssertionResult struct {
 	Outcome    healthResponseAssertionOutcome
 	ReasonCode string
+	// ProviderErrorClass is a fixed, evidence-backed category. Generic
+	// provider_failure means the exact provider cause is unknown.
+	ProviderErrorClass string
 }
 
 const (
@@ -82,6 +119,12 @@ var healthXMLNumberValuePattern = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]+
 // that cannot be parsed or does not prove the reviewed success shape is
 // indeterminate. It never includes response values in an error or result.
 func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedResponseAssertion, response healthHTTPResponse) healthResponseAssertionResult {
+	if len(assertion.Branches) > 0 {
+		if !healthNormalizedResponseLegacyFieldsEmpty(assertion) {
+			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_assertion_invalid"}
+		}
+		return evaluateHealthNormalizedResponseBranches(assertion.Branches, response)
+	}
 	indeterminate := func(reason string) healthResponseAssertionResult {
 		return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: reason}
 	}
@@ -98,7 +141,7 @@ func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 		return indeterminate("response_body_limit_exceeded")
 	}
 	if !healthResponseStatusAccepted(assertion.AcceptedHTTPStatusCodes, response.StatusCode) {
-		return unhealthy("response_status_not_accepted")
+		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_status_not_accepted", ProviderErrorClass: "provider_failure"}
 	}
 
 	var document any
@@ -122,7 +165,7 @@ func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 				return indeterminate("response_payload_invalid")
 			}
 			if fault {
-				return unhealthy("response_provider_fault")
+				return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
 			}
 		}
 	default:
@@ -141,7 +184,7 @@ func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 			return indeterminate("response_provider_code_unknown")
 		}
 		if healthAssertionScalarIn(assertion.ProviderErrorCodes, actual) {
-			return unhealthy("response_provider_error")
+			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
 		}
 		if !healthAssertionScalarIn(assertion.ProviderSuccessCodes, actual) {
 			return indeterminate("response_provider_code_unknown")
@@ -168,6 +211,12 @@ func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 }
 
 func validateHealthNormalizedResponseAssertion(assertion healthNormalizedResponseAssertion) error {
+	if len(assertion.Branches) > 0 {
+		if !healthNormalizedResponseLegacyFieldsEmpty(assertion) {
+			return errors.New("branch assertion mixes legacy predicates")
+		}
+		return validateHealthNormalizedResponseBranches(assertion.Branches)
+	}
 	if assertion.PayloadKind != "json" && assertion.PayloadKind != "xml" && assertion.PayloadKind != "soap_xml" {
 		return errors.New("unsupported response payload kind")
 	}
@@ -232,6 +281,441 @@ func validateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 		}
 	}
 	return nil
+}
+
+func healthNormalizedResponseLegacyFieldsEmpty(assertion healthNormalizedResponseAssertion) bool {
+	return assertion.PayloadKind == "" && len(assertion.AcceptedHTTPStatusCodes) == 0 && assertion.SOAPEnvelopeNamespace == "" && len(assertion.RequiredFields) == 0 && assertion.ProviderResultCodeMode == "" && assertion.ProviderResultCodePath.JSONPointer == "" && len(assertion.ProviderResultCodePath.XMLPath) == 0 && assertion.ProviderResultCodeType == "" && len(assertion.ProviderSuccessCodes) == 0 && len(assertion.ProviderErrorCodes) == 0 && assertion.ResultCollection == nil
+}
+
+func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedResponseBranch, response healthHTTPResponse) healthResponseAssertionResult {
+	indeterminate := func(reason string) healthResponseAssertionResult {
+		return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: reason}
+	}
+	if err := validateHealthNormalizedResponseBranches(branches); err != nil {
+		return indeterminate("response_assertion_invalid")
+	}
+	if response.StatusCode < 100 || response.StatusCode > 599 {
+		return indeterminate("response_status_invalid")
+	}
+	if int64(len(response.Body)) > healthTransportMaxBytes {
+		return indeterminate("response_body_limit_exceeded")
+	}
+	statusCandidate := false
+	for _, branch := range branches {
+		if healthResponseStatusAccepted(branch.AcceptedHTTPStatusCodes, response.StatusCode) {
+			statusCandidate = true
+			break
+		}
+	}
+	if !statusCandidate {
+		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_status_not_accepted", ProviderErrorClass: "provider_failure"}
+	}
+
+	var jsonDocument any
+	jsonAttempted, jsonValid := false, false
+	var xmlDocument *healthResponseXMLDocument
+	xmlAttempted, xmlValid := false, false
+	var anyPayloadParsed bool
+	matches := make([]healthNormalizedResponseBranch, 0, 2)
+	for _, branch := range branches {
+		if !healthResponseStatusAccepted(branch.AcceptedHTTPStatusCodes, response.StatusCode) {
+			continue
+		}
+		var parseValid bool
+		if branch.PayloadKind == "json" {
+			if !jsonAttempted {
+				jsonAttempted = true
+				var err error
+				jsonDocument, err = decodeHealthBoundedResponseJSON(response.Body)
+				jsonValid = err == nil
+			}
+			parseValid = jsonValid
+		} else {
+			if !xmlAttempted {
+				xmlAttempted = true
+				xmlDocument, _ = decodeHealthBoundedResponseXML(response.Body)
+				xmlValid = xmlDocument != nil
+			}
+			parseValid = xmlValid
+		}
+		if parseValid {
+			anyPayloadParsed = true
+		}
+		if !parseValid {
+			continue
+		}
+		if !healthResponseRootMatches(branch, xmlDocument, jsonDocument) {
+			continue
+		}
+		if branch.PayloadKind == "soap_xml" {
+			fault, valid := healthSOAPResponseFault(xmlDocument, branch.RootQName.Space)
+			if !valid {
+				continue
+			}
+			if fault {
+				return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
+			}
+		}
+		if !healthResponseDiscriminatorsMatch(branch, xmlDocument, jsonDocument) {
+			continue
+		}
+		matches = append(matches, branch)
+	}
+	if len(matches) == 0 {
+		if !anyPayloadParsed {
+			return indeterminate("response_payload_invalid")
+		}
+		return indeterminate("response_branch_unmatched")
+	}
+	if len(matches) > 1 {
+		return indeterminate("response_branch_ambiguous")
+	}
+	selected := matches[0]
+
+	matchedProviderCode := false
+	var providerCode healthAssertionScalar
+	switch selected.ProviderResultCodeMode {
+	case "none", "not_applicable":
+	case "documented", "expected_success_example":
+		actual, ok := healthResponseAssertionScalarAt(xmlDocument, jsonDocument, selected.PayloadKind, selected.ProviderResultCodePath, selected.ProviderResultCodeType)
+		if !ok || !healthAssertionScalarIn(selected.ProviderResultCodeValues, actual) {
+			return indeterminate("response_provider_code_unknown")
+		}
+		matchedProviderCode = true
+		providerCode = actual
+	default:
+		return indeterminate("response_assertion_invalid")
+	}
+	if selected.Classification == "provider_error" && matchedProviderCode {
+		return healthResponseAssertionResult{
+			Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error",
+			ProviderErrorClass: healthResponseBranchErrorClass(selected.ErrorClasses, providerCode),
+		}
+	}
+	for _, field := range selected.RequiredFields {
+		if !healthResponseFieldMatches(xmlDocument, jsonDocument, selected.PayloadKind, field) {
+			return indeterminate("response_shape_mismatch")
+		}
+	}
+	if collection := selected.ResultCollection; collection != nil {
+		count, exists := healthResponseCollectionCount(xmlDocument, jsonDocument, selected.PayloadKind, *collection)
+		if !exists {
+			return indeterminate("response_shape_mismatch")
+		}
+		if count == 0 && collection.EmptySemantics == "invalid" {
+			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_collection_empty"}
+		}
+	}
+	if selected.Classification == "provider_error" {
+		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
+	}
+	return healthResponseAssertionResult{Outcome: healthResponseHealthy, ReasonCode: "response_assertion_passed"}
+}
+
+func validateHealthNormalizedResponseBranches(branches []healthNormalizedResponseBranch) error {
+	if len(branches) == 0 || len(branches) > 16 {
+		return errors.New("response branch count is outside its ceiling")
+	}
+	ids := make(map[string]struct{}, len(branches))
+	for _, branch := range branches {
+		if branch.ID == "" || len(branch.ID) > 96 || !regexp.MustCompile(`^[A-Za-z0-9._-]+$`).MatchString(branch.ID) {
+			return errors.New("response branch identity is invalid")
+		}
+		if _, duplicate := ids[branch.ID]; duplicate {
+			return errors.New("response branch identity is duplicated")
+		}
+		ids[branch.ID] = struct{}{}
+		if branch.Classification != "success" && branch.Classification != "provider_error" {
+			return errors.New("response branch classification is unsupported")
+		}
+		if branch.PayloadKind != "json" && branch.PayloadKind != "xml" && branch.PayloadKind != "soap_xml" {
+			return errors.New("response branch payload kind is unsupported")
+		}
+		if len(branch.AcceptedHTTPStatusCodes) == 0 || len(branch.AcceptedHTTPStatusCodes) > 32 {
+			return errors.New("response branch status set is incomplete")
+		}
+		seenStatuses := make(map[int]struct{}, len(branch.AcceptedHTTPStatusCodes))
+		for _, status := range branch.AcceptedHTTPStatusCodes {
+			if status < 100 || status > 599 || branch.Classification == "success" && (status < 200 || status >= 300) {
+				return errors.New("response branch status is invalid for its classification")
+			}
+			if _, duplicate := seenStatuses[status]; duplicate {
+				return errors.New("response branch status is duplicated")
+			}
+			seenStatuses[status] = struct{}{}
+		}
+		if branch.PayloadKind == "json" {
+			if branch.RootQName != (xml.Name{}) || branch.RootKind != "object" && branch.RootKind != "array" && branch.RootKind != "scalar" {
+				return errors.New("JSON response branch root selector is invalid")
+			}
+		} else {
+			if branch.RootKind != "xml_element" || !healthXMLPathValid([]xml.Name{branch.RootQName}) {
+				return errors.New("XML response branch root selector is invalid")
+			}
+			if branch.PayloadKind == "soap_xml" && (branch.RootQName.Space == "" || branch.RootQName.Local != "Envelope") {
+				return errors.New("SOAP response branch must select an envelope root")
+			}
+		}
+		if len(branch.Discriminators) > 8 {
+			return errors.New("response branch discriminator count exceeds its ceiling")
+		}
+		seenDiscriminatorPaths := make([]healthNormalizedResponsePath, 0, len(branch.Discriminators))
+		for _, discriminator := range branch.Discriminators {
+			if !healthResponsePathValid(branch.PayloadKind, discriminator.Path) {
+				return errors.New("response branch discriminator path is invalid")
+			}
+			for _, path := range seenDiscriminatorPaths {
+				if healthNormalizedResponsePathsEqual(path, discriminator.Path) {
+					return errors.New("response branch repeats a discriminator path")
+				}
+			}
+			seenDiscriminatorPaths = append(seenDiscriminatorPaths, discriminator.Path)
+			switch discriminator.Predicate {
+			case "present", "absent":
+				if discriminator.ValueType != "" || len(discriminator.Values) != 0 {
+					return errors.New("presence discriminator contains typed values")
+				}
+			case "node_type":
+				if !healthResponseValueTypeSupported(branch.PayloadKind, discriminator.ValueType) || len(discriminator.Values) != 0 {
+					return errors.New("node-type discriminator is invalid")
+				}
+			case "equals_any":
+				if !healthResponseCodeTypeSupported(branch.PayloadKind, discriminator.ValueType) || len(discriminator.Values) == 0 || len(discriminator.Values) > 32 || !healthResponseScalarsMatchType(discriminator.Values, discriminator.ValueType) {
+					return errors.New("exact-value discriminator is invalid")
+				}
+			default:
+				return errors.New("response branch discriminator predicate is unsupported")
+			}
+		}
+		if len(branch.RequiredFields) > healthResponseAssertionMaxPredicates || len(branch.ProviderResultCodeValues) > healthResponseAssertionMaxPredicates || len(branch.ErrorClasses) > 6 {
+			return errors.New("response branch predicate count exceeds its ceiling")
+		}
+		for _, field := range branch.RequiredFields {
+			if field.MinimumCount < 0 || field.MaximumCount < field.MinimumCount || field.MaximumCount > healthResponseAssertionMaxPredicates || !healthResponsePathValid(branch.PayloadKind, field.Path) || !healthResponseValueTypeSupported(branch.PayloadKind, field.ValueType) {
+				return errors.New("response branch field predicate is invalid")
+			}
+		}
+		switch branch.ProviderResultCodeMode {
+		case "none", "not_applicable":
+			if branch.ProviderResultCodeType != "" || len(branch.ProviderResultCodeValues) != 0 || branch.ProviderResultCodePath.JSONPointer != "" || len(branch.ProviderResultCodePath.XMLPath) != 0 || len(branch.ErrorClasses) != 0 {
+				return errors.New("response branch without provider codes contains code predicates")
+			}
+		case "documented":
+			if !healthResponsePathValid(branch.PayloadKind, branch.ProviderResultCodePath) || !healthResponseCodeTypeSupported(branch.PayloadKind, branch.ProviderResultCodeType) || len(branch.ProviderResultCodeValues) == 0 || !healthResponseScalarsMatchType(branch.ProviderResultCodeValues, branch.ProviderResultCodeType) {
+				return errors.New("documented response branch code is incomplete")
+			}
+		case "expected_success_example":
+			if branch.Classification != "success" || !healthResponsePathValid(branch.PayloadKind, branch.ProviderResultCodePath) || !healthResponseCodeTypeSupported(branch.PayloadKind, branch.ProviderResultCodeType) || len(branch.ProviderResultCodeValues) != 1 || !healthResponseScalarsMatchType(branch.ProviderResultCodeValues, branch.ProviderResultCodeType) || len(branch.ErrorClasses) != 0 {
+				return errors.New("response branch success example is incomplete")
+			}
+		default:
+			return errors.New("response branch provider-code mode is unsupported")
+		}
+		if branch.Classification != "provider_error" && len(branch.ErrorClasses) != 0 || branch.Classification == "provider_error" && len(branch.ErrorClasses) > 0 && branch.ProviderResultCodeMode != "documented" {
+			return errors.New("response branch error class mapping is unsupported")
+		}
+		classValues := make(map[healthAssertionScalar]struct{})
+		categories := make(map[string]struct{}, len(branch.ErrorClasses))
+		for _, class := range branch.ErrorClasses {
+			if !healthResponseErrorCategoryAllowed(class.Category) || len(class.Values) == 0 || !healthResponseScalarsMatchType(class.Values, branch.ProviderResultCodeType) {
+				return errors.New("response branch error class mapping is invalid")
+			}
+			if _, duplicate := categories[class.Category]; duplicate {
+				return errors.New("response branch error class is duplicated")
+			}
+			categories[class.Category] = struct{}{}
+			for _, value := range class.Values {
+				canonical, _ := healthCanonicalAssertionScalar(value)
+				if !healthAssertionScalarIn(branch.ProviderResultCodeValues, canonical) {
+					return errors.New("response branch error class value is not a documented provider error")
+				}
+				if _, duplicate := classValues[canonical]; duplicate {
+					return errors.New("response branch error classes overlap")
+				}
+				classValues[canonical] = struct{}{}
+			}
+		}
+		if collection := branch.ResultCollection; collection != nil {
+			if collection.EmptySemantics != "valid" && collection.EmptySemantics != "invalid" {
+				return errors.New("response branch collection semantics are invalid")
+			}
+			if branch.PayloadKind == "json" {
+				if !validHealthOperationDocumentPointer(collection.JSONPointer) || len(collection.XMLContainer) != 0 || len(collection.XMLItemPath) != 0 {
+					return errors.New("JSON response branch collection path is invalid")
+				}
+			} else if collection.JSONPointer != "" || !healthXMLPathValid(collection.XMLContainer) || !healthXMLPathValid(collection.XMLItemPath) {
+				return errors.New("XML response branch collection paths are invalid")
+			}
+		}
+	}
+	for left := 0; left < len(branches); left++ {
+		for right := left + 1; right < len(branches); right++ {
+			exclusive, samePathOverlap := healthResponseBranchesDisjoint(branches[left], branches[right])
+			if !exclusive && samePathOverlap {
+				return errors.New("response branch selectors have overlapping predicates on the same path")
+			}
+		}
+	}
+	return nil
+}
+
+func healthResponseBranchesDisjoint(left, right healthNormalizedResponseBranch) (exclusive, samePathOverlap bool) {
+	if (left.PayloadKind == "json") != (right.PayloadKind == "json") {
+		return true, false
+	}
+	sharedStatus := false
+	for _, status := range left.AcceptedHTTPStatusCodes {
+		if healthResponseStatusAccepted(right.AcceptedHTTPStatusCodes, status) {
+			sharedStatus = true
+			break
+		}
+	}
+	if !sharedStatus {
+		return true, false
+	}
+	if left.PayloadKind == "json" {
+		if left.RootKind != right.RootKind {
+			return true, false
+		}
+	} else if left.RootQName != right.RootQName {
+		return true, false
+	}
+	if len(left.Discriminators) == 0 || len(right.Discriminators) == 0 {
+		return false, true
+	}
+	for _, leftDiscriminator := range left.Discriminators {
+		for _, rightDiscriminator := range right.Discriminators {
+			if !healthNormalizedResponsePathsEqual(leftDiscriminator.Path, rightDiscriminator.Path) {
+				continue
+			}
+			disjoint, overlaps := healthResponseDiscriminatorsDisjoint(leftDiscriminator, rightDiscriminator)
+			if disjoint {
+				return true, false
+			}
+			if overlaps {
+				samePathOverlap = true
+			}
+		}
+	}
+	// Different positive/negative member paths may co-occur. The runtime
+	// selector must still require exactly one match and fail indeterminate on
+	// zero or multiple matching branches.
+	return false, samePathOverlap
+}
+
+func healthResponseDiscriminatorsDisjoint(left, right healthNormalizedResponseDiscriminator) (disjoint, overlaps bool) {
+	leftNegative, rightNegative := left.Predicate == "absent", right.Predicate == "absent"
+	leftPositive, rightPositive := left.Predicate == "present" || left.Predicate == "node_type" || left.Predicate == "equals_any", right.Predicate == "present" || right.Predicate == "node_type" || right.Predicate == "equals_any"
+	if leftNegative && rightPositive || rightNegative && leftPositive {
+		return true, false
+	}
+	if left.Predicate == "node_type" && right.Predicate == "node_type" && left.ValueType != right.ValueType {
+		return true, false
+	}
+	if left.Predicate == "node_type" && right.Predicate == "equals_any" && left.ValueType != right.ValueType || right.Predicate == "node_type" && left.Predicate == "equals_any" && right.ValueType != left.ValueType {
+		return true, false
+	}
+	if left.Predicate == "equals_any" && right.Predicate == "equals_any" {
+		if left.ValueType != right.ValueType {
+			return true, false
+		}
+		for _, value := range left.Values {
+			if healthAssertionScalarIn(right.Values, value) {
+				return false, true
+			}
+		}
+		return true, false
+	}
+	return false, true
+}
+
+func healthNormalizedResponsePathsEqual(left, right healthNormalizedResponsePath) bool {
+	if left.JSONPointer != right.JSONPointer || len(left.XMLPath) != len(right.XMLPath) {
+		return false
+	}
+	for index := range left.XMLPath {
+		if left.XMLPath[index] != right.XMLPath[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func healthResponseRootMatches(branch healthNormalizedResponseBranch, xmlDocument *healthResponseXMLDocument, jsonDocument any) bool {
+	if branch.PayloadKind == "json" {
+		switch branch.RootKind {
+		case "object":
+			_, ok := jsonDocument.(map[string]any)
+			return ok
+		case "array":
+			_, ok := jsonDocument.([]any)
+			return ok
+		case "scalar":
+			switch jsonDocument.(type) {
+			case nil, bool, string, json.Number:
+				return true
+			default:
+				return false
+			}
+		}
+		return false
+	}
+	return xmlDocument != nil && xmlDocument.Root >= 0 && xmlDocument.Nodes[xmlDocument.Root].Name == branch.RootQName
+}
+
+func healthResponseDiscriminatorsMatch(branch healthNormalizedResponseBranch, xmlDocument *healthResponseXMLDocument, jsonDocument any) bool {
+	for _, discriminator := range branch.Discriminators {
+		switch discriminator.Predicate {
+		case "present":
+			if !healthResponsePathPresent(xmlDocument, jsonDocument, branch.PayloadKind, discriminator.Path) {
+				return false
+			}
+		case "absent":
+			if healthResponsePathPresent(xmlDocument, jsonDocument, branch.PayloadKind, discriminator.Path) {
+				return false
+			}
+		case "node_type":
+			if !healthResponseFieldMatches(xmlDocument, jsonDocument, branch.PayloadKind, healthNormalizedResponseField{
+				Path: discriminator.Path, ValueType: discriminator.ValueType, MinimumCount: 1, MaximumCount: 1,
+			}) {
+				return false
+			}
+		case "equals_any":
+			actual, ok := healthResponseAssertionScalarAt(xmlDocument, jsonDocument, branch.PayloadKind, discriminator.Path, discriminator.ValueType)
+			if !ok || !healthAssertionScalarIn(discriminator.Values, actual) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func healthResponsePathPresent(xmlDocument *healthResponseXMLDocument, jsonDocument any, payloadKind string, path healthNormalizedResponsePath) bool {
+	if payloadKind == "json" {
+		_, exists := healthJSONPointer(jsonDocument, path.JSONPointer)
+		return exists
+	}
+	return len(healthXMLSelect(xmlDocument, path.XMLPath, nil)) > 0
+}
+
+func healthResponseErrorCategoryAllowed(category string) bool {
+	switch category {
+	case "credential_rejected", "rate_limited", "parameter_blocked", "provider_failure", "semantic_failure", "unsupported":
+		return true
+	default:
+		return false
+	}
+}
+
+func healthResponseBranchErrorClass(classes []healthNormalizedProviderErrorClass, code healthAssertionScalar) string {
+	for _, class := range classes {
+		if healthAssertionScalarIn(class.Values, code) {
+			return class.Category
+		}
+	}
+	return "provider_failure"
 }
 
 func healthResponsePathValid(payloadKind string, path healthNormalizedResponsePath) bool {
@@ -459,6 +943,9 @@ type healthResponseXMLDocument struct {
 func decodeHealthBoundedResponseXML(body []byte) (*healthResponseXMLDocument, error) {
 	if len(body) == 0 || int64(len(body)) > healthTransportMaxBytes {
 		return nil, errors.New("XML response is empty or exceeds the byte ceiling")
+	}
+	if !utf8.Valid(body) {
+		return nil, errors.New("XML response contains invalid UTF-8")
 	}
 	decoder := xml.NewDecoder(bytes.NewReader(body))
 	document := &healthResponseXMLDocument{Root: -1}
