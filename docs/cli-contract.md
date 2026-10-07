@@ -657,6 +657,12 @@ credential scope, provider, adapter, authentication kind, allowlisted
 credential group, and environment variable. The private binding file stores
 references only, never secret values.
 
+Plan loading bounds the index to 8 MiB, 500,000 JSON decoder tokens, 32,000
+combined generation/source/shard artifact references, 4,096 source scopes,
+and 2,048 shards. This index-specific token budget accommodates the bounded
+fleet inventory while leaving the 100,000-token budget on each selected plan
+shard, operation-document evidence file, and JSON provider response unchanged.
+
 This command requires a new receipt path outside the installed Registry and
 emits a `datapan.health-operation-plan-probe.v1` receipt atomically with mode
 0600, then writes identical JSON to stdout. The receipt carries the Health

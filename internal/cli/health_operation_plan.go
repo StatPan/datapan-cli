@@ -35,9 +35,14 @@ const (
 	healthOperationPlanIndexMaxBytes        = 8 << 20
 	healthOperationPlanShardMaxBytes        = 16 << 20
 	healthOperationPlanMaxJSONTokens        = 100_000
-	healthOperationPlanMaxJSONDepth         = 64
-	healthOperationPlanMaxIndexShards       = 2048
-	healthOperationPlanMaxSourceScopes      = 4096
+	// An index can carry tens of thousands of compact artifact refs. Keep its
+	// larger token budget separate from the plan and provider-response budget.
+	healthOperationPlanMaxIndexJSONTokens = 500_000
+	healthOperationPlanMaxJSONDepth       = 64
+	healthOperationPlanMaxIndexShards     = 2048
+	healthOperationPlanMaxSourceScopes    = 4096
+	// Counts generation refs, source artifact refs, and shard artifact refs.
+	healthOperationPlanMaxIndexArtifactRefs = 32_000
 	healthOperationPlanMaxRequestParameters = 256
 	healthOperationPlanMinTimeout           = time.Millisecond
 	healthOperationPlanMaxTimeout           = 30 * time.Second
@@ -428,7 +433,7 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 	if err != nil {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan index is unavailable")
 	}
-	if err := validateHealthOperationPlanJSON(indexData); err != nil {
+	if err := validateHealthOperationPlanIndexJSON(indexData); err != nil {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan index contract is invalid")
 	}
 	var index healthOperationPlanIndex
@@ -626,6 +631,17 @@ func validateHealthOperationPlanJSON(data []byte) error {
 	if err := preflightHealthOperationPlanJSON(data); err != nil {
 		return err
 	}
+	return validateHealthOperationPlanSchemaJSON(data)
+}
+
+func validateHealthOperationPlanIndexJSON(data []byte) error {
+	if err := preflightHealthOperationPlanIndexJSON(data); err != nil {
+		return err
+	}
+	return validateHealthOperationPlanSchemaJSON(data)
+}
+
+func validateHealthOperationPlanSchemaJSON(data []byte) error {
 	compiler, err := healthOperationPlanJSONSchema()
 	if err != nil {
 		return err
@@ -659,7 +675,11 @@ func healthOperationPlanJSONSchema() (*jsonschema.Schema, error) {
 }
 
 func preflightHealthOperationPlanJSON(data []byte) error {
-	return preflightHealthJSON(data, true)
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxJSONTokens, 0, true)
+}
+
+func preflightHealthOperationPlanIndexJSON(data []byte) error {
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxIndexJSONTokens, healthOperationPlanMaxIndexArtifactRefs, true)
 }
 
 // Provider response objects are decoded into maps, so case-distinct member
@@ -667,14 +687,15 @@ func preflightHealthOperationPlanJSON(data []byte) error {
 // where encoding/json's case-insensitive field matching makes them ambiguous).
 // Exact duplicate decoded names, including escaped aliases, are still rejected.
 func preflightHealthResponseJSON(data []byte) error {
-	return preflightHealthJSON(data, false)
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxJSONTokens, 0, false)
 }
 
-func preflightHealthJSON(data []byte, rejectCaseFoldDuplicates bool) error {
+func preflightHealthJSONWithLimits(data []byte, maxTokens, maxArtifactRefs int, rejectCaseFoldDuplicates bool) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	state := healthOperationPlanJSONScan{
-		maxTokens:                healthOperationPlanMaxJSONTokens,
+		maxTokens:                maxTokens,
+		maxArtifactRefs:          maxArtifactRefs,
 		maxDepth:                 healthOperationPlanMaxJSONDepth,
 		rejectCaseFoldDuplicates: rejectCaseFoldDuplicates,
 	}
@@ -693,6 +714,8 @@ func preflightHealthJSON(data []byte, rejectCaseFoldDuplicates bool) error {
 type healthOperationPlanJSONScan struct {
 	tokens                   int
 	maxTokens                int
+	artifactRefs             int
+	maxArtifactRefs          int
 	maxDepth                 int
 	rejectCaseFoldDuplicates bool
 }
@@ -723,6 +746,7 @@ func (s *healthOperationPlanJSONScan) value(decoder *json.Decoder, depth int) er
 	}
 	if delim == '{' {
 		keys := make(map[string]struct{})
+		hasPath, hasSHA256, hasBytes := false, false, false
 		for decoder.More() {
 			keyToken, err := s.token(decoder)
 			if err != nil {
@@ -740,6 +764,14 @@ func (s *healthOperationPlanJSONScan) value(decoder *json.Decoder, depth int) er
 				return errors.New("duplicate JSON object key")
 			}
 			keys[duplicateKey] = struct{}{}
+			switch strings.ToLower(key) {
+			case "path":
+				hasPath = true
+			case "sha256":
+				hasSHA256 = true
+			case "bytes":
+				hasBytes = true
+			}
 			if err := s.value(decoder, depth+1); err != nil {
 				return err
 			}
@@ -747,6 +779,12 @@ func (s *healthOperationPlanJSONScan) value(decoder *json.Decoder, depth int) er
 		closing, err := s.token(decoder)
 		if err != nil || closing != json.Delim('}') {
 			return errors.New("JSON object is incomplete")
+		}
+		if hasPath && hasSHA256 && hasBytes && s.maxArtifactRefs > 0 {
+			s.artifactRefs++
+			if s.artifactRefs > s.maxArtifactRefs {
+				return errors.New("JSON artifact reference budget exceeded")
+			}
 		}
 		return nil
 	}
@@ -769,12 +807,14 @@ func validateHealthOperationPlanIndexBounds(index healthOperationPlanIndex) erro
 	if len(index.Shards) == 0 || len(index.Shards) > healthOperationPlanMaxIndexShards || len(index.SourceScopes) == 0 || len(index.SourceScopes) > healthOperationPlanMaxSourceScopes {
 		return errors.New("index resource ceiling exceeded")
 	}
+	artifactRefs := 3 + len(index.GenerationInputs.OperationDenominators) + len(index.GenerationInputs.DocumentEvidence) + len(index.Shards)
 	sourceCounts := make(map[string]int, len(index.SourceScopes))
 	unknownScopes := 0
 	for _, source := range index.SourceScopes {
 		if source.SourceID == "" || strings.TrimSpace(source.Provider) == "" || strings.TrimSpace(source.AdapterID) == "" || source.RegisteredOperations < 0 || !validSHA256(source.IdentitySetSHA256) || len(source.SourceArtifacts) == 0 {
 			return errors.New("source scope is incomplete")
 		}
+		artifactRefs += len(source.SourceArtifacts)
 		if _, duplicate := sourceCounts[source.SourceID]; duplicate {
 			return errors.New("source scope is duplicated")
 		}
@@ -782,6 +822,9 @@ func validateHealthOperationPlanIndexBounds(index healthOperationPlanIndex) erro
 		if source.InventoryUnknown {
 			unknownScopes++
 		}
+	}
+	if artifactRefs > healthOperationPlanMaxIndexArtifactRefs {
+		return errors.New("index artifact reference ceiling exceeded")
 	}
 	shardIndices := make(map[string]map[int]healthOperationPlanShardRef, len(index.SourceScopes))
 	for _, shard := range index.Shards {

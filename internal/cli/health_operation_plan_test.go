@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +94,119 @@ func TestHealthOperationPlanJSONPreflightBoundsAndStrictness(t *testing.T) {
 	bomb.WriteByte(']')
 	if err := preflightHealthOperationPlanJSON([]byte(bomb.String())); err == nil {
 		t.Fatal("preflight accepted a JSON token-count bomb")
+	}
+}
+
+func TestHealthOperationPlanIndexUsesFleetSizedTokenBudget(t *testing.T) {
+	index := syntheticOperationPlanIndexWithDocumentEvidence(t, 12_666)
+	data, err := json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(data)) > healthOperationPlanIndexMaxBytes {
+		t.Fatalf("synthetic index is %d bytes, above the %d-byte index ceiling", len(data), healthOperationPlanIndexMaxBytes)
+	}
+	tokens, err := countJSONDecoderTokens(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokens <= healthOperationPlanMaxJSONTokens {
+		t.Fatalf("synthetic 12,666-ref index has %d tokens; expected to reproduce the old 100,000-token rejection", tokens)
+	}
+	t.Logf("synthetic 12,666-ref index: %d bytes, %d independently counted JSON decoder tokens", len(data), tokens)
+	if err := validateHealthOperationPlanJSON(data); err == nil {
+		t.Fatal("generic plan validator accepted the index beyond its 100,000-token budget")
+	}
+	if err := validateHealthOperationPlanIndexJSON(data); err != nil {
+		t.Fatalf("index-specific bounded validator rejected a valid fleet-sized index: %v", err)
+	}
+	if err := validateHealthOperationPlanIndexBounds(index); err != nil {
+		t.Fatalf("fleet-sized index exceeded its explicit structure bounds: %v", err)
+	}
+}
+
+func TestHealthOperationPlanIndexRejectsArtifactReferenceCountAboveCeiling(t *testing.T) {
+	index := syntheticOperationPlanIndexWithDocumentEvidence(t, healthOperationPlanMaxIndexArtifactRefs-8)
+	artifactRefs := 3 + len(index.GenerationInputs.OperationDenominators) + len(index.GenerationInputs.DocumentEvidence) + len(index.Shards)
+	for _, scope := range index.SourceScopes {
+		artifactRefs += len(scope.SourceArtifacts)
+	}
+	if artifactRefs != healthOperationPlanMaxIndexArtifactRefs+1 {
+		t.Fatalf("synthetic index has %d artifact refs, want exactly %d", artifactRefs, healthOperationPlanMaxIndexArtifactRefs+1)
+	}
+	data, err := json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(data)) > healthOperationPlanIndexMaxBytes {
+		t.Fatalf("synthetic over-count index is %d bytes, unexpectedly above the byte ceiling", len(data))
+	}
+	if err := preflightHealthOperationPlanIndexJSON(data); err == nil {
+		t.Fatal("index preflight accepted more artifact references than the documented ceiling")
+	}
+	if err := validateHealthOperationPlanIndexJSON(data); err == nil {
+		t.Fatal("index validator accepted more artifact references than the documented ceiling")
+	}
+	if err := validateHealthOperationPlanIndexBounds(index); err == nil {
+		t.Fatal("index with more artifact references than the documented ceiling was accepted")
+	}
+}
+
+func syntheticOperationPlanIndexWithDocumentEvidence(t *testing.T, documentCount int) healthOperationPlanIndex {
+	t.Helper()
+	ref := func(path, value string) healthOperationPlanArtifactRef {
+		sum := sha256.Sum256([]byte(value))
+		return healthOperationPlanArtifactRef{Path: path, SHA256: hex.EncodeToString(sum[:]), Bytes: 1}
+	}
+	index := healthOperationPlanIndex{SchemaVersion: healthOperationPlanSchemaVersion, ArtifactKind: "index", RegistryRevision: strings.Repeat("a", 40)}
+	index.GenerationInputs.GeneratorPath = "scripts/generate-operation-observation-plan.py"
+	index.GenerationInputs.GeneratorSHA256 = ref("generator", "generator").SHA256
+	index.GenerationInputs.OperationManifest = ref("reports/synthetic/operation-manifest.json", "operation-manifest")
+	index.GenerationInputs.OperationDenominators = make([]healthOperationPlanArtifactRef, 4)
+	for position := range index.GenerationInputs.OperationDenominators {
+		index.GenerationInputs.OperationDenominators[position] = ref("reports/synthetic/denominator-"+strconv.Itoa(position)+".json", "denominator-"+strconv.Itoa(position))
+	}
+	index.GenerationInputs.LegacyPolicy = ref("policy/health-probe-canaries.json", "legacy-policy")
+	index.GenerationInputs.ProviderIndex = ref("data/provider-index.json", "provider-index")
+	index.GenerationInputs.DocumentEvidence = make([]healthOperationPlanArtifactRef, documentCount)
+	for position := range index.GenerationInputs.DocumentEvidence {
+		index.GenerationInputs.DocumentEvidence[position] = ref("reports/operation-document-evidence/synthetic/"+strconv.Itoa(position)+".json", "document-evidence-"+strconv.Itoa(position))
+	}
+	index.InventoryContext = struct {
+		SeparateLinkOperations                  int  `json:"separate_link_operations"`
+		ProviderIndexAdapterEntries             int  `json:"provider_index_adapter_entries"`
+		ProviderIndexEntriesCountedAsOperations bool `json:"provider_index_entries_counted_as_operations"`
+	}{}
+	index.Summary.KnownOperations = 1
+	index.Summary.RequestPlansIncomplete = 1
+	index.Summary.RuntimeBindingsUnbound = 1
+	index.Summary.NotAdmitted = 1
+	identity := ref("identity", "synthetic-operation").SHA256
+	index.SourceScopes = []healthOperationPlanSourceScope{{
+		SourceID: "synthetic_scope", Provider: "synthetic provider", AdapterID: "synthetic-adapter", InventoryStatus: "source_complete",
+		RegisteredOperations: 1, IdentitySetSHA256: identity, SourceArtifacts: []healthOperationPlanArtifactRef{ref("sources/synthetic.json", "source")},
+	}}
+	index.Shards = []healthOperationPlanShardRef{{
+		SourceID: "synthetic_scope", ShardIndex: 0, Path: "reports/operation-observation-plan/shards/synthetic_scope/0000.json",
+		SHA256: ref("shard", "synthetic-shard").SHA256, Bytes: 1, RecordCount: 1,
+		FirstOperationID: "synthetic-operation", LastOperationID: "synthetic-operation",
+	}}
+	return index
+}
+
+func countJSONDecoderTokens(data []byte) (int, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	tokens := 0
+	for {
+		_, err := decoder.Token()
+		if err == io.EOF {
+			return tokens, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		tokens++
 	}
 }
 
