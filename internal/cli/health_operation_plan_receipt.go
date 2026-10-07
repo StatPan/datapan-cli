@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -90,6 +88,9 @@ func (a app) catalogVerifyHealthOperationPlan(output string, jsonOut bool) int {
 	}
 	binaryDigest, err := healthExecutableSHA256()
 	if err != nil {
+		if errors.Is(err, errHealthRunningImageAttestationUnavailable) {
+			return a.fail(exitRequest, "health operation-plan probing requires Linux running-image attestation")
+		}
 		return a.fail(exitRequest, "could not identify the running CLI binary")
 	}
 
@@ -288,19 +289,6 @@ func (a app) writeHealthOperationPlanReceipt(output string, receipt healthOperat
 		return exitAuth
 	}
 	return exitRequest
-}
-
-func healthExecutableSHA256() (string, error) {
-	path, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	data, err := readBoundedFile(path, 128<<20)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
 }
 
 func healthOperationPlanReceiptPathSafe(output string, loaded healthOperationPlanLoadResult) bool {

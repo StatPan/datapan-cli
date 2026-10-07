@@ -912,6 +912,9 @@ func validateHealthOperationPlanRecord(plan healthOperationPlanRecord) error {
 		return errors.New("plan is incomplete, unbound, or not admitted")
 	}
 	contract := plan.RequestPlan.RequestContract
+	if contract.Transport.Authority == "synthetic_fixture" || contract.OperationEffect.Authority == "synthetic_fixture" {
+		return errors.New("synthetic fixture authority cannot admit a production operation plan")
+	}
 	if plan.OperationIdentity.OperationID == "" || plan.SourceBinding.SourceID == "" || plan.SourceBinding.Provider == "" || plan.SourceBinding.AdapterID == "" || contract.OperationEffect.Classification != "read_only" || contract.Limits.RequestBudget != 1 || contract.Limits.TimeoutMS < int(healthOperationPlanMinTimeout/time.Millisecond) || contract.Limits.TimeoutMS > int(healthOperationPlanMaxTimeout/time.Millisecond) || contract.Limits.MaxRequestBytes < 1 || contract.Limits.MaxResponseBytes < 1 || contract.Limits.MaxRequestBytes > healthTransportMaxBytes || contract.Limits.MaxResponseBytes > healthTransportMaxBytes || len(contract.Parameters) > healthOperationPlanMaxRequestParameters || len(plan.RuntimeBinding.QuotaPolicies) == 0 || len(plan.RuntimeBinding.QuotaPolicies) > healthOperationPlanMaxQuotaPolicies || plan.RuntimeBinding.ObservationPeriodSeconds < 1 {
 		return errors.New("plan request and runtime bounds are unsupported")
 	}
@@ -954,6 +957,9 @@ func validateHealthOperationPlanRecord(plan healthOperationPlanRecord) error {
 	}
 	credentialParameterCount := 0
 	for _, parameter := range contract.Parameters {
+		if parameter.ValueStrategy.Authority == "synthetic_fixture" {
+			return errors.New("synthetic fixture value authority cannot admit a production operation plan")
+		}
 		if strings.TrimSpace(parameter.Name) == "" || (parameter.Cardinality != "required_single" && parameter.Cardinality != "optional_single") || !healthOperationPlanSupportsValueStrategy(parameter.ValueStrategy.Kind) || parameter.ValueStrategy.Kind == "credential_reference" && parameter.ValueStrategy.BindingField != "credential_reference" {
 			return errors.New("plan contains an unsupported parameter capability")
 		}

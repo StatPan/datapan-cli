@@ -670,6 +670,12 @@ after dispatch is an ambiguous attempt for the Health scheduler and must not
 be retried automatically. Scheduling, cadence, durable attempt history, and
 atomic admission across quota scopes remain owned by Health.
 
+Plan-probe execution currently requires Linux `/proc/self/exe` so the CLI can
+hash the executable inode actually running, even if its original path changes.
+On other platforms this mode fails before request dispatch with an explicit
+unsupported-platform error; legacy Health catalog/query commands remain
+available on their supported platforms.
+
 In plan mode, `--health-registry-revision` must match the operation-plan
 index's `registry_revision` (the source Git commit that generated that index).
 The receipt names this separately as `registry.registry_revision`; installer

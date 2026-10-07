@@ -22,6 +22,30 @@ const healthPlanSyntheticCredential = "local-synthetic-secret-never-in-receipt"
 
 func readSyntheticHealthPlan(t *testing.T, name string) healthOperationPlanRecord {
 	t.Helper()
+	plan := readHealthOperationPlanFixture(t, name)
+	// Request-construction tests exercise field-to-wire translation after
+	// authorization. Use allowed authority labels in this in-memory test copy;
+	// the source fixtures themselves remain marked test-only and are rejected
+	// by the production loader and admission validator.
+	plan.SourceBinding.TestOnly = false
+	contract := plan.RequestPlan.RequestContract
+	contract.Transport.Authority = "operation_document"
+	contract.OperationEffect.Authority = "reviewed_policy"
+	for i := range contract.Parameters {
+		switch contract.Parameters[i].ValueStrategy.Kind {
+		case "credential_reference":
+			contract.Parameters[i].ValueStrategy.Authority = "runtime_binding"
+		case "reviewed_enum", "reviewed_literal", "opaque_reviewed_value":
+			contract.Parameters[i].ValueStrategy.Authority = "reviewed_policy"
+		default:
+			contract.Parameters[i].ValueStrategy.Authority = "operation_document"
+		}
+	}
+	return plan
+}
+
+func readHealthOperationPlanFixture(t *testing.T, name string) healthOperationPlanRecord {
+	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "operation-observation-plan", name))
 	if err != nil {
 		t.Fatal(err)
@@ -30,10 +54,6 @@ func readSyntheticHealthPlan(t *testing.T, name string) healthOperationPlanRecor
 	if err := json.Unmarshal(data, &plan); err != nil {
 		t.Fatal(err)
 	}
-	// These inputs are explicitly test-only Registry fixtures and are never
-	// accepted by the production plan loader. Clear the marker only to exercise
-	// request translation against an injected in-memory HTTP client.
-	plan.SourceBinding.TestOnly = false
 	return plan
 }
 
@@ -166,6 +186,38 @@ func TestHealthOperationPlanRESTAndSOAPRequestTranslation(t *testing.T) {
 		}
 		if _, err := healthOperationPlanRequestShape(plan, healthPlanSyntheticCredential, time.Now().UTC()); err == nil {
 			t.Fatal("credentialed plan over cleartext HTTP produced a request shape")
+		}
+	})
+}
+
+func TestHealthOperationPlanRejectsSyntheticAuthorityPromotion(t *testing.T) {
+	t.Run("transport", func(t *testing.T) {
+		plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+		plan.RequestPlan.RequestContract.Transport.Authority = "synthetic_fixture"
+		if err := validateHealthOperationPlanRecord(plan); err == nil {
+			t.Fatal("synthetic transport authority passed production admission")
+		}
+		if _, err := healthOperationPlanRequestShape(plan, "", time.Now().UTC()); err == nil {
+			t.Fatal("synthetic transport authority produced a request shape")
+		}
+	})
+
+	t.Run("operation effect", func(t *testing.T) {
+		plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+		plan.RequestPlan.RequestContract.OperationEffect.Authority = "synthetic_fixture"
+		if err := validateHealthOperationPlanRecord(plan); err == nil {
+			t.Fatal("synthetic operation-effect authority passed production admission")
+		}
+	})
+
+	t.Run("parameter value", func(t *testing.T) {
+		plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+		if len(plan.RequestPlan.RequestContract.Parameters) == 0 {
+			t.Fatal("synthetic REST fixture has no parameter to test")
+		}
+		plan.RequestPlan.RequestContract.Parameters[0].ValueStrategy.Authority = "synthetic_fixture"
+		if err := validateHealthOperationPlanRecord(plan); err == nil {
+			t.Fatal("synthetic parameter-value authority passed production admission")
 		}
 	})
 }
