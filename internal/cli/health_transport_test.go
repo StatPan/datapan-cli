@@ -27,7 +27,12 @@ func rewriteBoundCatalog(t *testing.T, path string, change func(*manifestHealthC
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(path, data, 0600); err != nil {
+	writeBoundCatalogAndUpdatePins(t, path, data)
+}
+
+func writeBoundCatalogAndUpdatePins(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(data)

@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -18,7 +20,19 @@ import (
 const (
 	healthCatalogSchema       = "datapan.health-probe-catalog.v1"
 	healthCatalogArtifactPath = "reports/health-probe-catalog.json"
-	healthCatalogMaxBytes     = 64 << 10
+	// These limits cap v1 input and validation work for the CLI. They do not
+	// describe or imply admission of the Registry's full operation set.
+	healthCatalogMaxBytes                  = 32 << 20
+	healthCatalogMaxEntries                = 32_000
+	healthCatalogMaxSafeParametersPerEntry = 256
+	// The aggregate budget allows four policy parameters per maximum entry on
+	// average while bounding decoded catalog and execution-policy allocations.
+	healthCatalogMaxTotalSafeParameters = 128_000
+)
+
+var (
+	errHealthCatalogEntryLimit         = errors.New("health catalog entry count exceeds limit")
+	errHealthCatalogSafeParameterLimit = errors.New("health catalog safe parameter count exceeds limit")
 )
 
 type manifestHealthCatalog struct {
@@ -114,11 +128,17 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	if err != nil {
 		return datago.Registry{}, registryTrustContext{}, err
 	}
+	if err := preflightHealthCatalogJSON(data); err != nil {
+		if errors.Is(err, errHealthCatalogEntryLimit) || errors.Is(err, errHealthCatalogSafeParameterLimit) {
+			return datago.Registry{}, registryTrustContext{}, errors.New("health catalog contract is invalid")
+		}
+		return datago.Registry{}, registryTrustContext{}, errors.New("decode health catalog")
+	}
 	var catalog manifestHealthCatalog
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		return datago.Registry{}, registryTrustContext{}, errors.New("decode health catalog")
 	}
-	if catalog.SchemaVersion != healthCatalogSchema || catalog.Authority != "datapan-registry" || len(catalog.Entries) != 10 || !validSHA256(catalog.SourceRegistry.SHA256) {
+	if catalog.SchemaVersion != healthCatalogSchema || catalog.Authority != "datapan-registry" || len(catalog.Entries) < 1 || len(catalog.Entries) > healthCatalogMaxEntries || !validSHA256(catalog.SourceRegistry.SHA256) {
 		return datago.Registry{}, registryTrustContext{}, errors.New("health catalog contract is invalid")
 	}
 
@@ -236,11 +256,238 @@ func healthCatalogEndpoint(entry manifestHealthCatalogEntry) (string, error) {
 }
 
 func readBoundedFile(path string, maximum int64) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maximum {
+	return readBoundedFileWithOpener(path, maximum, openBoundedCandidate)
+}
+
+func readBoundedFileWithOpener(path string, maximum int64, open func(string) (*os.File, error)) ([]byte, error) {
+	if maximum < 1 {
 		return nil, errors.New("bounded file is unavailable")
 	}
-	return os.ReadFile(path)
+	pathInfo, err := os.Stat(path)
+	if err != nil || !pathInfo.Mode().IsRegular() {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	file, err := open(path)
+	if err != nil {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || len(data) == 0 || int64(len(data)) > maximum {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	return data, nil
+}
+
+// preflightHealthCatalogJSON walks the complete JSON document on success and
+// counts entries and safe parameters before typed slices can be allocated.
+func preflightHealthCatalogJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return errors.New("health catalog is not an object")
+	}
+	entryCount, totalSafeParameters := 0, 0
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return errors.New("health catalog field name is invalid")
+		}
+		if strings.EqualFold(key, "entries") {
+			entryCount, totalSafeParameters, err = scanHealthCatalogEntries(decoder, entryCount, totalSafeParameters)
+		} else {
+			err = skipHealthCatalogJSONValue(decoder)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return errors.New("health catalog object is incomplete")
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("health catalog has trailing JSON")
+		}
+		return err
+	}
+	return nil
+}
+
+func scanHealthCatalogEntries(decoder *json.Decoder, currentCount, totalSafeParameters int) (int, int, error) {
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('[') {
+		return currentCount, totalSafeParameters, errors.New("health catalog entries are not an array")
+	}
+	for decoder.More() {
+		currentCount++
+		if currentCount > healthCatalogMaxEntries {
+			return currentCount, totalSafeParameters, errHealthCatalogEntryLimit
+		}
+		totalSafeParameters, err = scanHealthCatalogEntry(decoder, totalSafeParameters)
+		if err != nil {
+			return currentCount, totalSafeParameters, err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim(']') {
+		return currentCount, totalSafeParameters, errors.New("health catalog entries are incomplete")
+	}
+	return currentCount, totalSafeParameters, nil
+}
+
+func scanHealthCatalogEntry(decoder *json.Decoder, totalSafeParameters int) (int, error) {
+	opening, err := decoder.Token()
+	if err != nil {
+		return totalSafeParameters, err
+	}
+	if opening != json.Delim('{') {
+		if delim, ok := opening.(json.Delim); ok && (delim == '[' || delim == '{') {
+			return totalSafeParameters, skipHealthCatalogJSONContainer(decoder, delim)
+		}
+		return totalSafeParameters, nil
+	}
+	entrySafeParameters := 0
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return totalSafeParameters, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return totalSafeParameters, errors.New("health catalog entry field name is invalid")
+		}
+		if strings.EqualFold(key, "execution") {
+			totalSafeParameters, entrySafeParameters, err = scanHealthCatalogExecution(decoder, totalSafeParameters, entrySafeParameters)
+		} else {
+			err = skipHealthCatalogJSONValue(decoder)
+		}
+		if err != nil {
+			return totalSafeParameters, err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return totalSafeParameters, errors.New("health catalog entry is incomplete")
+	}
+	return totalSafeParameters, nil
+}
+
+func scanHealthCatalogExecution(decoder *json.Decoder, totalSafeParameters, entrySafeParameters int) (int, int, error) {
+	opening, err := decoder.Token()
+	if err != nil {
+		return totalSafeParameters, entrySafeParameters, err
+	}
+	if opening != json.Delim('{') {
+		if delim, ok := opening.(json.Delim); ok && (delim == '[' || delim == '{') {
+			return totalSafeParameters, entrySafeParameters, skipHealthCatalogJSONContainer(decoder, delim)
+		}
+		return totalSafeParameters, entrySafeParameters, nil
+	}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return totalSafeParameters, entrySafeParameters, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return totalSafeParameters, entrySafeParameters, errors.New("health catalog execution field name is invalid")
+		}
+		if strings.EqualFold(key, "safe_parameters") {
+			totalSafeParameters, entrySafeParameters, err = scanHealthCatalogSafeParameters(decoder, totalSafeParameters, entrySafeParameters)
+		} else {
+			err = skipHealthCatalogJSONValue(decoder)
+		}
+		if err != nil {
+			return totalSafeParameters, entrySafeParameters, err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return totalSafeParameters, entrySafeParameters, errors.New("health catalog execution object is incomplete")
+	}
+	return totalSafeParameters, entrySafeParameters, nil
+}
+
+func scanHealthCatalogSafeParameters(decoder *json.Decoder, totalSafeParameters, entrySafeParameters int) (int, int, error) {
+	opening, err := decoder.Token()
+	if err != nil {
+		return totalSafeParameters, entrySafeParameters, err
+	}
+	if opening != json.Delim('[') {
+		if delim, ok := opening.(json.Delim); ok && (delim == '[' || delim == '{') {
+			return totalSafeParameters, entrySafeParameters, skipHealthCatalogJSONContainer(decoder, delim)
+		}
+		return totalSafeParameters, entrySafeParameters, nil
+	}
+	for decoder.More() {
+		entrySafeParameters++
+		totalSafeParameters++
+		if entrySafeParameters > healthCatalogMaxSafeParametersPerEntry || totalSafeParameters > healthCatalogMaxTotalSafeParameters {
+			return totalSafeParameters, entrySafeParameters, errHealthCatalogSafeParameterLimit
+		}
+		if err := skipHealthCatalogJSONValue(decoder); err != nil {
+			return totalSafeParameters, entrySafeParameters, err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim(']') {
+		return totalSafeParameters, entrySafeParameters, errors.New("health catalog safe parameters are incomplete")
+	}
+	return totalSafeParameters, entrySafeParameters, nil
+}
+
+func skipHealthCatalogJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	return skipHealthCatalogJSONContainer(decoder, delim)
+}
+
+func skipHealthCatalogJSONContainer(decoder *json.Decoder, delim json.Delim) error {
+	switch delim {
+	case '{':
+		for decoder.More() {
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+			if err := skipHealthCatalogJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim('}') {
+			return errors.New("health catalog object value is incomplete")
+		}
+	case '[':
+		for decoder.More() {
+			if err := skipHealthCatalogJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim(']') {
+			return errors.New("health catalog array value is incomplete")
+		}
+	default:
+		return errors.New("health catalog delimiter is invalid")
+	}
+	return nil
 }
 
 func manifestArtifact(manifest releaseManifest, path string) (releaseManifestArtifact, bool) {
