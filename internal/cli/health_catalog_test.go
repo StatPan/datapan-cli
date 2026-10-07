@@ -153,6 +153,64 @@ func TestHealthCatalogPreflightRejectsNullEntryCountBomb(t *testing.T) {
 	}
 }
 
+func TestHealthCatalogPreflightRejectsCaseFoldedEntryCountBombs(t *testing.T) {
+	var decoded struct {
+		Entries []manifestHealthCatalogEntry `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(`{"ENTRIES":[{"EXECUTION":{"SAFE_PARAMETERS":[null]}}]}`), &decoded); err != nil || len(decoded.Entries) != 1 || len(decoded.Entries[0].Execution.SafeParameters) != 1 {
+		t.Fatalf("test case no longer matches encoding/json field names: entries=%d err=%v", len(decoded.Entries), err)
+	}
+
+	const nullEntryCount = healthCatalogMaxEntries * 16
+	entries := strings.TrimSuffix(strings.Repeat("null,", nullEntryCount), ",")
+	for _, data := range [][]byte{
+		[]byte(`{"ENTRIES":[` + entries + `]}`),
+		[]byte(`{"entries":[null],"EnTrIeS":[` + entries + `]}`),
+	} {
+		if err := preflightHealthCatalogJSON(data); !errors.Is(err, errHealthCatalogEntryLimit) {
+			t.Fatalf("preflight error=%v, want entry limit error", err)
+		}
+	}
+}
+
+func TestHealthCatalogPreflightBoundsSafeParameterArrays(t *testing.T) {
+	parametersAtLimit := strings.TrimSuffix(strings.Repeat("null,", healthCatalogMaxSafeParametersPerEntry), ",")
+	validData := []byte(`{"entries":[{"execution":{"safe_parameters":[` + parametersAtLimit + `]}}]}`)
+	if err := preflightHealthCatalogJSON(validData); err != nil {
+		t.Fatalf("preflight rejected per-entry limit: %v", err)
+	}
+
+	parameterBomb := strings.TrimSuffix(strings.Repeat("null,", healthCatalogMaxSafeParametersPerEntry+1), ",")
+	data := []byte(`{"ENTRIES":[{"EXECUTION":{"SAFE_PARAMETERS":[` + parameterBomb + `]}}]}`)
+	if err := preflightHealthCatalogJSON(data); !errors.Is(err, errHealthCatalogSafeParameterLimit) {
+		t.Fatalf("preflight error=%v, want safe parameter limit error", err)
+	}
+
+	firstArray := strings.TrimSuffix(strings.Repeat("null,", healthCatalogMaxSafeParametersPerEntry-1), ",")
+	secondArray := strings.TrimSuffix(strings.Repeat("null,", 2), ",")
+	duplicateFieldData := []byte(`{"entries":[{"execution":{"safe_parameters":[` + firstArray + `],"SAFE_PARAMETERS":[` + secondArray + `]}}]}`)
+	if err := preflightHealthCatalogJSON(duplicateFieldData); !errors.Is(err, errHealthCatalogSafeParameterLimit) {
+		t.Fatalf("duplicate-field preflight error=%v, want safe parameter limit error", err)
+	}
+}
+
+func TestHealthCatalogPreflightBoundsTotalSafeParameterRecords(t *testing.T) {
+	const parametersPerEntry = healthCatalogMaxSafeParametersPerEntry
+	const entryCount = healthCatalogMaxTotalSafeParameters/parametersPerEntry + 1
+	parameters := strings.TrimSuffix(strings.Repeat("null,", parametersPerEntry), ",")
+	entry := `{"execution":{"safe_parameters":[` + parameters + `]}}`
+	entriesAtLimit := strings.TrimSuffix(strings.Repeat(entry+",", entryCount-1), ",")
+	validData := []byte(`{"entries":[` + entriesAtLimit + `]}`)
+	if err := preflightHealthCatalogJSON(validData); err != nil {
+		t.Fatalf("preflight rejected aggregate limit: %v", err)
+	}
+	entriesOverLimit := strings.TrimSuffix(strings.Repeat(entry+",", entryCount), ",")
+	data := []byte(`{"entries":[` + entriesOverLimit + `]}`)
+	if err := preflightHealthCatalogJSON(data); !errors.Is(err, errHealthCatalogSafeParameterLimit) {
+		t.Fatalf("preflight error=%v, want total safe parameter limit error", err)
+	}
+}
+
 func TestManifestBoundHealthCatalogRejectsTamperBeforeProviderExecution(t *testing.T) {
 	_, catalogPath := setupManifestBoundHealthCatalog(t)
 	if err := os.WriteFile(catalogPath, []byte(`{"schema_version":"datapan.health-probe-catalog.v1"}`), 0o600); err != nil {

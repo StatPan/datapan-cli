@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/chromedp/chromedp v0.15.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	golang.org/x/sys v0.42.0
 )
 
 require (
@@ -15,6 +16,5 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )

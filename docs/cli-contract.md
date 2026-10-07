@@ -624,11 +624,15 @@ Owned Health runners may add `--health-catalog PATH` and
 entries in the manifest-bound Registry health catalog, capped at 32 MiB. The
 count and byte ceilings cap v1 decode and validation work for the CLI; they do
 not assert that the Registry has admitted its full operation population. The
-CLI reads and hashes the same bounded bytes, verifies them against the installed
-release manifest and source Registry digest, and resolves the selected
-operation without decoding the 100+ MB Registry monolith. The revision must be
-an immutable commit and is retained in the receipt. These flags are invalid
-outside `verify --health`; they do not change the `--timeout` request budget.
+parser also caps safe-parameter records at 256 per operation and 128,000 across
+one catalog to keep nested policy arrays within the same resource boundary.
+These are input-size limits; safe-parameter strategies and request policy are
+still validated as declared by Registry. The CLI reads and hashes the same
+bounded bytes, verifies them against the installed release manifest and source
+Registry digest, and resolves the selected operation without decoding the
+100+ MB Registry monolith. The revision must be an immutable commit and is
+retained in the receipt. These flags are invalid outside `verify --health`;
+they do not change the `--timeout` request budget.
 
 Health mode exits 0 for `healthy`, 4 for `unhealthy`, 3 for skipped or
 indeterminate/not-probeable operations, 1 for invalid usage, and 4 for a failed
