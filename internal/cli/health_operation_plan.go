@@ -659,9 +659,25 @@ func healthOperationPlanJSONSchema() (*jsonschema.Schema, error) {
 }
 
 func preflightHealthOperationPlanJSON(data []byte) error {
+	return preflightHealthJSON(data, true)
+}
+
+// Provider response objects are decoded into maps, so case-distinct member
+// names are distinct values and must remain usable (unlike plan structs,
+// where encoding/json's case-insensitive field matching makes them ambiguous).
+// Exact duplicate decoded names, including escaped aliases, are still rejected.
+func preflightHealthResponseJSON(data []byte) error {
+	return preflightHealthJSON(data, false)
+}
+
+func preflightHealthJSON(data []byte, rejectCaseFoldDuplicates bool) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	state := healthOperationPlanJSONScan{maxTokens: healthOperationPlanMaxJSONTokens, maxDepth: healthOperationPlanMaxJSONDepth}
+	state := healthOperationPlanJSONScan{
+		maxTokens:                healthOperationPlanMaxJSONTokens,
+		maxDepth:                 healthOperationPlanMaxJSONDepth,
+		rejectCaseFoldDuplicates: rejectCaseFoldDuplicates,
+	}
 	if err := state.value(decoder, 0); err != nil {
 		return err
 	}
@@ -675,9 +691,10 @@ func preflightHealthOperationPlanJSON(data []byte) error {
 }
 
 type healthOperationPlanJSONScan struct {
-	tokens    int
-	maxTokens int
-	maxDepth  int
+	tokens                   int
+	maxTokens                int
+	maxDepth                 int
+	rejectCaseFoldDuplicates bool
 }
 
 func (s *healthOperationPlanJSONScan) token(decoder *json.Decoder) (json.Token, error) {
@@ -715,10 +732,14 @@ func (s *healthOperationPlanJSONScan) value(decoder *json.Decoder, depth int) er
 			if !ok {
 				return errors.New("JSON object key is invalid")
 			}
-			if _, duplicate := keys[strings.ToLower(key)]; duplicate {
+			duplicateKey := key
+			if s.rejectCaseFoldDuplicates {
+				duplicateKey = strings.ToLower(key)
+			}
+			if _, duplicate := keys[duplicateKey]; duplicate {
 				return errors.New("duplicate JSON object key")
 			}
-			keys[strings.ToLower(key)] = struct{}{}
+			keys[duplicateKey] = struct{}{}
 			if err := s.value(decoder, depth+1); err != nil {
 				return err
 			}

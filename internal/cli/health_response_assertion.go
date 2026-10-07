@@ -288,6 +288,9 @@ func healthNormalizedResponseLegacyFieldsEmpty(assertion healthNormalizedRespons
 }
 
 func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedResponseBranch, response healthHTTPResponse) healthResponseAssertionResult {
+	// Reject unlisted HTTP statuses before decoding provider data. For accepted
+	// statuses, select exactly one documented branch from its selectors and
+	// validate only that branch; shape failure never falls through.
 	indeterminate := func(reason string) healthResponseAssertionResult {
 		return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: reason}
 	}
@@ -316,7 +319,11 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 	var xmlDocument *healthResponseXMLDocument
 	xmlAttempted, xmlValid := false, false
 	var anyPayloadParsed bool
-	matches := make([]healthNormalizedResponseBranch, 0, 2)
+	type branchMatch struct {
+		branch    healthNormalizedResponseBranch
+		soapFault bool
+	}
+	matches := make([]branchMatch, 0, 2)
 	for _, branch := range branches {
 		if !healthResponseStatusAccepted(branch.AcceptedHTTPStatusCodes, response.StatusCode) {
 			continue
@@ -347,19 +354,18 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 		if !healthResponseRootMatches(branch, xmlDocument, jsonDocument) {
 			continue
 		}
+		soapFault := false
 		if branch.PayloadKind == "soap_xml" {
 			fault, valid := healthSOAPResponseFault(xmlDocument, branch.RootQName.Space)
 			if !valid {
 				continue
 			}
-			if fault {
-				return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
-			}
+			soapFault = fault
 		}
 		if !healthResponseDiscriminatorsMatch(branch, xmlDocument, jsonDocument) {
 			continue
 		}
-		matches = append(matches, branch)
+		matches = append(matches, branchMatch{branch: branch, soapFault: soapFault})
 	}
 	if len(matches) == 0 {
 		if !anyPayloadParsed {
@@ -370,7 +376,28 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 	if len(matches) > 1 {
 		return indeterminate("response_branch_ambiguous")
 	}
-	selected := matches[0]
+	selectedMatch := matches[0]
+	selected := selectedMatch.branch
+	// Selection is complete before checking any branch-specific response
+	// shape. A malformed selected branch is indeterminate and never falls
+	// through to another branch.
+	for _, field := range selected.RequiredFields {
+		if !healthResponseFieldMatches(xmlDocument, jsonDocument, selected.PayloadKind, field) {
+			return indeterminate("response_shape_mismatch")
+		}
+	}
+	if collection := selected.ResultCollection; collection != nil {
+		count, exists := healthResponseCollectionCount(xmlDocument, jsonDocument, selected.PayloadKind, *collection)
+		if !exists {
+			return indeterminate("response_shape_mismatch")
+		}
+		if count == 0 && collection.EmptySemantics == "invalid" {
+			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_collection_empty"}
+		}
+	}
+	if selectedMatch.soapFault {
+		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error", ProviderErrorClass: "provider_failure"}
+	}
 
 	matchedProviderCode := false
 	var providerCode healthAssertionScalar
@@ -390,20 +417,6 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 		return healthResponseAssertionResult{
 			Outcome: healthResponseUnhealthy, ReasonCode: "response_provider_error",
 			ProviderErrorClass: healthResponseBranchErrorClass(selected.ErrorClasses, providerCode),
-		}
-	}
-	for _, field := range selected.RequiredFields {
-		if !healthResponseFieldMatches(xmlDocument, jsonDocument, selected.PayloadKind, field) {
-			return indeterminate("response_shape_mismatch")
-		}
-	}
-	if collection := selected.ResultCollection; collection != nil {
-		count, exists := healthResponseCollectionCount(xmlDocument, jsonDocument, selected.PayloadKind, *collection)
-		if !exists {
-			return indeterminate("response_shape_mismatch")
-		}
-		if count == 0 && collection.EmptySemantics == "invalid" {
-			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_collection_empty"}
 		}
 	}
 	if selected.Classification == "provider_error" {
@@ -838,7 +851,7 @@ func decodeHealthBoundedResponseJSON(body []byte) (any, error) {
 	if !utf8.Valid(body) || !healthJSONUnicodeEscapesValid(body) {
 		return nil, errors.New("JSON response contains invalid Unicode")
 	}
-	if err := preflightHealthOperationPlanJSON(body); err != nil {
+	if err := preflightHealthResponseJSON(body); err != nil {
 		return nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))

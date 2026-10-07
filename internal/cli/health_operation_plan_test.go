@@ -71,6 +71,7 @@ func TestHealthOperationPlanJSONPreflightBoundsAndStrictness(t *testing.T) {
 	}
 	for _, invalid := range [][]byte{
 		[]byte(`{"x":1,"x":2}`),
+		[]byte(`{"x":1,"X":2}`),
 		[]byte(`{} {}`),
 		[]byte(strings.Repeat("[", healthOperationPlanMaxJSONDepth+1) + "0" + strings.Repeat("]", healthOperationPlanMaxJSONDepth+1)),
 	} {
