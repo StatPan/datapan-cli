@@ -29,7 +29,7 @@ const (
 	healthOperationPlanSchemaSourceRevision      = "123e9cdaa82998e77b14c4f1007791d39cfc7b96"
 	healthOperationPlanSchemaPath                = "schemas/datapan.operation-observation-plan.v1.schema.json"
 	healthOperationPolicySchemaID                = "https://schemas.datapan.dev/datapan.operation-observation-policy.v1.schema.json"
-	healthOperationPolicySchemaSHA256            = "16fa872c0e7d598e55d81814867566576f1962479627ac43eebd66d1d2a62d0f"
+	healthOperationPolicySchemaSHA256            = "acd9e80d3f41e4a0f16b010975fc716bf1ead5c5a3b128c12d03dd51b025f31d"
 	healthOperationPolicySchemaPath              = "schemas/datapan.operation-observation-policy.v1.schema.json"
 	healthOperationResponseAssertionSchemaID     = "https://schemas.datapan.dev/datapan.operation-response-assertion.v2.schema.json"
 	healthOperationResponseAssertionSchemaSHA256 = "78878ab22183e419e58d2a15b0a6a32bc585a3822cfa5a3a4bfd9f23d893055b"

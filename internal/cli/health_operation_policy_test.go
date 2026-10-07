@@ -169,6 +169,75 @@ func TestLoadSelectedHealthOperationPolicyValidatesOnlySelectedRow(t *testing.T)
 	}
 }
 
+func TestLoadSelectedHealthOperationPolicyAcceptsObservationOnlyProfileArm(t *testing.T) {
+	root := t.TempDir()
+	policyPath := filepath.Join(root, filepath.FromSlash(healthOperationPolicyArtifactPath))
+	if err := os.MkdirAll(filepath.Dir(policyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profile := map[string]any{
+		"profile_id": "synthetic-observation-only",
+		"selector": map[string]any{
+			"source_id": "data_go_kr", "provider": "data.go.kr", "protocol": "REST", "effect": "read_only", "method": "GET",
+			"authentication": map[string]any{"requirement": "none", "mechanism": "none", "placement": "none", "parameter_name": nil},
+		},
+		"review": map[string]any{"review_ref": "https://example.invalid/review", "reviewed_by": "test reviewer", "rationale": "Safe request shape; response semantics remain unknown."},
+		"request": map[string]any{
+			"parameter_strategies": []any{}, "omit_unmapped_optional_parameters": true,
+			"limits":   map[string]any{"request_budget": 1, "timeout_ms": 1000, "max_request_bytes": 1024, "max_response_bytes": 1024},
+			"response": map[string]any{"mode": "observation_only"},
+		},
+	}
+	encodePolicy := func(response map[string]any) []byte {
+		t.Helper()
+		profile["request"].(map[string]any)["response"] = response
+		data, err := json.Marshal(map[string]any{
+			"schema_version":  "datapan.operation-observation-policy.v1",
+			"artifact_kind":   "operation_observation_policy_set",
+			"policies":        []any{},
+			"profiles":        []any{profile},
+			"effect_profiles": []any{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(policyPath, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	data := encodePolicy(map[string]any{"mode": "observation_only"})
+	digest := sha256.Sum256(data)
+	sha := hex.EncodeToString(digest[:])
+	plan := healthOperationPlanRecord{}
+	plan.OperationIdentity.OperationID = "selected-op"
+	plan.RequestPlan.EvidenceRefs = []healthOperationPlanEvidenceRef{{
+		ArtifactPath: healthOperationPolicyArtifactPath,
+		SHA256:       sha,
+		JSONPointer:  "#/profiles/0",
+		EvidenceKind: "reviewed_policy",
+	}}
+	manifest := releaseManifest{Artifacts: []releaseManifestArtifact{{Path: healthOperationPolicyArtifactPath, Bytes: int64(len(data)), SHA256: sha}}}
+	selected, err := loadSelectedHealthOperationPolicy(root, plan, manifest)
+	if err != nil {
+		t.Fatalf("pinned policy schema rejected a reusable observation-only profile: %v", err)
+	}
+	request := selected.Rows[healthOperationPolicyRowKey{Section: "profiles", Index: 0}]["request"].(map[string]any)
+	if response := request["response"].(map[string]any); len(response) != 1 || response["mode"] != "observation_only" {
+		t.Fatalf("observation-only profile arm was not preserved exactly: %#v", response)
+	}
+
+	data = encodePolicy(map[string]any{"mode": "observation_only", "payload_kind": "json"})
+	digest = sha256.Sum256(data)
+	sha = hex.EncodeToString(digest[:])
+	plan.RequestPlan.EvidenceRefs[0].SHA256 = sha
+	manifest.Artifacts[0].Bytes = int64(len(data))
+	manifest.Artifacts[0].SHA256 = sha
+	if _, err := loadSelectedHealthOperationPolicy(root, plan, manifest); err == nil {
+		t.Fatal("observation-only profile arm accepted typed response predicates")
+	}
+}
+
 func TestLoadSelectedHealthOperationPolicyCapsArtifactBeforeReading(t *testing.T) {
 	plan := healthOperationPlanRecord{}
 	plan.OperationIdentity.OperationID = "selected-op"
