@@ -250,6 +250,13 @@ func TestHealthNormalizedResponseAssertionBranches(t *testing.T) {
 			}
 		})
 	}
+	t.Run("unlisted HTTP status gate precedes response-body ceiling", func(t *testing.T) {
+		body := []byte(strings.Repeat("x", int(healthTransportMaxBytes)+1))
+		result := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: 500, Body: body})
+		if result.Outcome != healthResponseUnhealthy || result.ReasonCode != "response_status_not_accepted" {
+			t.Fatalf("oversized error status lost its status classification: %#v", result)
+		}
+	})
 	t.Run("documented HTTP error status stays unhealthy", func(t *testing.T) {
 		branch := healthNormalizedResponseBranch{
 			ID: "forbidden", Classification: "provider_error", PayloadKind: "json",

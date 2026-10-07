@@ -300,9 +300,6 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 	if response.StatusCode < 100 || response.StatusCode > 599 {
 		return indeterminate("response_status_invalid")
 	}
-	if int64(len(response.Body)) > healthTransportMaxBytes {
-		return indeterminate("response_body_limit_exceeded")
-	}
 	statusCandidate := false
 	for _, branch := range branches {
 		if healthResponseStatusAccepted(branch.AcceptedHTTPStatusCodes, response.StatusCode) {
@@ -312,6 +309,9 @@ func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 	}
 	if !statusCandidate {
 		return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_status_not_accepted", ProviderErrorClass: "provider_failure"}
+	}
+	if int64(len(response.Body)) > healthTransportMaxBytes {
+		return indeterminate("response_body_limit_exceeded")
 	}
 
 	var jsonDocument any
