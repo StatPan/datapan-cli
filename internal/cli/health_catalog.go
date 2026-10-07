@@ -92,6 +92,7 @@ type healthCatalogOptions struct {
 func healthCatalogInvocation(args []string) (healthCatalogOptions, bool, error) {
 	options := healthCatalogOptions{}
 	health := false
+	operationPlanRequested := hasAnyArg(args, "--health-plan-index")
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--health":
@@ -108,7 +109,7 @@ func healthCatalogInvocation(args []string) (healthCatalogOptions, bool, error) 
 			i++
 		}
 	}
-	if options.Path == "" && options.RegistryRevision == "" {
+	if options.Path == "" && (options.RegistryRevision == "" || operationPlanRequested) {
 		return healthCatalogOptions{}, false, nil
 	}
 	if options.Path == "" || !validImmutableRevision(options.RegistryRevision) {

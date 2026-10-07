@@ -48,6 +48,7 @@ const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 const defaultRegistryInstallProvenancePath = ".datapan/registry-install.json"
 const defaultRegistryInstallTransactionPath = ".datapan/registry-install.transaction.json"
+const registryInstallProvenanceMaxBytes int64 = 64 << 10
 const defaultReleaseDir = ".datapan/release"
 const defaultReleaseManifestPath = ".datapan/release/manifest.json"
 const defaultReleaseNotesPath = ".datapan/release/RELEASE_NOTES.md"
@@ -113,10 +114,16 @@ type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type RealHTTPClient struct{ rejectRedirects bool }
+type RealHTTPClient struct {
+	rejectRedirects   bool
+	publicTargetsOnly bool
+}
 
 func (c RealHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
+	if c.publicTargetsOnly {
+		client.Transport = newHealthPublicHTTPTransport()
+	}
 	if c.rejectRedirects {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
@@ -131,22 +138,24 @@ var (
 )
 
 type app struct {
-	args               []string
-	stdout             io.Writer
-	stderr             io.Writer
-	env                Env
-	http               HTTPClient
-	reg                datago.Registry
-	registryPath       string
-	registrySource     string
-	installRecovered   bool
-	healthCatalogTrust *registryTrustContext
+	args                []string
+	stdout              io.Writer
+	stderr              io.Writer
+	env                 Env
+	http                HTTPClient
+	reg                 datago.Registry
+	registryPath        string
+	registrySource      string
+	installRecovered    bool
+	healthCatalogTrust  *registryTrustContext
+	healthOperationPlan *healthOperationPlanLoadResult
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
 	env = maybeLoadDotEnv(env)
 	installRecovered := false
-	if !isHelpInvocation(args) {
+	planModeRequested := hasAnyArg(args, "--health-plan-index")
+	if !isHelpInvocation(args) && !planModeRequested {
 		if recovered, err := recoverRegistryInstallTransaction(defaultRegistryInstallTransactionPath); err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: datago.DefaultRegistry()}
 			jsonOut, _ := consumeBool(args, "--json")
@@ -171,16 +180,36 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 	reg := datago.DefaultRegistry()
 	registrySource := "embedded"
 	var healthCatalogTrust *registryTrustContext
+	var healthOperationPlan *healthOperationPlanLoadResult
+	healthPlanOptions, healthPlanSet, err := healthOperationPlanInvocation(args)
+	if err != nil {
+		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+		return a.fail(exitUsage, "%v", err)
+	}
 	healthCatalog, healthCatalogSet, err := healthCatalogInvocation(args)
 	if err != nil {
 		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
 		return a.fail(exitUsage, "%v", err)
 	}
+	if healthPlanSet && healthCatalogSet {
+		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+		return a.fail(exitUsage, "choose either --health-catalog or --health-plan-index")
+	}
 	registryEnvPath, registryEnvSet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
 	registryEnvPath = strings.TrimSpace(registryEnvPath)
 	registryPath := registryEnvPath
 	registrySet := registryEnvSet && registryEnvPath != ""
-	if healthCatalogSet {
+	if healthPlanSet {
+		loaded, err := loadManifestBoundHealthOperationPlan(healthPlanOptions, time.Now().UTC())
+		if err != nil {
+			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+			return a.fail(exitUsage, "health operation plan is not ready: %v", err)
+		}
+		healthOperationPlan = &loaded
+		registryPath = defaultRegistryPath
+		registrySource = "operation_observation_plan"
+		registrySet = false
+	} else if healthCatalogSet {
 		loaded, trust, err := loadManifestBoundHealthCatalog(healthCatalog, time.Now().UTC())
 		if err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
@@ -213,16 +242,17 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg = loaded
 	}
 	a := app{
-		args:               args,
-		stdout:             stdout,
-		stderr:             stderr,
-		env:                env,
-		http:               httpClient,
-		reg:                reg,
-		registryPath:       registryPath,
-		registrySource:     registrySource,
-		installRecovered:   installRecovered,
-		healthCatalogTrust: healthCatalogTrust,
+		args:                args,
+		stdout:              stdout,
+		stderr:              stderr,
+		env:                 env,
+		http:                httpClient,
+		reg:                 reg,
+		registryPath:        registryPath,
+		registrySource:      registrySource,
+		installRecovered:    installRecovered,
+		healthCatalogTrust:  healthCatalogTrust,
+		healthOperationPlan: healthOperationPlan,
 	}
 	return a.run()
 }
@@ -5549,6 +5579,30 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	healthPlanIndex, args, err := consumeString(args, "--health-plan-index", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthOperationID, args, err := consumeString(args, "--health-operation-id", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthCredentialBindings, args, err := consumeString(args, "--health-credential-bindings", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthAttemptID, args, err := consumeString(args, "--health-attempt-id", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthCLIVersion, args, err := consumeString(args, "--health-cli-version", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthDeadlineRaw, args, err := consumeString(args, "--health-deadline", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if healthCatalog != "" && !health {
 		return a.fail(exitUsage, "--health-catalog requires --health")
 	}
@@ -5556,7 +5610,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	if healthRegistryRevision != "" && healthCatalog == "" {
+	if healthRegistryRevision != "" && healthCatalog == "" && healthPlanIndex == "" {
 		return a.fail(exitUsage, "--health-registry-revision requires --health-catalog")
 	}
 	timeoutProvided := hasAnyArg(args, "--timeout")
@@ -5571,8 +5625,23 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if operation != "" && ref == "" {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
-	if health && (strings.TrimSpace(ref) == "" || strings.TrimSpace(operation) == "") {
+	if health && healthPlanIndex == "" && (strings.TrimSpace(ref) == "" || strings.TrimSpace(operation) == "") {
 		return a.fail(exitUsage, "--health requires exactly one --ref and --operation")
+	}
+	if healthPlanIndex != "" {
+		if !health || healthCatalog != "" || a.healthOperationPlan == nil || healthOperationID != a.healthOperationPlan.Plan.OperationIdentity.OperationID || healthPlanIndex != a.healthOperationPlan.IndexPath || healthRegistryRevision != a.healthOperationPlan.Options.RegistryRevision || healthCredentialBindings != a.healthOperationPlan.Options.CredentialBindingsPath || healthAttemptID != a.healthOperationPlan.Options.AttemptID || healthCLIVersion != a.healthOperationPlan.Options.CLIVersion || healthDeadlineRaw != a.healthOperationPlan.Options.Deadline.Format(time.RFC3339Nano) {
+			return a.fail(exitUsage, "health operation plan selection does not match its verified immutable Registry plan")
+		}
+		if input != "" || excludeInput != "" || registryPath != "" || ref != "" || operation != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || probeUnadapted || timeoutProvided || statusFilter != "" || (limitRaw != "" && limit != 1) {
+			return a.fail(exitUsage, "--health-plan-index selects one immutable operation and cannot be combined with legacy selectors, filters, reports, or overrides")
+		}
+		if len(args) != 0 {
+			return a.fail(exitUsage, "usage: datapan verify --health --health-plan-index PATH --health-operation-id ID --health-registry-revision SHA [--output PATH] [--json]")
+		}
+		if jsonOut && output == "-" {
+			return a.fail(exitUsage, "use --output PATH with --json")
+		}
+		return a.catalogVerifyHealthOperationPlan(output, jsonOut)
 	}
 	if health && (input != "" || excludeInput != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || probeUnadapted || (limitRaw != "" && limit != 1)) {
 		return a.fail(exitUsage, "--health selects exactly one operation and cannot be combined with report or batch filters")
@@ -9123,6 +9192,9 @@ type registryFailureRouting struct {
 }
 
 func (a app) localRegistryTrust() registryTrustContext {
+	if a.healthOperationPlan != nil {
+		return a.healthOperationPlan.RegistryTrust
+	}
 	if a.healthCatalogTrust != nil {
 		return *a.healthCatalogTrust
 	}
@@ -9919,6 +9991,18 @@ func readRegistryInstallProvenance(path string) (registryInstallProvenance, erro
 	if err != nil {
 		return registryInstallProvenance{}, err
 	}
+	return decodeRegistryInstallProvenance(data)
+}
+
+func readBoundedRegistryInstallProvenance(path string) (registryInstallProvenance, error) {
+	data, err := readBoundedFile(path, registryInstallProvenanceMaxBytes)
+	if err != nil {
+		return registryInstallProvenance{}, err
+	}
+	return decodeRegistryInstallProvenance(data)
+}
+
+func decodeRegistryInstallProvenance(data []byte) (registryInstallProvenance, error) {
 	var provenance registryInstallProvenance
 	if err := json.Unmarshal(data, &provenance); err != nil {
 		return registryInstallProvenance{}, fmt.Errorf("decode registry install provenance: %w", err)
@@ -13762,6 +13846,10 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
+		"schemas/datapan.operation-observation-plan.v1.schema.json",
+		"schemas/datapan.operation-document-evidence.v1.schema.json",
+		"schemas/datapan.health-credential-bindings.v1.schema.json",
+		"schemas/datapan.health-operation-plan-probe.v1.schema.json",
 		"schemas/datapan.verification-plan.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.runtime-evidence-growth.v1.schema.json",

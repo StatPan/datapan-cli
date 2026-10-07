@@ -29,12 +29,14 @@ const (
 
 type healthHTTPRequestShape struct {
 	Protocol         healthHTTPProtocol
+	PublicTargetOnly bool
 	ReadOnly         bool
 	Method           string
 	Endpoint         string
 	Query            url.Values
 	Headers          http.Header
 	SOAPAction       string
+	SOAPVersion      string
 	Body             []byte
 	RequestBudget    int
 	Timeout          time.Duration
@@ -92,7 +94,11 @@ func executeHealthHTTPRequest(parent context.Context, client HTTPClient, shape h
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := healthSingleRequestClient(client).Do(req)
+	client = healthSingleRequestClient(client)
+	if shape.PublicTargetOnly {
+		client = healthOperationPlanHTTPClient(client)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -172,6 +178,22 @@ func buildHealthHTTPRequest(shape healthHTTPRequestShape) (*http.Request, error)
 	if shape.Protocol == healthHTTPSOAP && !validHeaderValue(shape.SOAPAction) {
 		return nil, errors.New("health SOAP action is invalid")
 	}
+	if shape.Protocol == healthHTTPSOAP {
+		switch shape.SOAPVersion {
+		case "": // Retain the v1 transport helper's direct shape for existing callers.
+		case "1.1":
+			if !strings.HasPrefix(strings.ToLower(shape.Headers.Get("Content-Type")), "text/xml") {
+				return nil, errors.New("health SOAP 1.1 content type is invalid")
+			}
+		case "1.2":
+			mediaType, parameters, err := mime.ParseMediaType(shape.Headers.Get("Content-Type"))
+			if err != nil || !strings.EqualFold(mediaType, "application/soap+xml") || parameters["action"] != shape.SOAPAction {
+				return nil, errors.New("health SOAP 1.2 content type is invalid")
+			}
+		default:
+			return nil, errors.New("health SOAP version is unsupported")
+		}
+	}
 
 	body := bytes.NewReader(shape.Body)
 	req, err := http.NewRequest(shape.Method, u.String(), body)
@@ -183,8 +205,9 @@ func buildHealthHTTPRequest(shape healthHTTPRequestShape) (*http.Request, error)
 		req.GetBody = nil
 		req.ContentLength = 0
 	}
+	req.Close = true
 	req.Header = shape.Headers.Clone()
-	if shape.Protocol == healthHTTPSOAP {
+	if shape.Protocol == healthHTTPSOAP && shape.SOAPVersion != "1.2" {
 		req.Header.Set("SOAPAction", shape.SOAPAction)
 	}
 	if healthRequestByteCount(req) > shape.MaxRequestBytes {
