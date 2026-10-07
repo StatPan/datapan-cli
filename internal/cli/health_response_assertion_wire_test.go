@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,48 @@ func TestNormalizeHealthOperationResponseAssertionV2BoundsAndSemantics(t *testin
 	}
 	if got := evaluateHealthResponseTest(assertion, 200, `{"code":"UNKNOWN","items":[]}`); got.Outcome != healthResponseIndeterminate {
 		t.Fatalf("unknown response code was not kept indeterminate: %#v", got)
+	}
+}
+
+func TestObservationOnlyResponseAssertionWireArmIsExclusive(t *testing.T) {
+	base := map[string]any{
+		"schema_version":     "datapan.operation-response-assertion.v2",
+		"artifact_kind":      "operation_response_assertion",
+		"source_binding":     map[string]any{"source_id": "synthetic_source", "provider": "synthetic", "protocol": "REST"},
+		"operation_identity": map[string]any{"operation_id": "synthetic-op", "dataset_id": "dataset", "operation_name": "read", "upstream_operation_key": "operation"},
+		"document_evidence":  map[string]any{"path": "reports/doc.json", "sha256": strings.Repeat("a", 64), "bytes": 10},
+		"review":             map[string]any{"review_ref": "https://example.invalid/review", "reviewed_by": "test", "rationale": "request construction only"},
+		"assertion":          map[string]any{"mode": "observation_only"},
+	}
+	encoded, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateHealthOperationResponseAssertionArtifactSchema(encoded); err != nil {
+		t.Fatalf("valid observation-only assertion arm failed pinned schema: %v", err)
+	}
+	assertion, err := normalizeHealthOperationResponseAssertionV2(healthOperationResponseAssertionV2Body{Mode: "observation_only"})
+	if err != nil || !assertion.ObservationOnly || validateHealthNormalizedResponseAssertion(assertion) != nil {
+		t.Fatalf("observation-only assertion did not normalize safely: %#v err=%v", assertion, err)
+	}
+	plan := healthOperationPlanRecord{}
+	plan.RequestPlan.RequestContract = &healthOperationPlanRequestContract{}
+	plan.RequestPlan.RequestContract.ResponseAssertion.Kind = "observation_only"
+	plan.RequestPlan.RequestContract.ResponseAssertion.EmptyResultSemantics = "not_applicable"
+	if err := validateHealthOperationResponseAssertionPlanProjection(plan, assertion); err != nil {
+		t.Fatalf("observation-only plan projection was rejected: %v", err)
+	}
+
+	base["assertion"] = map[string]any{"mode": "observation_only", "payload_kind": "json", "branches": []any{}}
+	encoded, err = json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateHealthOperationResponseAssertionArtifactSchema(encoded); err == nil {
+		t.Fatal("observation-only assertion arm accepted typed predicates")
+	}
+	if _, err := normalizeHealthOperationResponseAssertionV2(healthOperationResponseAssertionV2Body{Mode: "observation_only", PayloadKind: "json"}); err == nil {
+		t.Fatal("observation-only normalized arm accepted a payload kind")
 	}
 }
 

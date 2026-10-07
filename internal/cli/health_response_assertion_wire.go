@@ -34,6 +34,7 @@ type healthOperationResponseAssertionV2Artifact struct {
 }
 
 type healthOperationResponseAssertionV2Body struct {
+	Mode        string                               `json:"mode,omitempty"`
 	PayloadKind string                               `json:"payload_kind"`
 	Branches    []healthOperationResponseAssertionV2 `json:"branches"`
 }
@@ -121,7 +122,7 @@ func loadSelectedHealthResponseAssertion(root string, plan healthOperationPlanRe
 		return healthNormalizedResponseAssertion{}, errors.New("response assertion has no request contract")
 	}
 	response := contract.ResponseAssertion
-	if response.Kind != "json_contract" && response.Kind != "xml_contract" && response.Kind != "soap_fault_free" {
+	if response.Kind != "json_contract" && response.Kind != "xml_contract" && response.Kind != "soap_fault_free" && response.Kind != "observation_only" {
 		return healthNormalizedResponseAssertion{}, errors.New("response assertion kind is unsupported")
 	}
 	assertionPath := healthOperationResponseAssertionArtifactPathPrefix + plan.OperationIdentity.OperationID + ".json"
@@ -178,6 +179,13 @@ func loadSelectedHealthResponseAssertion(root string, plan healthOperationPlanRe
 	}
 	if err := validateHealthResponseAssertionDocumentEvidence(artifactValue.DocumentEvidence, plan, index, manifest, documents); err != nil {
 		return healthNormalizedResponseAssertion{}, err
+	}
+	if response.Kind == "observation_only" {
+		if artifactValue.Assertion.Mode != "observation_only" || artifactValue.Assertion.PayloadKind != "" || len(artifactValue.Assertion.Branches) != 0 {
+			return healthNormalizedResponseAssertion{}, errors.New("observation-only assertion artifact contains response predicates")
+		}
+	} else if artifactValue.Assertion.Mode != "" {
+		return healthNormalizedResponseAssertion{}, errors.New("typed assertion artifact has an observation-only mode")
 	}
 	if err := validateHealthResponseAssertionReferences(plan.OperationIdentity.OperationID, artifactValue.Assertion.Branches, refs, documents, manifest, selectedPolicy); err != nil {
 		return healthNormalizedResponseAssertion{}, err
@@ -292,6 +300,15 @@ func validateHealthOperationResponseAssertionPlanProjection(plan healthOperation
 		return errors.New("plan request contract is unavailable")
 	}
 	response := plan.RequestPlan.RequestContract.ResponseAssertion
+	if response.Kind == "observation_only" {
+		if !assertion.ObservationOnly || response.EmptyResultSemantics != "not_applicable" || len(response.ExpectedStatusCodes) != 0 {
+			return errors.New("observation-only plan projection differs from its reviewed artifact")
+		}
+		return nil
+	}
+	if assertion.ObservationOnly {
+		return errors.New("typed response plan projects an observation-only artifact")
+	}
 	statuses := make(map[int]struct{})
 	semantics := ""
 	for _, branch := range assertion.Branches {
@@ -328,6 +345,15 @@ func validateHealthOperationResponseAssertionPlanProjection(plan healthOperation
 }
 
 func normalizeHealthOperationResponseAssertionV2(wire healthOperationResponseAssertionV2Body) (healthNormalizedResponseAssertion, error) {
+	if wire.Mode == "observation_only" {
+		if wire.PayloadKind != "" || len(wire.Branches) != 0 {
+			return healthNormalizedResponseAssertion{}, errors.New("observation-only assertion has typed predicates")
+		}
+		return healthNormalizedResponseAssertion{ObservationOnly: true}, nil
+	}
+	if wire.Mode != "" {
+		return healthNormalizedResponseAssertion{}, errors.New("response assertion mode is unsupported")
+	}
 	assertion := healthNormalizedResponseAssertion{}
 	for _, branch := range wire.Branches {
 		normalized := healthNormalizedResponseBranch{

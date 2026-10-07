@@ -90,6 +90,8 @@ func setHealthPlanObservationOnlyAssertion(t *testing.T, plan *healthOperationPl
 	}}
 }
 
+func healthPlanTestIntPointer(value int) *int { return &value }
+
 type healthPlanCaptureClient struct {
 	calls       int
 	method      string
@@ -189,6 +191,49 @@ func TestHealthOperationPlanRESTAndSOAPRequestTranslation(t *testing.T) {
 		}
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("REST response status changed: %d", response.StatusCode)
+		}
+	})
+
+	t.Run("explicit endpoint port is preserved without default-port normalization", func(t *testing.T) {
+		plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+		port := 443
+		plan.OperationIdentity.RegisteredEndpoint.Port = &port
+		plan.RequestPlan.RequestContract.Transport.Port = &port
+		shape, err := healthOperationPlanRequestShape(plan, healthPlanSyntheticCredential, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := buildHealthHTTPRequest(shape)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.URL.Host != "api.example.invalid:443" || request.URL.String() != "https://api.example.invalid:443/v1/items?page=1&serviceKey="+url.QueryEscape(healthPlanSyntheticCredential) {
+			t.Fatalf("explicit endpoint port was normalized or altered: %s", request.URL.String())
+		}
+	})
+
+	t.Run("identity transport and explicit port must agree exactly", func(t *testing.T) {
+		for _, test := range []struct {
+			name          string
+			identityPort  *int
+			transportPort *int
+			transportHost string
+		}{
+			{name: "mismatch", identityPort: healthPlanTestIntPointer(443), transportPort: healthPlanTestIntPointer(8443), transportHost: "api.example.invalid"},
+			{name: "missing identity port", identityPort: nil, transportPort: healthPlanTestIntPointer(443), transportHost: "api.example.invalid"},
+			{name: "missing request port", identityPort: healthPlanTestIntPointer(443), transportPort: nil, transportHost: "api.example.invalid"},
+			{name: "embedded port without explicit field", identityPort: nil, transportPort: nil, transportHost: "api.example.invalid:443"},
+			{name: "out of range", identityPort: healthPlanTestIntPointer(65536), transportPort: healthPlanTestIntPointer(65536), transportHost: "api.example.invalid"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+				plan.OperationIdentity.RegisteredEndpoint.Port = test.identityPort
+				plan.RequestPlan.RequestContract.Transport.Port = test.transportPort
+				plan.RequestPlan.RequestContract.Transport.Host = test.transportHost
+				if err := validateHealthOperationPlanRecord(plan); err == nil {
+					t.Fatal("endpoint or explicit port mismatch passed the pre-dispatch plan gate")
+				}
+			})
 		}
 	})
 

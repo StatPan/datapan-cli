@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,14 +25,14 @@ import (
 const (
 	healthOperationPlanSchemaVersion             = "datapan.operation-observation-plan.v1"
 	healthOperationPlanSchemaID                  = "https://schemas.datapan.dev/datapan.operation-observation-plan.v1.schema.json"
-	healthOperationPlanSchemaSHA256              = "d0d5ee3be85703ca3617204c699a0c33db621f1e32b8d67aa401402d39d2fd9b"
-	healthOperationPlanSchemaSourceRevision      = "b0ff9e7cb3ec5cdcecb35a8fc416123a525b286d"
+	healthOperationPlanSchemaSHA256              = "cafa93014d7a32ef072f74df1a730f681e5b206440e4a83e9cdf426f6686e162"
+	healthOperationPlanSchemaSourceRevision      = "123e9cdaa82998e77b14c4f1007791d39cfc7b96"
 	healthOperationPlanSchemaPath                = "schemas/datapan.operation-observation-plan.v1.schema.json"
 	healthOperationPolicySchemaID                = "https://schemas.datapan.dev/datapan.operation-observation-policy.v1.schema.json"
-	healthOperationPolicySchemaSHA256            = "f618594c584aa1e55f9e27c65d9780730ab1ae9b58e47a0c60790c2efe997c4b"
+	healthOperationPolicySchemaSHA256            = "16fa872c0e7d598e55d81814867566576f1962479627ac43eebd66d1d2a62d0f"
 	healthOperationPolicySchemaPath              = "schemas/datapan.operation-observation-policy.v1.schema.json"
 	healthOperationResponseAssertionSchemaID     = "https://schemas.datapan.dev/datapan.operation-response-assertion.v2.schema.json"
-	healthOperationResponseAssertionSchemaSHA256 = "0e30d07b2755ab4944773c08be2cd9e5dd50ab75338a607a2728d8d4353b12bd"
+	healthOperationResponseAssertionSchemaSHA256 = "78878ab22183e419e58d2a15b0a6a32bc585a3822cfa5a3a4bfd9f23d893055b"
 	healthOperationResponseAssertionSchemaPath   = "schemas/datapan.operation-response-assertion.v2.schema.json"
 	healthOperationResponseAssertionMaxBytes     = 1 << 20
 	healthOperationDocumentEvidenceSchemaID      = "https://schemas.datapan.dev/datapan.operation-document-evidence.v1.schema.json"
@@ -38,8 +40,8 @@ const (
 	healthOperationDocumentEvidenceRevision      = "18d75eef2977afdc58f1830a3fae2b8875956711"
 	healthOperationDocumentEvidencePath          = "schemas/datapan.operation-document-evidence.v1.schema.json"
 	healthOperationDocumentEvidenceV2SchemaID    = "https://schemas.datapan.dev/datapan.operation-document-evidence.v2.schema.json"
-	healthOperationDocumentEvidenceV2SHA256      = "ae254f7dbbb13b33d47c77d2b48944c2692199024e92433f26fbc58b374584c9"
-	healthOperationDocumentEvidenceV2Revision    = "68e0a80611205301d409640b505dd1646d2177a3"
+	healthOperationDocumentEvidenceV2SHA256      = "d6edb7dad63b9d7cdac6753fc02cba962cb8d96d7c01119c031935abfc973108"
+	healthOperationDocumentEvidenceV2Revision    = "6e52aa59d79afa0371423ead8c287a05c4ab6210"
 	healthOperationDocumentEvidenceV2Path        = "schemas/datapan.operation-document-evidence.v2.schema.json"
 	healthOperationPlanIndexPath                 = "reports/operation-observation-plan/index.json"
 	healthOperationPlanSourceRegistryPath        = "data/data-go-kr.registry.json"
@@ -159,13 +161,12 @@ type healthOperationPlanSourceScope struct {
 }
 
 type healthOperationPlanSourceBinding struct {
-	SourceID         string                           `json:"source_id"`
-	Provider         string                           `json:"provider"`
-	AdapterID        string                           `json:"adapter_id"`
-	InventoryStatus  string                           `json:"inventory_status"`
-	InventoryUnknown bool                             `json:"inventory_unknown"`
-	TestOnly         bool                             `json:"test_only"`
-	SourceArtifacts  []healthOperationPlanArtifactRef `json:"source_artifacts"`
+	SourceID         string `json:"source_id"`
+	Provider         string `json:"provider"`
+	AdapterID        string `json:"adapter_id"`
+	InventoryStatus  string `json:"inventory_status"`
+	InventoryUnknown bool   `json:"inventory_unknown"`
+	TestOnly         bool   `json:"test_only"`
 }
 
 type healthOperationPlanShardRef struct {
@@ -199,16 +200,19 @@ type healthOperationPlanRecord struct {
 }
 
 type healthOperationPlanIdentity struct {
-	OperationID          string   `json:"operation_id"`
-	Protocol             string   `json:"protocol"`
-	DatasetID            string   `json:"dataset_id,omitempty"`
-	OperationName        string   `json:"operation_name,omitempty"`
-	UpstreamOperationKey string   `json:"upstream_operation_key,omitempty"`
-	LegacySelectors      []string `json:"legacy_selectors,omitempty"`
-	RegisteredEndpoint   *struct {
-		Host string `json:"host"`
-		Path string `json:"path"`
-	} `json:"registered_endpoint,omitempty"`
+	OperationID          string                                 `json:"operation_id"`
+	Protocol             string                                 `json:"protocol"`
+	DatasetID            string                                 `json:"dataset_id,omitempty"`
+	OperationName        string                                 `json:"operation_name,omitempty"`
+	UpstreamOperationKey string                                 `json:"upstream_operation_key,omitempty"`
+	LegacySelectors      []string                               `json:"legacy_selectors,omitempty"`
+	RegisteredEndpoint   *healthOperationPlanRegisteredEndpoint `json:"registered_endpoint,omitempty"`
+}
+
+type healthOperationPlanRegisteredEndpoint struct {
+	Host string `json:"host"`
+	Port *int   `json:"port,omitempty"`
+	Path string `json:"path"`
 }
 
 type healthOperationPlanRequestPlan struct {
@@ -223,6 +227,7 @@ type healthOperationPlanRequestContract struct {
 		Protocol          string                           `json:"protocol"`
 		Scheme            string                           `json:"scheme"`
 		Host              string                           `json:"host"`
+		Port              *int                             `json:"port,omitempty"`
 		Path              string                           `json:"path"`
 		HTTPMethod        string                           `json:"http_method"`
 		SOAPAction        string                           `json:"soap_action,omitempty"`
@@ -1168,7 +1173,7 @@ func validateHealthOperationPlanRecord(plan healthOperationPlanRecord) error {
 	default:
 		return errors.New("plan read-only operation effect authority is unsupported")
 	}
-	if !operationPlanEndpointMatches(plan.OperationIdentity.RegisteredEndpoint, contract.Transport.Host, contract.Transport.Path, contract.Transport.Scheme) {
+	if !operationPlanEndpointMatches(plan.OperationIdentity.RegisteredEndpoint, contract.Transport.Host, contract.Transport.Path, contract.Transport.Scheme, contract.Transport.Port) {
 		return errors.New("plan endpoint identity does not match request contract")
 	}
 	if err := validateHealthOperationPlanQuotas(plan.RuntimeBinding); err != nil {
@@ -1305,15 +1310,40 @@ func validateHealthOperationPlanQuotas(binding healthOperationPlanRuntimeBinding
 	return nil
 }
 
-func operationPlanEndpointMatches(identity *struct {
-	Host string `json:"host"`
-	Path string `json:"path"`
-}, host, path, scheme string) bool {
+func operationPlanEndpointMatches(identity *healthOperationPlanRegisteredEndpoint, host, path, scheme string, port *int) bool {
 	if identity == nil || identity.Host == "" || identity.Path == "" || identity.Host != host || identity.Path != path || (scheme != "https" && scheme != "http") {
 		return false
 	}
-	u, err := url.Parse(scheme + "://" + host + path)
-	return err == nil && u.Host == host && u.EscapedPath() == path && u.RawQuery == "" && u.Fragment == "" && u.User == nil
+	if (identity.Port == nil) != (port == nil) || identity.Port != nil && *identity.Port != *port {
+		return false
+	}
+	registeredAuthority, ok := healthOperationPlanAuthority(identity.Host, identity.Port)
+	if !ok {
+		return false
+	}
+	requestAuthority, ok := healthOperationPlanAuthority(host, port)
+	if !ok || requestAuthority != registeredAuthority {
+		return false
+	}
+	u, err := url.Parse(scheme + "://" + requestAuthority + path)
+	return err == nil && u.Host == requestAuthority && u.EscapedPath() == path && u.RawQuery == "" && u.Fragment == "" && u.User == nil
+}
+
+func healthOperationPlanAuthority(host string, port *int) (string, bool) {
+	if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, "\r\n\x00") {
+		return "", false
+	}
+	parsed, err := url.Parse("https://" + host)
+	if err != nil || parsed.Host != host || parsed.Hostname() == "" || parsed.Port() != "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", false
+	}
+	if port == nil {
+		return host, true
+	}
+	if *port < 1 || *port > 65535 {
+		return "", false
+	}
+	return net.JoinHostPort(parsed.Hostname(), strconv.Itoa(*port)), true
 }
 
 func healthOperationPlanSupportsValueStrategy(kind string) bool {

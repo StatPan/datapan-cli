@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -68,6 +69,8 @@ const defaultReleaseErrorActionCatalogPath = ".datapan/release/reports/data-go-k
 const defaultReleaseErrorActionCatalogSchemaPath = ".datapan/release/schemas/datapan.error-action-catalog.v1.schema.json"
 const defaultReleaseRuntimeRemediationPath = ".datapan/release/reports/source-runtime-remediation-map.json"
 const defaultReleaseRuntimeRemediationSchemaPath = ".datapan/release/schemas/datapan.source-runtime-remediation-map.v1.schema.json"
+
+const releaseJSONLMaxRecordBytes = 1 << 20
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://huggingface.co/api/datasets/StatPan/datapan-registry"
@@ -14718,7 +14721,7 @@ func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact
 			result.Reason = "schema_unavailable"
 			return result
 		}
-		if err := validator.validate(artifact.Schema, data); err != nil {
+		if err := validator.validateArtifact(artifact.Schema, artifact.Path, data); err != nil {
 			result.Status = "failed"
 			result.Reason = "schema_validation_failed"
 			return result
@@ -14792,6 +14795,33 @@ func (v *releaseSchemaValidator) validate(schemaID string, data []byte) error {
 		return err
 	}
 	return schema.Validate(instance)
+}
+
+func (v *releaseSchemaValidator) validateArtifact(schemaID, artifactPath string, data []byte) error {
+	if !strings.EqualFold(filepath.Ext(artifactPath), ".jsonl") {
+		return v.validate(schemaID, data)
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 64*1024), releaseJSONLMaxRecordBytes)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			return fmt.Errorf("JSONL record %d is empty", lineNumber)
+		}
+		if err := v.validate(schemaID, line); err != nil {
+			return fmt.Errorf("JSONL record %d is invalid: %w", lineNumber, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("JSONL record exceeds the %d-byte limit or cannot be read: %w", releaseJSONLMaxRecordBytes, err)
+	}
+	if lineNumber == 0 {
+		return errors.New("JSONL artifact contains no records")
+	}
+	return nil
 }
 
 func isSHA256Hex(value string) bool {

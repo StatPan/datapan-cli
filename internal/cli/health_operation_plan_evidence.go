@@ -103,8 +103,13 @@ func loadSelectedHealthOperationDocumentEvidence(root string, plan healthOperati
 		}
 	}
 
-	if plan.RequestPlan.RequestContract != nil && plan.RequestPlan.RequestContract.Transport.Authority == "operation_document" {
-		if err := validateHealthOperationDocumentTransportFacts(plan, refs, documents); err != nil {
+	if contract := plan.RequestPlan.RequestContract; contract != nil {
+		if contract.Transport.Authority == "operation_document" {
+			if err := validateHealthOperationDocumentTransportFacts(plan, refs, documents); err != nil {
+				return nil, err
+			}
+		}
+		if err := validateHealthOperationDocumentTransportPort(plan, documents); err != nil {
 			return nil, err
 		}
 	}
@@ -362,6 +367,102 @@ func validateHealthOperationDocumentTransportFacts(plan healthOperationPlanRecor
 		}
 	}
 	return nil
+}
+
+func validateHealthOperationDocumentTransportPort(plan healthOperationPlanRecord, documents map[string]map[string]any) error {
+	contract := plan.RequestPlan.RequestContract
+	if contract == nil {
+		return nil
+	}
+	port := contract.Transport.Port
+	var portFactRef *healthOperationPlanEvidenceRef
+	for index := range contract.Transport.EvidenceRefs {
+		ref := &contract.Transport.EvidenceRefs[index]
+		if ref.JSONPointer != "#/transport/port" {
+			continue
+		}
+		if ref.EvidenceKind != "operation_document" || portFactRef != nil {
+			return errors.New("operation-document port fact reference is unsupported or duplicated")
+		}
+		portFactRef = ref
+	}
+
+	type candidatePort struct {
+		path  string
+		value int
+	}
+	var documented []candidatePort
+	for path, document := range documents {
+		if stringValueFromJSON(document["schema_version"]) != "datapan.operation-document-evidence.v2" {
+			continue
+		}
+		transport, ok := document["transport"].(map[string]any)
+		if !ok {
+			continue
+		}
+		raw, exists := transport["port"]
+		if !exists || raw == nil {
+			continue
+		}
+		value, valid := healthOperationDocumentPortValue(raw)
+		if !valid {
+			return errors.New("operation-document port fact is not a bounded integer")
+		}
+		portSourceRefs, ok := transport["port_source_refs"].([]any)
+		if !ok || len(portSourceRefs) == 0 {
+			return errors.New("operation-document port fact has no source locator")
+		}
+		documented = append(documented, candidatePort{path: path, value: value})
+	}
+
+	if port == nil {
+		if len(documented) != 0 {
+			return errors.New("selected plan omitted an explicitly documented source port")
+		}
+		if portFactRef != nil {
+			document := documents[portFactRef.ArtifactPath]
+			transport, ok := document["transport"].(map[string]any)
+			if !ok {
+				return errors.New("selected null port evidence is unavailable")
+			}
+			value, exists := transport["port"]
+			if !exists || value != nil {
+				return errors.New("selected plan port absence differs from its source fact")
+			}
+		}
+		return nil
+	}
+	if *port < 1 || *port > 65535 || len(documented) != 1 || documented[0].value != *port || portFactRef == nil || documented[0].path != portFactRef.ArtifactPath || !validSHA256(portFactRef.SHA256) {
+		return errors.New("selected plan port does not match one exact source-bound endpoint port")
+	}
+	return nil
+}
+
+func healthOperationDocumentPortValue(value any) (int, bool) {
+	var port int64
+	switch number := value.(type) {
+	case float64:
+		if number < 1 || number > 65535 || number != float64(int64(number)) {
+			return 0, false
+		}
+		port = int64(number)
+	case json.Number:
+		parsed, err := number.Int64()
+		if err != nil {
+			return 0, false
+		}
+		port = parsed
+	case int:
+		port = int64(number)
+	case int64:
+		port = number
+	default:
+		return 0, false
+	}
+	if port < 1 || port > 65535 {
+		return 0, false
+	}
+	return int(port), true
 }
 
 func validHealthOperationDocumentPointer(pointer string) bool {

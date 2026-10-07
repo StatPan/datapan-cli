@@ -26,7 +26,11 @@ func healthOperationPlanRequestShape(plan healthOperationPlanRecord, credentialV
 	if contract.Authentication.Requirement == "required" && strings.TrimSpace(credentialValue) == "" {
 		return healthHTTPRequestShape{}, errors.New("operation plan credential is unavailable")
 	}
-	endpoint := contract.Transport.Scheme + "://" + contract.Transport.Host + contract.Transport.Path
+	authority, ok := healthOperationPlanAuthority(contract.Transport.Host, contract.Transport.Port)
+	if !ok {
+		return healthHTTPRequestShape{}, errors.New("operation plan authority is unsupported")
+	}
+	endpoint := contract.Transport.Scheme + "://" + authority + contract.Transport.Path
 	shape := healthHTTPRequestShape{
 		Protocol: healthHTTPREST, PublicTargetOnly: true, ReadOnly: true, Method: contract.Transport.HTTPMethod, Endpoint: endpoint,
 		Query: make(url.Values), Headers: make(http.Header), RequestBudget: contract.Limits.RequestBudget,
@@ -46,7 +50,7 @@ func healthOperationPlanRequestShape(plan healthOperationPlanRecord, credentialV
 			shape.Headers.Set("Content-Type", contentType)
 		}
 	}
-	if !operationPlanEndpointMatches(plan.OperationIdentity.RegisteredEndpoint, contract.Transport.Host, contract.Transport.Path, contract.Transport.Scheme) {
+	if !operationPlanEndpointMatches(plan.OperationIdentity.RegisteredEndpoint, contract.Transport.Host, contract.Transport.Path, contract.Transport.Scheme, contract.Transport.Port) {
 		return healthHTTPRequestShape{}, errors.New("operation plan endpoint is unsupported")
 	}
 
@@ -187,6 +191,7 @@ func healthSOAPDocumentLiteralBody(
 		Protocol          string                           `json:"protocol"`
 		Scheme            string                           `json:"scheme"`
 		Host              string                           `json:"host"`
+		Port              *int                             `json:"port,omitempty"`
 		Path              string                           `json:"path"`
 		HTTPMethod        string                           `json:"http_method"`
 		SOAPAction        string                           `json:"soap_action,omitempty"`

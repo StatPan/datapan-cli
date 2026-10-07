@@ -115,6 +115,63 @@ func TestSelectedOperationDocumentEvidenceRejectsBadBindingSchemaAndPointer(t *t
 	})
 }
 
+func TestOperationDocumentTransportPortRequiresExactFactAndLocator(t *testing.T) {
+	const path = "reports/operation-document-evidence/synthetic-port.json"
+	ref := healthOperationPlanEvidenceRef{
+		ArtifactPath: path,
+		SHA256:       strings.Repeat("a", 64),
+		JSONPointer:  "#/transport/port",
+		EvidenceKind: "operation_document",
+	}
+	document := func(port any, sourceRefs ...any) map[string]any {
+		return map[string]any{
+			"schema_version": "datapan.operation-document-evidence.v2",
+			"transport":      map[string]any{"port": port, "port_source_refs": sourceRefs},
+		}
+	}
+	planWith := func(port *int, refs ...healthOperationPlanEvidenceRef) healthOperationPlanRecord {
+		contract := &healthOperationPlanRequestContract{}
+		contract.Transport.Port = port
+		contract.Transport.EvidenceRefs = refs
+		return healthOperationPlanRecord{RequestPlan: healthOperationPlanRequestPlan{RequestContract: contract}}
+	}
+	validDoc := map[string]map[string]any{path: document(float64(443), map[string]any{"kind": "html_table_cell"})}
+
+	if err := validateHealthOperationDocumentTransportPort(planWith(healthPlanTestIntPointer(443), ref), validDoc); err != nil {
+		t.Fatalf("matching explicitly documented port was rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name      string
+		plan      healthOperationPlanRecord
+		documents map[string]map[string]any
+	}{
+		{name: "source port omitted from plan", plan: planWith(nil, ref), documents: validDoc},
+		{name: "source port differs", plan: planWith(healthPlanTestIntPointer(8443), ref), documents: validDoc},
+		{name: "missing exact source reference", plan: planWith(healthPlanTestIntPointer(443)), documents: validDoc},
+		{name: "fractional source port", plan: planWith(healthPlanTestIntPointer(443), ref), documents: map[string]map[string]any{path: document(443.5, map[string]any{"kind": "html_table_cell"})}},
+		{name: "out of range source port", plan: planWith(healthPlanTestIntPointer(65536), ref), documents: map[string]map[string]any{path: document(float64(65536), map[string]any{"kind": "html_table_cell"})}},
+		{name: "missing source locator", plan: planWith(healthPlanTestIntPointer(443), ref), documents: map[string]map[string]any{path: document(float64(443))}},
+		{name: "ambiguous source ports", plan: planWith(healthPlanTestIntPointer(443), ref), documents: map[string]map[string]any{
+			path: document(float64(443), map[string]any{"kind": "html_table_cell"}),
+			"reports/operation-document-evidence/other.json": document(float64(443), map[string]any{"kind": "html_table_cell"}),
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateHealthOperationDocumentTransportPort(test.plan, test.documents); err == nil {
+				t.Fatal("invalid or ambiguous port evidence was accepted")
+			}
+		})
+	}
+
+	nullDoc := map[string]map[string]any{path: document(nil)}
+	if err := validateHealthOperationDocumentTransportPort(planWith(nil), nullDoc); err != nil {
+		t.Fatalf("undocumented/null port was rejected: %v", err)
+	}
+	if err := validateHealthOperationDocumentTransportPort(planWith(nil, ref), nullDoc); err != nil {
+		t.Fatalf("explicit null source port was rejected: %v", err)
+	}
+}
+
 func TestHealthJSONPointerRejectsMalformedEscapes(t *testing.T) {
 	document := map[string]any{"a/b": map[string]any{"~key": "value"}}
 	if value, ok := healthJSONPointer(document, "#/a~1b/~0key"); !ok || value != "value" {

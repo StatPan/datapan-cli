@@ -35,8 +35,8 @@ func TestHealthOperationPlanSchemaMirrorsAndRegistryFixtureJSON(t *testing.T) {
 		path   string
 		digest string
 	}{
-		{"testdata/operation-observation-plan/synthetic-rest-list.json", "9d0f1d3dd060387e8a835a4abd5d57c28237f8d293cb649d894740beb0ddab91"},
-		{"testdata/operation-observation-plan/synthetic-soap-read.json", "4aba5f4007e7b96517c03e0d3e806fd342ac85b5ea4c30ed5986eebe662f8a8f"},
+		{"testdata/operation-observation-plan/synthetic-rest-list.json", "c5fb5c247dd451fc3a4999641c328fcddd39b145871f8d4427b2b6375ed7f321"},
+		{"testdata/operation-observation-plan/synthetic-soap-read.json", "1790b74d3ef4aab7c09451c5d917010ffda47801688ddd357aafc4ec6926c936"},
 		{"testdata/operation-observation-plan/fixtures/synthetic-source.json", "1532cc4a9d728d0cea6c614d4a0ade1f9ed22bfc33b28101de05f7855bf07d3c"},
 	} {
 		data, err := os.ReadFile(test.path)
@@ -409,14 +409,10 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 		ArtifactKind:  "operation_plan",
 		SourceBinding: healthOperationPlanSourceBinding{
 			SourceID: "synthetic_scope", Provider: "data.go.kr", AdapterID: "data-go-kr", InventoryStatus: "source_complete",
-			SourceArtifacts: []healthOperationPlanArtifactRef{registryRef, operationManifestRef, sourceProfileRef},
 		},
 		OperationIdentity: healthOperationPlanIdentity{
 			OperationID: operationID, Protocol: "REST",
-			RegisteredEndpoint: &struct {
-				Host string `json:"host"`
-				Path string `json:"path"`
-			}{Host: "api.example.invalid", Path: "/v1/items"},
+			RegisteredEndpoint: &healthOperationPlanRegisteredEndpoint{Host: "api.example.invalid", Path: "/v1/items"},
 		},
 		RequestPlan: healthOperationPlanRequestPlan{
 			Status: "incomplete", EvidenceRefs: []healthOperationPlanEvidenceRef{operationEvidence},
