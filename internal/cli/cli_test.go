@@ -6712,7 +6712,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"unadapted_external_probe":`,
 		`"unadapted_external_probe_summary":`,
 		`"manifest":`,
-		`"artifacts": 43`,
+		`"artifacts": 46`,
 		`"runtime_evidence_growth":`,
 		`"provenance":`,
 		`"release_notes":`,
@@ -6875,7 +6875,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 24`,
+		`"count": 27`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
 		`"path": "schemas/datapan.route-disposition.v1.schema.json"`,
@@ -6916,7 +6916,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 43`,
+		`"artifact_count": 46`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -6963,7 +6963,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 43`,
+		`"checked": 46`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -7054,7 +7054,7 @@ func TestCatalogReleaseDraftWarnsWhenRuntimeEvidenceBelowTarget(t *testing.T) {
 	for _, want := range []string{
 		`"ok": true`,
 		`"runtime_evidence_growth":`,
-		`"artifacts": 38`,
+		`"artifacts": 41`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -7156,7 +7156,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 41`,
+		`"artifacts": 44`,
 		`"runtime_evidence_growth":`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,

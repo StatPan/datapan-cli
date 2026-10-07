@@ -27,6 +27,34 @@ func TestSelectedOperationDocumentEvidenceBindsPlanAndPointers(t *testing.T) {
 	}
 }
 
+func TestOperationDocumentEvidenceV2UsesExactSourceAndOperationIdentity(t *testing.T) {
+	data, err := os.ReadFile("testdata/operation-observation-plan/operation-document-evidence-v2-example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !healthOperationPlanDigestMatches("560a9645cd6d36d76679c2e1be1b0d0673aa4320a1731d65433bc9892a396060", data) {
+		t.Fatal("redacted Registry v2 evidence fixture digest changed")
+	}
+	document, err := decodeHealthOperationDocumentEvidence(data)
+	if err != nil {
+		t.Fatalf("pinned v2 evidence fixture failed schema validation: %v", err)
+	}
+	plan := healthOperationPlanRecord{
+		SourceBinding: healthOperationPlanSourceBinding{SourceID: "data_go_kr", Provider: "data.go.kr"},
+		OperationIdentity: healthOperationPlanIdentity{
+			OperationID: "5627942fc456d69230e6097c1fa98fe72c74ca34b01cf5b488af039323f25abf",
+			Protocol:    "REST", DatasetID: "15001697", OperationName: "의료기관종별코드조회", UpstreamOperationKey: "24807",
+		},
+	}
+	if err := validateHealthOperationDocumentEvidenceIdentity(document, plan); err != nil {
+		t.Fatalf("exact Registry v2 operation identity was rejected: %v", err)
+	}
+	plan.SourceBinding.SourceID = "other_source"
+	if err := validateHealthOperationDocumentEvidenceIdentity(document, plan); err == nil {
+		t.Fatal("v2 operation evidence was accepted under a different source ID")
+	}
+}
+
 func TestSelectedOperationDocumentEvidenceRejectsBadBindingSchemaAndPointer(t *testing.T) {
 	t.Run("hash mismatch", func(t *testing.T) {
 		root, plan, index, manifest := setupSyntheticOperationDocumentEvidence(t)
@@ -70,6 +98,19 @@ func TestSelectedOperationDocumentEvidenceRejectsBadBindingSchemaAndPointer(t *t
 		writeSyntheticOperationDocumentEvidence(t, root, document, &index, &manifest)
 		if err := validateSelectedHealthOperationDocumentEvidence(root, plan, index, manifest); err == nil {
 			t.Fatal("sidecar identity for a different operation was accepted")
+		}
+	})
+
+	t.Run("effect fact digest mismatch", func(t *testing.T) {
+		root, plan, index, manifest := setupSyntheticOperationDocumentEvidence(t)
+		plan.RequestPlan.RequestContract.OperationEffect.EvidenceRefs = []healthOperationPlanEvidenceRef{{
+			ArtifactPath: index.GenerationInputs.DocumentEvidence[0].Path,
+			SHA256:       strings.Repeat("c", 64),
+			JSONPointer:  "#/effect",
+			EvidenceKind: "operation_document",
+		}}
+		if err := validateSelectedHealthOperationDocumentEvidence(root, plan, index, manifest); err == nil {
+			t.Fatal("effect fact with the wrong selected artifact digest was accepted")
 		}
 	})
 }

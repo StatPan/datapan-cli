@@ -139,11 +139,11 @@ func buildHealthHTTPRequest(shape healthHTTPRequestShape) (*http.Request, error)
 		!validHealthTransportByteLimit(shape.MaxRequestBytes) || !validHealthTransportByteLimit(shape.MaxResponseBytes) {
 		return nil, errors.New("health request policy is invalid")
 	}
-	if shape.Method != http.MethodGet && shape.Method != http.MethodPost {
+	if shape.Method != http.MethodGet && shape.Method != http.MethodHead && shape.Method != http.MethodPost {
 		return nil, errors.New("health request method is unsupported")
 	}
-	if shape.Method == http.MethodGet && len(shape.Body) != 0 {
-		return nil, errors.New("health GET request body is unsupported")
+	if (shape.Method == http.MethodGet || shape.Method == http.MethodHead) && len(shape.Body) != 0 {
+		return nil, errors.New("health GET or HEAD request body is unsupported")
 	}
 
 	u, err := url.Parse(shape.Endpoint)
@@ -200,7 +200,7 @@ func buildHealthHTTPRequest(shape healthHTTPRequestShape) (*http.Request, error)
 	if err != nil {
 		return nil, errors.New("health request could not be constructed")
 	}
-	if shape.Method == http.MethodGet && len(shape.Body) == 0 {
+	if (shape.Method == http.MethodGet || shape.Method == http.MethodHead) && len(shape.Body) == 0 {
 		req.Body = nil
 		req.GetBody = nil
 		req.ContentLength = 0

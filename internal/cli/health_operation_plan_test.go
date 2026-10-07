@@ -8,10 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func TestHealthOperationPlanSchemaMirrorsAndRegistryFixtureJSON(t *testing.T) {
@@ -63,6 +66,55 @@ func TestHealthOperationPlanSchemaMirrorsAndRegistryFixtureJSON(t *testing.T) {
 	}
 	if !healthOperationPlanDigestMatches(healthOperationDocumentEvidenceSHA256, evidenceSchema) || !bytes.Equal(evidenceSchema, embeddedHealthOperationDocumentEvidenceSchema) || !bytes.Equal(evidenceSchema, projectEvidenceSchema) {
 		t.Fatal("Registry operation-document evidence schema differs from the pinned source contract")
+	}
+	for _, test := range []struct {
+		localPath   string
+		projectPath string
+		digest      string
+		embedded    []byte
+		compile     func() (*jsonschema.Schema, error)
+	}{
+		{"testdata/operation-observation-plan/operation-observation-policy.schema.json", "../../schemas/datapan.operation-observation-policy.v1.schema.json", healthOperationPolicySchemaSHA256, embeddedHealthOperationPolicySchema, healthOperationPolicyJSONSchema},
+		{"testdata/operation-observation-plan/operation-response-assertion.schema.json", "../../schemas/datapan.operation-response-assertion.v2.schema.json", healthOperationResponseAssertionSchemaSHA256, embeddedHealthOperationResponseAssertionSchema, healthOperationResponseAssertionJSONSchema},
+		{"testdata/operation-observation-plan/operation-document-evidence-v2.schema.json", "../../schemas/datapan.operation-document-evidence.v2.schema.json", healthOperationDocumentEvidenceV2SHA256, embeddedHealthOperationDocumentEvidenceV2Schema, healthOperationDocumentEvidenceV2JSONSchema},
+	} {
+		local, err := os.ReadFile(test.localPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		project, err := os.ReadFile(test.projectPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !healthOperationPlanDigestMatches(test.digest, local) || !bytes.Equal(local, project) || !bytes.Equal(local, test.embedded) {
+			t.Fatalf("Registry schema mirror %s differs from its pinned contract", test.localPath)
+		}
+		if _, err := test.compile(); err != nil {
+			t.Fatalf("pinned schema %s failed compilation: %v", test.localPath, err)
+		}
+	}
+}
+
+func TestPinnedRegistryPathPatternNormalizesToEquivalentRE2(t *testing.T) {
+	document := map[string]any{"pattern": "^(?!/)[A-Za-z0-9._/-]+$"}
+	if err := normalizeHealthJSONSchemaRegexps(document); err != nil {
+		t.Fatal(err)
+	}
+	pattern, ok := document["pattern"].(string)
+	if !ok {
+		t.Fatal("normalized path schema pattern is not a string")
+	}
+	compiled, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{{"reports/operation.json", true}, {"policy/a-b.json", true}, {"/absolute/file.json", false}, {"", false}, {"reports/has space.json", false}} {
+		if got := compiled.MatchString(test.value); got != test.want {
+			t.Fatalf("normalized path pattern accepted %q = %t, want %t", test.value, got, test.want)
+		}
 	}
 }
 
@@ -345,6 +397,9 @@ func writeSyntheticIncompletePlanInstallation(t *testing.T, registryRevision, da
 	}
 	planSchema := store(healthOperationPlanSchemaPath, embeddedHealthOperationPlanSchema, "schema")
 	evidenceSchema := store(healthOperationDocumentEvidencePath, embeddedHealthOperationDocumentEvidenceSchema, "schema")
+	store(healthOperationPolicySchemaPath, embeddedHealthOperationPolicySchema, "schema")
+	store(healthOperationResponseAssertionSchemaPath, embeddedHealthOperationResponseAssertionSchema, "schema")
+	store(healthOperationDocumentEvidenceV2Path, embeddedHealthOperationDocumentEvidenceV2Schema, "schema")
 	_ = planSchema
 	_ = evidenceSchema
 

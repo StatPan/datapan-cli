@@ -21,20 +21,31 @@ import (
 )
 
 const (
-	healthOperationPlanSchemaVersion        = "datapan.operation-observation-plan.v1"
-	healthOperationPlanSchemaID             = "https://schemas.datapan.dev/datapan.operation-observation-plan.v1.schema.json"
-	healthOperationPlanSchemaSHA256         = "d5b441d04c642a99c320eee8355d4aa6541c3699561b64bb2bf297e207a09533"
-	healthOperationPlanSchemaSourceRevision = "0da541ff40fdc396ab855cc92520a56403de46d9"
-	healthOperationPlanSchemaPath           = "schemas/datapan.operation-observation-plan.v1.schema.json"
-	healthOperationDocumentEvidenceSchemaID = "https://schemas.datapan.dev/datapan.operation-document-evidence.v1.schema.json"
-	healthOperationDocumentEvidenceSHA256   = "0b4a5a7ab10eeccb523d2af8a8e62e76f14a6243eea00558ac49e9959e7a3d1d"
-	healthOperationDocumentEvidenceRevision = "18d75eef2977afdc58f1830a3fae2b8875956711"
-	healthOperationDocumentEvidencePath     = "schemas/datapan.operation-document-evidence.v1.schema.json"
-	healthOperationPlanIndexPath            = "reports/operation-observation-plan/index.json"
-	healthOperationPlanSourceRegistryPath   = "data/data-go-kr.registry.json"
-	healthOperationPlanIndexMaxBytes        = 8 << 20
-	healthOperationPlanShardMaxBytes        = 16 << 20
-	healthOperationPlanMaxJSONTokens        = 100_000
+	healthOperationPlanSchemaVersion             = "datapan.operation-observation-plan.v1"
+	healthOperationPlanSchemaID                  = "https://schemas.datapan.dev/datapan.operation-observation-plan.v1.schema.json"
+	healthOperationPlanSchemaSHA256              = "d0d5ee3be85703ca3617204c699a0c33db621f1e32b8d67aa401402d39d2fd9b"
+	healthOperationPlanSchemaSourceRevision      = "b0ff9e7cb3ec5cdcecb35a8fc416123a525b286d"
+	healthOperationPlanSchemaPath                = "schemas/datapan.operation-observation-plan.v1.schema.json"
+	healthOperationPolicySchemaID                = "https://schemas.datapan.dev/datapan.operation-observation-policy.v1.schema.json"
+	healthOperationPolicySchemaSHA256            = "f618594c584aa1e55f9e27c65d9780730ab1ae9b58e47a0c60790c2efe997c4b"
+	healthOperationPolicySchemaPath              = "schemas/datapan.operation-observation-policy.v1.schema.json"
+	healthOperationResponseAssertionSchemaID     = "https://schemas.datapan.dev/datapan.operation-response-assertion.v2.schema.json"
+	healthOperationResponseAssertionSchemaSHA256 = "0e30d07b2755ab4944773c08be2cd9e5dd50ab75338a607a2728d8d4353b12bd"
+	healthOperationResponseAssertionSchemaPath   = "schemas/datapan.operation-response-assertion.v2.schema.json"
+	healthOperationResponseAssertionMaxBytes     = 1 << 20
+	healthOperationDocumentEvidenceSchemaID      = "https://schemas.datapan.dev/datapan.operation-document-evidence.v1.schema.json"
+	healthOperationDocumentEvidenceSHA256        = "0b4a5a7ab10eeccb523d2af8a8e62e76f14a6243eea00558ac49e9959e7a3d1d"
+	healthOperationDocumentEvidenceRevision      = "18d75eef2977afdc58f1830a3fae2b8875956711"
+	healthOperationDocumentEvidencePath          = "schemas/datapan.operation-document-evidence.v1.schema.json"
+	healthOperationDocumentEvidenceV2SchemaID    = "https://schemas.datapan.dev/datapan.operation-document-evidence.v2.schema.json"
+	healthOperationDocumentEvidenceV2SHA256      = "ae254f7dbbb13b33d47c77d2b48944c2692199024e92433f26fbc58b374584c9"
+	healthOperationDocumentEvidenceV2Revision    = "68e0a80611205301d409640b505dd1646d2177a3"
+	healthOperationDocumentEvidenceV2Path        = "schemas/datapan.operation-document-evidence.v2.schema.json"
+	healthOperationPlanIndexPath                 = "reports/operation-observation-plan/index.json"
+	healthOperationPlanSourceRegistryPath        = "data/data-go-kr.registry.json"
+	healthOperationPlanIndexMaxBytes             = 8 << 20
+	healthOperationPlanShardMaxBytes             = 16 << 20
+	healthOperationPlanMaxJSONTokens             = 100_000
 	// An index can carry tens of thousands of compact artifact refs. Keep its
 	// larger token budget separate from the plan and provider-response budget.
 	healthOperationPlanMaxIndexJSONTokens = 500_000
@@ -48,10 +59,10 @@ const (
 	healthOperationPlanMaxTimeout           = 30 * time.Second
 )
 
-// The two schema files are byte-identical mirrors of the Registry-owned schema
-// at healthOperationPlanSchemaSourceRevision. The package-local copy is
-// embedded so an installed CLI does not depend on its working directory.
-// The repository-level copy is emitted in CLI release evidence.
+// These schema files are byte-identical mirrors of the Registry-owned pinned
+// contracts. Package-local copies are embedded so an installed CLI does not
+// depend on its working directory; repository-level copies ship as CLI release
+// evidence.
 //
 //go:embed testdata/operation-observation-plan/schema.json
 var embeddedHealthOperationPlanSchema []byte
@@ -59,10 +70,25 @@ var embeddedHealthOperationPlanSchema []byte
 //go:embed testdata/operation-observation-plan/operation-document-evidence.schema.json
 var embeddedHealthOperationDocumentEvidenceSchema []byte
 
+//go:embed testdata/operation-observation-plan/operation-document-evidence-v2.schema.json
+var embeddedHealthOperationDocumentEvidenceV2Schema []byte
+
+//go:embed testdata/operation-observation-plan/operation-observation-policy.schema.json
+var embeddedHealthOperationPolicySchema []byte
+
+//go:embed testdata/operation-observation-plan/operation-response-assertion.schema.json
+var embeddedHealthOperationResponseAssertionSchema []byte
+
 var (
-	healthOperationPlanSchemaOnce sync.Once
-	healthOperationPlanSchema     *jsonschema.Schema
-	healthOperationPlanSchemaErr  error
+	healthOperationPlanSchemaOnce              sync.Once
+	healthOperationPlanSchema                  *jsonschema.Schema
+	healthOperationPlanSchemaErr               error
+	healthOperationPolicySchemaOnce            sync.Once
+	healthOperationPolicySchema                *jsonschema.Schema
+	healthOperationPolicySchemaErr             error
+	healthOperationResponseAssertionSchemaOnce sync.Once
+	healthOperationResponseAssertionSchema     *jsonschema.Schema
+	healthOperationResponseAssertionSchemaErr  error
 )
 
 type healthOperationPlanOptions struct {
@@ -330,6 +356,7 @@ type healthOperationPlanLoadResult struct {
 	RegistryTrust     registryTrustContext
 	ManifestSHA256    string
 	PolicySHA256      string
+	ResponseAssertion healthNormalizedResponseAssertion
 }
 
 func healthOperationPlanInvocation(args []string) (healthOperationPlanOptions, bool, error) {
@@ -525,11 +552,23 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 		}
 		return healthOperationPlanLoadResult{}, errors.New("health operation ID is not present in the selected Registry plan shard")
 	}
-	if err := validateSelectedHealthOperationDocumentEvidence(root, selected, index, manifest); err != nil {
-		return healthOperationPlanLoadResult{}, errors.New("selected operation-document evidence is invalid")
-	}
 	if err := validateHealthOperationPlanRecord(selected); err != nil {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan is not executable under its declared bounds")
+	}
+	documents, err := loadSelectedHealthOperationDocumentEvidence(root, selected, index, manifest)
+	if err != nil {
+		return healthOperationPlanLoadResult{}, errors.New("selected operation-document evidence is invalid")
+	}
+	selectedPolicy, err := loadSelectedHealthOperationPolicy(root, selected, manifest)
+	if err != nil {
+		return healthOperationPlanLoadResult{}, errors.New("selected reviewed operation policy is invalid")
+	}
+	if err := validateSelectedHealthOperationEffectPolicy(selected, selectedPolicy, documents); err != nil {
+		return healthOperationPlanLoadResult{}, errors.New("selected read-only effect policy does not match its source facts")
+	}
+	responseAssertion, err := loadSelectedHealthResponseAssertion(root, selected, index, manifest, documents, selectedPolicy)
+	if err != nil {
+		return healthOperationPlanLoadResult{}, errors.New("selected response assertion is invalid")
 	}
 	policyDigest := strings.ToLower(index.GenerationInputs.LegacyPolicy.SHA256)
 	if selected.LegacyPolicy != nil {
@@ -550,6 +589,7 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 		Options: options, ArtifactRoot: root, Plan: selected, Index: index, IndexPath: options.IndexPath, IndexSHA256: indexDigest, IndexBytes: int64(len(indexData)),
 		IndexArtifactPath: healthOperationPlanIndexPath, Shard: shardRef, SourceScope: sourceScope,
 		RegistryTrust: trust, ManifestSHA256: manifestDigest, PolicySHA256: policyDigest,
+		ResponseAssertion: responseAssertion,
 	}, nil
 }
 
@@ -594,35 +634,39 @@ func readTrustedHealthOperationPlanManifest() (registryInstallProvenance, releas
 }
 
 func verifyHealthOperationPlanSchemaBinding(root string, manifest releaseManifest) error {
-	if !healthOperationPlanDigestMatches(healthOperationPlanSchemaSHA256, embeddedHealthOperationPlanSchema) {
-		return errors.New("embedded observation-plan schema does not match its source pin")
+	for _, schema := range []struct {
+		path   string
+		digest string
+		data   []byte
+	}{
+		{healthOperationPlanSchemaPath, healthOperationPlanSchemaSHA256, embeddedHealthOperationPlanSchema},
+		{healthOperationPolicySchemaPath, healthOperationPolicySchemaSHA256, embeddedHealthOperationPolicySchema},
+		{healthOperationResponseAssertionSchemaPath, healthOperationResponseAssertionSchemaSHA256, embeddedHealthOperationResponseAssertionSchema},
+		{healthOperationDocumentEvidencePath, healthOperationDocumentEvidenceSHA256, embeddedHealthOperationDocumentEvidenceSchema},
+		{healthOperationDocumentEvidenceV2Path, healthOperationDocumentEvidenceV2SHA256, embeddedHealthOperationDocumentEvidenceV2Schema},
+	} {
+		if err := verifyHealthPinnedSchemaArtifact(root, manifest, schema.path, schema.digest, schema.data); err != nil {
+			return err
+		}
 	}
-	artifact, ok := manifestArtifact(manifest, healthOperationPlanSchemaPath)
-	if !ok || artifact.Bytes != int64(len(embeddedHealthOperationPlanSchema)) || !strings.EqualFold(artifact.SHA256, healthOperationPlanSchemaSHA256) {
-		return errors.New("Registry manifest does not bind the pinned observation-plan schema")
+	return nil
+}
+
+func verifyHealthPinnedSchemaArtifact(root string, manifest releaseManifest, schemaPath, digest string, embedded []byte) error {
+	if !healthOperationPlanDigestMatches(digest, embedded) {
+		return errors.New("embedded Registry schema does not match its source pin")
 	}
-	path, ok := releaseArtifactPath(root, healthOperationPlanSchemaPath)
+	artifact, ok := manifestArtifact(manifest, schemaPath)
+	if !ok || artifact.Bytes != int64(len(embedded)) || !strings.EqualFold(artifact.SHA256, digest) {
+		return errors.New("Registry manifest does not bind a pinned operation schema")
+	}
+	path, ok := releaseArtifactPath(root, schemaPath)
 	if !ok {
-		return errors.New("Registry observation-plan schema path is invalid")
+		return errors.New("Registry operation schema path is invalid")
 	}
 	data, err := readBoundedFile(path, 1<<20)
-	if err != nil || int64(len(data)) != artifact.Bytes || !healthOperationPlanDigestMatches(artifact.SHA256, data) || !bytes.Equal(data, embeddedHealthOperationPlanSchema) {
-		return errors.New("Registry observation-plan schema differs from the pinned CLI contract")
-	}
-	if !healthOperationPlanDigestMatches(healthOperationDocumentEvidenceSHA256, embeddedHealthOperationDocumentEvidenceSchema) {
-		return errors.New("embedded operation-document evidence schema does not match its source pin")
-	}
-	evidenceArtifact, ok := manifestArtifact(manifest, healthOperationDocumentEvidencePath)
-	if !ok || !strings.EqualFold(evidenceArtifact.SHA256, healthOperationDocumentEvidenceSHA256) || evidenceArtifact.Bytes != int64(len(embeddedHealthOperationDocumentEvidenceSchema)) {
-		return errors.New("Registry manifest does not bind the pinned operation-document evidence schema")
-	}
-	evidencePath, ok := releaseArtifactPath(root, healthOperationDocumentEvidencePath)
-	if !ok {
-		return errors.New("Registry operation-document evidence schema path is invalid")
-	}
-	evidenceData, err := readBoundedFile(evidencePath, 1<<20)
-	if err != nil || int64(len(evidenceData)) != evidenceArtifact.Bytes || !healthOperationPlanDigestMatches(evidenceArtifact.SHA256, evidenceData) || !bytes.Equal(evidenceData, embeddedHealthOperationDocumentEvidenceSchema) {
-		return errors.New("Registry operation-document evidence schema differs from the pinned CLI contract")
+	if err != nil || int64(len(data)) != artifact.Bytes || !healthOperationPlanDigestMatches(artifact.SHA256, data) || !bytes.Equal(data, embedded) {
+		return errors.New("Registry operation schema differs from the pinned CLI contract")
 	}
 	return nil
 }
@@ -672,6 +716,78 @@ func healthOperationPlanJSONSchema() (*jsonschema.Schema, error) {
 		healthOperationPlanSchema, healthOperationPlanSchemaErr = compiler.Compile(healthOperationPlanSchemaID)
 	})
 	return healthOperationPlanSchema, healthOperationPlanSchemaErr
+}
+
+func healthOperationResponseAssertionJSONSchema() (*jsonschema.Schema, error) {
+	healthOperationResponseAssertionSchemaOnce.Do(func() {
+		healthOperationResponseAssertionSchema, healthOperationResponseAssertionSchemaErr = compileHealthPinnedJSONSchema(
+			healthOperationResponseAssertionSchemaID,
+			healthOperationResponseAssertionSchemaSHA256,
+			embeddedHealthOperationResponseAssertionSchema,
+		)
+	})
+	return healthOperationResponseAssertionSchema, healthOperationResponseAssertionSchemaErr
+}
+
+func healthOperationPolicyJSONSchema() (*jsonschema.Schema, error) {
+	healthOperationPolicySchemaOnce.Do(func() {
+		healthOperationPolicySchema, healthOperationPolicySchemaErr = compileHealthPinnedJSONSchema(
+			healthOperationPolicySchemaID,
+			healthOperationPolicySchemaSHA256,
+			embeddedHealthOperationPolicySchema,
+		)
+	})
+	return healthOperationPolicySchema, healthOperationPolicySchemaErr
+}
+
+func compileHealthPinnedJSONSchema(schemaID, digest string, data []byte) (*jsonschema.Schema, error) {
+	if !healthOperationPlanDigestMatches(digest, data) {
+		return nil, errors.New("embedded schema digest mismatch")
+	}
+	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeHealthJSONSchemaRegexps(document); err != nil {
+		return nil, err
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource(schemaID, document); err != nil {
+		return nil, err
+	}
+	return compiler.Compile(schemaID)
+}
+
+// The pinned Registry JSON Schemas are hashed and compared as their original
+// bytes. This narrowly rewrites one ECMAScript negative-lookahead path regex
+// into its equivalent RE2 form because Go's regexp engine rejects lookahead.
+// It excludes a leading slash and permits the same remaining path characters.
+func normalizeHealthJSONSchemaRegexps(value any) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if key == "pattern" {
+				pattern, ok := child.(string)
+				if !ok {
+					return errors.New("JSON schema pattern is not a string")
+				}
+				if pattern == "^(?!/)[A-Za-z0-9._/-]+$" {
+					typed[key] = "^[A-Za-z0-9._-][A-Za-z0-9._/-]*$"
+				}
+				continue
+			}
+			if err := normalizeHealthJSONSchemaRegexps(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if err := normalizeHealthJSONSchemaRegexps(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func preflightHealthOperationPlanJSON(data []byte) error {
@@ -985,33 +1101,72 @@ func validateHealthOperationPlanRecord(plan healthOperationPlanRecord) error {
 	if plan.OperationIdentity.Protocol != contract.Transport.Protocol || (contract.Transport.Protocol != "REST" && contract.Transport.Protocol != "SOAP") {
 		return errors.New("plan transport is unsupported")
 	}
-	if contract.ResponseAssertion.EmptyResultSemantics != "valid" {
+	if contract.ResponseAssertion.EmptyResultSemantics != "valid" && contract.ResponseAssertion.EmptyResultSemantics != "invalid" && contract.ResponseAssertion.EmptyResultSemantics != "not_applicable" {
 		return errors.New("plan empty-result semantics are unsupported")
 	}
 	switch contract.ResponseAssertion.Kind {
-	case "http_status":
-		if len(contract.ResponseAssertion.ExpectedStatusCodes) == 0 || len(contract.ResponseAssertion.ExpectedStatusCodes) > 32 {
-			return errors.New("plan HTTP status assertion is incomplete")
+	case "json_contract", "xml_contract", "soap_fault_free":
+		if len(contract.ResponseAssertion.ExpectedStatusCodes) == 0 || len(contract.ResponseAssertion.ExpectedStatusCodes) > 256 {
+			return errors.New("plan typed response assertion is incomplete")
 		}
 		statuses := make(map[int]struct{}, len(contract.ResponseAssertion.ExpectedStatusCodes))
 		for _, status := range contract.ResponseAssertion.ExpectedStatusCodes {
 			if status < 100 || status > 599 {
-				return errors.New("plan HTTP status assertion contains an invalid code")
+				return errors.New("plan typed response assertion contains an invalid status")
 			}
 			if _, duplicate := statuses[status]; duplicate {
-				return errors.New("plan HTTP status assertion contains duplicate codes")
+				return errors.New("plan typed response assertion contains duplicate statuses")
 			}
 			statuses[status] = struct{}{}
 		}
-	case "soap_fault_free":
-		if contract.Transport.Protocol != "SOAP" || len(contract.ResponseAssertion.ExpectedStatusCodes) != 0 {
-			return errors.New("plan SOAP response assertion is unsupported")
+		expectedAssertionRef := healthOperationResponseAssertionArtifactPathPrefix + plan.OperationIdentity.OperationID + ".json#/assertion"
+		if contract.ResponseAssertion.AssertionRef != expectedAssertionRef {
+			return errors.New("plan typed response assertion reference is not operation-bound")
+		}
+		artifactBindings := 0
+		for _, ref := range contract.ResponseAssertion.EvidenceRefs {
+			if ref.EvidenceKind == "reviewed_policy" && ref.ArtifactPath+ref.JSONPointer == expectedAssertionRef {
+				artifactBindings++
+			}
+		}
+		if artifactBindings != 1 {
+			return errors.New("plan typed response assertion does not have one reviewed artifact binding")
+		}
+		if contract.Transport.Protocol == "SOAP" && contract.ResponseAssertion.Kind != "soap_fault_free" || contract.Transport.Protocol == "REST" && contract.ResponseAssertion.Kind == "soap_fault_free" {
+			return errors.New("plan response assertion kind is incompatible with its transport")
+		}
+	case "observation_only":
+		if len(contract.ResponseAssertion.ExpectedStatusCodes) != 0 || contract.ResponseAssertion.EmptyResultSemantics != "not_applicable" {
+			return errors.New("observation-only response contract contains semantic predicates")
+		}
+		expectedAssertionRef := healthOperationResponseAssertionArtifactPathPrefix + plan.OperationIdentity.OperationID + ".json#/assertion"
+		if contract.ResponseAssertion.AssertionRef != expectedAssertionRef {
+			return errors.New("observation-only response assertion reference is not operation-bound")
+		}
+		artifactBindings := 0
+		for _, ref := range contract.ResponseAssertion.EvidenceRefs {
+			if ref.EvidenceKind == "reviewed_policy" && ref.ArtifactPath+ref.JSONPointer == expectedAssertionRef && validSHA256Digest(ref.SHA256) {
+				artifactBindings++
+			}
+		}
+		if artifactBindings != 1 {
+			return errors.New("observation-only response assertion does not have one reviewed artifact binding")
 		}
 	default:
 		return errors.New("plan response assertion is unsupported")
 	}
-	if (contract.Transport.Protocol == "REST" && contract.Transport.HTTPMethod != "GET" && contract.Transport.HTTPMethod != "POST") || (contract.Transport.Protocol == "SOAP" && (contract.Transport.HTTPMethod != "POST" || contract.Transport.BodyEncoding != "document_literal" || !healthOperationPlanSOAPEnvelopeMatches(contract.Transport.SOAPVersion, contract.Transport.EnvelopeNamespace))) {
+	if (contract.Transport.Protocol == "REST" && contract.Transport.HTTPMethod != "GET" && contract.Transport.HTTPMethod != "HEAD") || (contract.Transport.Protocol == "SOAP" && (contract.Transport.HTTPMethod != "POST" || contract.Transport.BodyEncoding != "document_literal" || !healthOperationPlanSOAPEnvelopeMatches(contract.Transport.SOAPVersion, contract.Transport.EnvelopeNamespace))) {
 		return errors.New("plan request method or SOAP encoding is unsupported")
+	}
+	switch contract.OperationEffect.Authority {
+	case "operation_document", "operation_specific_declaration":
+		// The selected operation-document evidence validator checks source facts.
+	case "reviewed_policy":
+		if contract.Transport.Protocol != "REST" || (contract.Transport.HTTPMethod != "GET" && contract.Transport.HTTPMethod != "HEAD") || !healthOperationPlanEffectEvidenceBound(plan) {
+			return errors.New("reviewed read-only operation effect lacks an exact GET or HEAD and source evidence")
+		}
+	default:
+		return errors.New("plan read-only operation effect authority is unsupported")
 	}
 	if !operationPlanEndpointMatches(plan.OperationIdentity.RegisteredEndpoint, contract.Transport.Host, contract.Transport.Path, contract.Transport.Scheme) {
 		return errors.New("plan endpoint identity does not match request contract")
@@ -1055,6 +1210,28 @@ func validateHealthOperationPlanRecord(plan healthOperationPlanRecord) error {
 		return errors.New("plan authentication requirement is unsupported")
 	}
 	return nil
+}
+
+func healthOperationPlanEffectEvidenceBound(plan healthOperationPlanRecord) bool {
+	contract := plan.RequestPlan.RequestContract
+	if contract == nil || contract.OperationEffect.Authority != "reviewed_policy" || contract.OperationEffect.Classification != "read_only" {
+		return false
+	}
+	policyRefs := 0
+	documentPointers := make(map[string]bool, 3)
+	for _, ref := range contract.OperationEffect.EvidenceRefs {
+		switch ref.EvidenceKind {
+		case "reviewed_policy":
+			if _, suffix, ok := parseHealthOperationPolicyPointer(ref.JSONPointer); ok && suffix != "#" && strings.HasSuffix(suffix, "/effect_review") {
+				policyRefs++
+			}
+		case "operation_document":
+			if ref.JSONPointer == "#/transport/http_method" || ref.JSONPointer == "#/operation_document/title" || ref.JSONPointer == "#/operation_document/purpose" {
+				documentPointers[ref.JSONPointer] = true
+			}
+		}
+	}
+	return policyRefs == 1 && documentPointers["#/transport/http_method"] && documentPointers["#/operation_document/title"] && documentPointers["#/operation_document/purpose"]
 }
 
 const healthOperationPlanMaxQuotaPolicies = 32

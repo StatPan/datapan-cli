@@ -81,6 +81,7 @@ func TestBuildHealthHTTPRequestRejectsUnsupportedPlansBeforeNetwork(t *testing.T
 		{name: "response bound exceeds client ceiling", change: func(s *healthHTTPRequestShape) { s.MaxResponseBytes = healthTransportMaxBytes + 1 }},
 		{name: "request bound exceeds client ceiling", change: func(s *healthHTTPRequestShape) { s.MaxRequestBytes = healthTransportMaxBytes + 1 }},
 		{name: "GET body", change: func(s *healthHTTPRequestShape) { s.Body = []byte("unexpected") }},
+		{name: "HEAD body", change: func(s *healthHTTPRequestShape) { s.Method = http.MethodHead; s.Body = []byte("unexpected") }},
 		{name: "endpoint credentials", change: func(s *healthHTTPRequestShape) { s.Endpoint = "https://user:pass@example.test/data" }},
 		{name: "endpoint fragment", change: func(s *healthHTTPRequestShape) { s.Endpoint = "https://example.test/data#fragment" }},
 		{name: "unsupported scheme", change: func(s *healthHTTPRequestShape) { s.Endpoint = "ftp://example.test/data" }},
@@ -125,6 +126,30 @@ func TestBuildHealthHTTPRequestRejectsUnsupportedPlansBeforeNetwork(t *testing.T
 	}
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("invalid plans issued %d requests", got)
+	}
+}
+
+func TestExecuteHealthHTTPRequestPreservesExplicitHEADMethod(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || r.Method != http.MethodHead || len(body) != 0 || r.ContentLength != 0 {
+			t.Errorf("HEAD method or empty-body contract changed: method=%q bodyBytes=%d contentLength=%d err=%v", r.Method, len(body), r.ContentLength, err)
+		}
+		w.Header().Set("Content-Length", "18")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	shape := validHealthHTTPRequestShape(server.URL+"/records", healthHTTPREST)
+	shape.Method = http.MethodHead
+	response, err := executeHealthHTTPRequest(context.Background(), &http.Client{Timeout: time.Second}, shape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 || response.StatusCode != http.StatusOK || len(response.Body) != 0 {
+		t.Fatalf("explicit HEAD request changed or inferred a response body: requests=%d response=%#v", requests.Load(), response)
 	}
 }
 

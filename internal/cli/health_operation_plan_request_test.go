@@ -30,7 +30,21 @@ func readSyntheticHealthPlan(t *testing.T, name string) healthOperationPlanRecor
 	plan.SourceBinding.TestOnly = false
 	contract := plan.RequestPlan.RequestContract
 	contract.Transport.Authority = "operation_document"
-	contract.OperationEffect.Authority = "reviewed_policy"
+	contract.OperationEffect.Authority = "operation_document"
+	if contract.Transport.Protocol == "SOAP" {
+		contract.ResponseAssertion.Kind = "soap_fault_free"
+	} else {
+		contract.ResponseAssertion.Kind = "json_contract"
+	}
+	contract.ResponseAssertion.ExpectedStatusCodes = []int{http.StatusOK}
+	assertionArtifactPath := healthOperationResponseAssertionArtifactPathPrefix + plan.OperationIdentity.OperationID + ".json"
+	contract.ResponseAssertion.AssertionRef = assertionArtifactPath + "#/assertion"
+	contract.ResponseAssertion.EvidenceRefs = []healthOperationPlanEvidenceRef{{
+		ArtifactPath: assertionArtifactPath,
+		JSONPointer:  "#/assertion",
+		SHA256:       strings.Repeat("1", 64),
+		EvidenceKind: "reviewed_policy",
+	}}
 	for i := range contract.Parameters {
 		switch contract.Parameters[i].ValueStrategy.Kind {
 		case "credential_reference":
@@ -40,6 +54,9 @@ func readSyntheticHealthPlan(t *testing.T, name string) healthOperationPlanRecor
 		default:
 			contract.Parameters[i].ValueStrategy.Authority = "operation_document"
 		}
+	}
+	if err := validateHealthOperationPlanRecord(plan); err != nil {
+		t.Fatalf("synthetic operation plan is invalid: %v", err)
 	}
 	return plan
 }
@@ -55,6 +72,22 @@ func readHealthOperationPlanFixture(t *testing.T, name string) healthOperationPl
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func setHealthPlanObservationOnlyAssertion(t *testing.T, plan *healthOperationPlanRecord) {
+	t.Helper()
+	response := &plan.RequestPlan.RequestContract.ResponseAssertion
+	response.Kind = "observation_only"
+	response.ExpectedStatusCodes = nil
+	response.EmptyResultSemantics = "not_applicable"
+	path := healthOperationResponseAssertionArtifactPathPrefix + plan.OperationIdentity.OperationID + ".json"
+	response.AssertionRef = path + "#/assertion"
+	response.EvidenceRefs = []healthOperationPlanEvidenceRef{{
+		ArtifactPath: path,
+		JSONPointer:  "#/assertion",
+		SHA256:       strings.Repeat("a", 64),
+		EvidenceKind: "reviewed_policy",
+	}}
 }
 
 type healthPlanCaptureClient struct {
@@ -92,6 +125,30 @@ func (c *healthPlanCaptureClient) Do(req *http.Request) (*http.Response, error) 
 }
 
 func TestHealthOperationPlanRESTAndSOAPRequestTranslation(t *testing.T) {
+	t.Run("explicit reviewed HEAD is preserved without creating a data response", func(t *testing.T) {
+		plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+		contract := plan.RequestPlan.RequestContract
+		contract.Transport.HTTPMethod = http.MethodHead
+		contract.OperationEffect.Authority = "reviewed_policy"
+		contract.OperationEffect.EvidenceRefs = []healthOperationPlanEvidenceRef{
+			{ArtifactPath: healthOperationPolicyArtifactPath, EvidenceKind: "reviewed_policy", JSONPointer: "#/profiles/0/effect_review", SHA256: strings.Repeat("a", 64)},
+			{ArtifactPath: "reports/operation-document-evidence/synthetic.json", EvidenceKind: "operation_document", JSONPointer: "#/transport/http_method", SHA256: strings.Repeat("b", 64)},
+			{ArtifactPath: "reports/operation-document-evidence/synthetic.json", EvidenceKind: "operation_document", JSONPointer: "#/operation_document/title", SHA256: strings.Repeat("b", 64)},
+			{ArtifactPath: "reports/operation-document-evidence/synthetic.json", EvidenceKind: "operation_document", JSONPointer: "#/operation_document/purpose", SHA256: strings.Repeat("b", 64)},
+		}
+		shape, err := healthOperationPlanRequestShape(plan, healthPlanSyntheticCredential, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := buildHealthHTTPRequest(shape)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Method != http.MethodHead || request.Body != nil || request.ContentLength != 0 {
+			t.Fatalf("plan method was not preserved as an empty-body HEAD: %#v", request)
+		}
+	})
+
 	t.Run("REST query auth and single request", func(t *testing.T) {
 		plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
 		shape, err := healthOperationPlanRequestShape(plan, healthPlanSyntheticCredential, time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC))
@@ -119,9 +176,8 @@ func TestHealthOperationPlanRESTAndSOAPRequestTranslation(t *testing.T) {
 		if client.url.Query().Get("page") != "1" || client.url.Query().Get("serviceKey") != healthPlanSyntheticCredential || client.header.Get("Authorization") != "" {
 			t.Fatalf("REST request did not use the reviewed query placement: query=%v headers=%v", client.url.Query(), client.header)
 		}
-		passed, err := healthOperationPlanResponseAssertion(plan, response)
-		if err != nil || !passed {
-			t.Fatalf("REST status assertion failed: passed=%t err=%v", passed, err)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("REST response status changed: %d", response.StatusCode)
 		}
 	})
 
@@ -188,6 +244,48 @@ func TestHealthOperationPlanRESTAndSOAPRequestTranslation(t *testing.T) {
 			t.Fatal("credentialed plan over cleartext HTTP produced a request shape")
 		}
 	})
+}
+
+func TestHealthOperationPlanObservationOnlyContractGate(t *testing.T) {
+	valid := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+	setHealthPlanObservationOnlyAssertion(t, &valid)
+	if err := validateHealthOperationPlanRecord(valid); err != nil {
+		t.Fatalf("valid observation-only contract was rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*healthOperationPlanRecord)
+	}{
+		{"status predicates", func(plan *healthOperationPlanRecord) {
+			plan.RequestPlan.RequestContract.ResponseAssertion.ExpectedStatusCodes = []int{http.StatusOK}
+		}},
+		{"empty semantics", func(plan *healthOperationPlanRecord) {
+			plan.RequestPlan.RequestContract.ResponseAssertion.EmptyResultSemantics = "valid"
+		}},
+		{"cross-operation artifact pointer", func(plan *healthOperationPlanRecord) {
+			plan.RequestPlan.RequestContract.ResponseAssertion.AssertionRef = "reports/operation-response-assertions/other.json#/assertion"
+		}},
+		{"missing artifact binding", func(plan *healthOperationPlanRecord) {
+			plan.RequestPlan.RequestContract.ResponseAssertion.EvidenceRefs = nil
+		}},
+		{"duplicate artifact binding", func(plan *healthOperationPlanRecord) {
+			ref := plan.RequestPlan.RequestContract.ResponseAssertion.EvidenceRefs[0]
+			plan.RequestPlan.RequestContract.ResponseAssertion.EvidenceRefs = append(plan.RequestPlan.RequestContract.ResponseAssertion.EvidenceRefs, ref)
+		}},
+		{"invalid artifact digest", func(plan *healthOperationPlanRecord) {
+			plan.RequestPlan.RequestContract.ResponseAssertion.EvidenceRefs[0].SHA256 = "not-a-digest"
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+			setHealthPlanObservationOnlyAssertion(t, &plan)
+			test.mutate(&plan)
+			if err := validateHealthOperationPlanRecord(plan); err == nil {
+				t.Fatal("invalid observation-only response contract passed pre-dispatch validation")
+			}
+		})
+	}
 }
 
 func TestHealthOperationPlanRejectsSyntheticAuthorityPromotion(t *testing.T) {
@@ -342,6 +440,67 @@ func TestHealthOperationPlanProbeReceiptIsBoundRedactedAndAtomic(t *testing.T) {
 	if err := compiled.Validate(instance); err != nil {
 		t.Fatalf("receipt does not conform to its schema: %v", err)
 	}
+	for _, test := range []struct {
+		name      string
+		status    int
+		outcome   string
+		reason    string
+		kind      string
+		assertion string
+	}{
+		{"observation-only success status", http.StatusOK, "indeterminate", "response_semantics_unestablished", "observation_only", "not_run"},
+		{"observation-only non-2xx", http.StatusInternalServerError, "unhealthy", "response_http_failure", "observation_only", "failed"},
+	} {
+		candidate := receipt
+		candidate.Observation.HTTPStatus = test.status
+		candidate.Observation.Outcome = test.outcome
+		candidate.Observation.ReasonCode = test.reason
+		candidate.Observation.AssertionKind = test.kind
+		candidate.Observation.AssertionStatus = test.assertion
+		candidateData, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidateInstance, err := jsonschema.UnmarshalJSON(bytes.NewReader(candidateData))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := compiled.Validate(candidateInstance); err != nil {
+			t.Fatalf("%s receipt does not conform to its schema: %v", test.name, err)
+		}
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*healthOperationPlanProbeReceipt)
+	}{
+		{"missing status", func(candidate *healthOperationPlanProbeReceipt) { candidate.Observation.HTTPStatus = 0 }},
+		{"response not observed", func(candidate *healthOperationPlanProbeReceipt) { candidate.Observation.ResponseObserved = false }},
+		{"wrong success range", func(candidate *healthOperationPlanProbeReceipt) {
+			candidate.Observation.HTTPStatus = http.StatusInternalServerError
+		}},
+		{"wrong assertion kind", func(candidate *healthOperationPlanProbeReceipt) {
+			candidate.Observation.AssertionKind = "json_contract"
+		}},
+		{"wrong assertion status", func(candidate *healthOperationPlanProbeReceipt) { candidate.Observation.AssertionStatus = "passed" }},
+	} {
+		candidate := receipt
+		candidate.Observation.Outcome = "indeterminate"
+		candidate.Observation.ReasonCode = "response_semantics_unestablished"
+		candidate.Observation.AssertionKind = "observation_only"
+		candidate.Observation.AssertionStatus = "not_run"
+		test.mutate(&candidate)
+		candidateData, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidateInstance, err := jsonschema.UnmarshalJSON(bytes.NewReader(candidateData))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := compiled.Validate(candidateInstance); err == nil {
+			t.Fatalf("invalid observation-only receipt passed schema: %s", test.name)
+		}
+	}
 	var identity map[string]any
 	if err := json.Unmarshal(data, &identity); err != nil {
 		t.Fatal(err)
@@ -431,6 +590,70 @@ func TestHealthOperationPlanOversizedResponseIsIndeterminate(t *testing.T) {
 	}
 	if !got.Observation.ResponseObserved || got.Observation.HTTPStatus != http.StatusOK || got.Observation.ObservedAt == "" {
 		t.Fatalf("bounded response receipt lost the observed HTTP response metadata: %#v", got.Observation)
+	}
+}
+
+func TestHealthOperationPlanObservationOnlyReceiptSemantics(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		status    int
+		body      string
+		maxBytes  int64
+		outcome   string
+		reason    string
+		assertion string
+	}{
+		{"HTTP 200 remains unknown", http.StatusOK, `{"items":[{"secret":"do-not-publish"}]}`, 4096, "indeterminate", "response_semantics_unestablished", "not_run"},
+		{"HTTP 204 remains unknown", http.StatusNoContent, "", 4096, "indeterminate", "response_semantics_unestablished", "not_run"},
+		{"HTTP 500 is an HTTP failure", http.StatusInternalServerError, `{"message":"do-not-publish"}`, 4096, "unhealthy", "response_http_failure", "failed"},
+		{"response cap remains indeterminate", http.StatusOK, "too many bytes", 4, "indeterminate", "response_limit_exceeded", "not_run"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+			setHealthPlanObservationOnlyAssertion(t, &plan)
+			plan.RequestPlan.RequestContract.Limits.MaxResponseBytes = test.maxBytes
+			if err := validateHealthOperationPlanRecord(plan); err != nil {
+				t.Fatalf("synthetic observation-only plan is invalid: %v", err)
+			}
+			shape, err := healthOperationPlanRequestShape(plan, healthPlanSyntheticCredential, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			loaded := healthOperationPlanLoadResult{
+				Options: healthOperationPlanOptions{
+					AttemptID:        "17e1fa72-eaf4-493a-9d97-d3fd3bc52a3c",
+					RegistryRevision: strings.Repeat("a", 40),
+					Deadline:         time.Now().Add(5 * time.Second),
+				},
+				Plan:              plan,
+				ResponseAssertion: healthNormalizedResponseAssertion{ObservationOnly: true},
+			}
+			client := &healthPlanCaptureClient{status: test.status, response: test.body}
+			var stdout bytes.Buffer
+			a := app{http: client, stdout: &stdout, healthOperationPlan: &loaded}
+			receipt := newHealthOperationPlanProbeReceipt(loaded, strings.Repeat("3", 64))
+			output := filepath.Join(t.TempDir(), "receipt.json")
+			if code := a.executeHealthOperationPlanRequest(output, receipt, shape, time.Now()); code != exitRequest {
+				t.Fatalf("observation-only request returned %d, want exit %d", code, exitRequest)
+			}
+			data, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got healthOperationPlanProbeReceipt
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatal(err)
+			}
+			if client.calls != 1 || !got.Execution.RequestStarted || got.Execution.RequestBudget != 1 || !got.Observation.ResponseObserved || got.Observation.HTTPStatus != test.status || got.Observation.Outcome != test.outcome || got.Observation.ReasonCode != test.reason || got.Observation.AssertionStatus != test.assertion || got.Observation.AssertionKind != "observation_only" {
+				t.Fatalf("request or receipt semantics differ: calls=%d receipt=%#v", client.calls, got)
+			}
+			if !bytes.Equal(data, stdout.Bytes()) {
+				t.Fatal("stdout and durable receipt differ")
+			}
+			if test.body != "" && bytes.Contains(data, []byte(test.body)) || bytes.Contains(data, []byte(healthPlanSyntheticCredential)) || bytes.Contains(data, []byte("api.example.invalid")) {
+				t.Fatalf("receipt leaked response/request material: %s", data)
+			}
+		})
 	}
 }
 

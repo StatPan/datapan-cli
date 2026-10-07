@@ -249,19 +249,37 @@ func (a app) executeHealthOperationPlanRequest(output string, receipt healthOper
 		return writeReceipt()
 	}
 
-	asserted, err := healthOperationPlanResponseAssertion(a.healthOperationPlan.Plan, response)
-	if err != nil {
-		receipt.Observation.Outcome = "unhealthy"
-		receipt.Observation.ReasonCode = "response_assertion_invalid"
-		receipt.Observation.AssertionStatus = "failed"
-	} else if asserted {
+	asserted := evaluateHealthNormalizedResponseAssertion(a.healthOperationPlan.ResponseAssertion, response)
+	if a.healthOperationPlan.ResponseAssertion.ObservationOnly {
+		switch asserted.ReasonCode {
+		case "response_semantics_unestablished":
+			receipt.Observation.Outcome = "indeterminate"
+			receipt.Observation.ReasonCode = "response_semantics_unestablished"
+			receipt.Observation.AssertionStatus = "not_run"
+		case "response_http_failure":
+			receipt.Observation.Outcome = "unhealthy"
+			receipt.Observation.ReasonCode = "response_http_failure"
+			receipt.Observation.AssertionStatus = "failed"
+		default:
+			receipt.Observation.Outcome = "indeterminate"
+			receipt.Observation.ReasonCode = asserted.ReasonCode
+			receipt.Observation.AssertionStatus = "not_run"
+		}
+		return writeReceipt()
+	}
+	switch asserted.Outcome {
+	case healthResponseHealthy:
 		receipt.Observation.Outcome = "healthy"
 		receipt.Observation.ReasonCode = "response_assertion_passed"
 		receipt.Observation.AssertionStatus = "passed"
-	} else {
+	case healthResponseUnhealthy:
 		receipt.Observation.Outcome = "unhealthy"
 		receipt.Observation.ReasonCode = "response_assertion_failed"
 		receipt.Observation.AssertionStatus = "failed"
+	default:
+		receipt.Observation.Outcome = "indeterminate"
+		receipt.Observation.ReasonCode = "response_assertion_invalid"
+		receipt.Observation.AssertionStatus = "not_run"
 	}
 	return writeReceipt()
 }

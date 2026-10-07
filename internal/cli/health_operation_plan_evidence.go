@@ -21,21 +21,29 @@ const (
 )
 
 var (
-	healthOperationDocumentSchemaOnce sync.Once
-	healthOperationDocumentSchema     *jsonschema.Schema
-	healthOperationDocumentSchemaErr  error
+	healthOperationDocumentSchemaOnce   sync.Once
+	healthOperationDocumentSchema       *jsonschema.Schema
+	healthOperationDocumentSchemaErr    error
+	healthOperationDocumentV2SchemaOnce sync.Once
+	healthOperationDocumentV2Schema     *jsonschema.Schema
+	healthOperationDocumentV2SchemaErr  error
 )
 
 func validateSelectedHealthOperationDocumentEvidence(root string, plan healthOperationPlanRecord, index healthOperationPlanIndex, manifest releaseManifest) error {
+	_, err := loadSelectedHealthOperationDocumentEvidence(root, plan, index, manifest)
+	return err
+}
+
+func loadSelectedHealthOperationDocumentEvidence(root string, plan healthOperationPlanRecord, index healthOperationPlanIndex, manifest releaseManifest) (map[string]map[string]any, error) {
 	refs, err := healthOperationPlanEvidenceRefs(plan)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	indexArtifacts := make(map[string]healthOperationPlanArtifactRef, len(index.GenerationInputs.DocumentEvidence))
 	for _, artifact := range index.GenerationInputs.DocumentEvidence {
 		if _, duplicate := indexArtifacts[artifact.Path]; duplicate {
-			return errors.New("document evidence artifact is duplicated in the index")
+			return nil, errors.New("document evidence artifact is duplicated in the index")
 		}
 		indexArtifacts[artifact.Path] = artifact
 	}
@@ -47,37 +55,37 @@ func validateSelectedHealthOperationDocumentEvidence(root string, plan healthOpe
 		}
 		artifact, ok := indexArtifacts[ref.ArtifactPath]
 		if !ok || !strings.EqualFold(artifact.SHA256, ref.SHA256) || artifact.Bytes < 1 || artifact.Bytes > healthOperationDocumentEvidenceMaxBytes {
-			return errors.New("operation-document evidence is not bounded by the selected index")
+			return nil, errors.New("operation-document evidence is not bounded by the selected index")
 		}
 		if !validHealthOperationDocumentPointer(ref.JSONPointer) {
-			return errors.New("operation-document evidence pointer is invalid")
+			return nil, errors.New("operation-document evidence pointer is invalid")
 		}
 		selectedArtifacts[artifact.Path] = artifact
 	}
 	if len(selectedArtifacts) > healthOperationPlanMaxSelectedEvidenceArtifacts {
-		return errors.New("selected operation-document evidence count exceeds its resource ceiling")
+		return nil, errors.New("selected operation-document evidence count exceeds its resource ceiling")
 	}
 
 	documents := make(map[string]map[string]any, len(selectedArtifacts))
 	for artifactPath, artifact := range selectedArtifacts {
 		manifestArtifact, ok := manifestArtifact(manifest, artifact.Path)
 		if !ok || manifestArtifact.Bytes != artifact.Bytes || !strings.EqualFold(manifestArtifact.SHA256, artifact.SHA256) {
-			return errors.New("operation-document evidence is not manifest-bound")
+			return nil, errors.New("operation-document evidence is not manifest-bound")
 		}
 		resolved, ok := releaseArtifactPath(root, artifact.Path)
 		if !ok {
-			return errors.New("operation-document evidence path is invalid")
+			return nil, errors.New("operation-document evidence path is invalid")
 		}
 		data, err := readBoundedFile(resolved, healthOperationDocumentEvidenceMaxBytes)
 		if err != nil || int64(len(data)) != artifact.Bytes || !healthOperationPlanDigestMatches(artifact.SHA256, data) {
-			return errors.New("operation-document evidence bytes are unavailable or altered")
+			return nil, errors.New("operation-document evidence bytes are unavailable or altered")
 		}
 		document, err := decodeHealthOperationDocumentEvidence(data)
 		if err != nil {
-			return errors.New("operation-document evidence contract is invalid")
+			return nil, errors.New("operation-document evidence contract is invalid")
 		}
 		if err := validateHealthOperationDocumentEvidenceIdentity(document, plan); err != nil {
-			return err
+			return nil, err
 		}
 		documents[artifactPath] = document
 	}
@@ -88,19 +96,19 @@ func validateSelectedHealthOperationDocumentEvidence(root string, plan healthOpe
 		}
 		document := documents[ref.ArtifactPath]
 		if document == nil {
-			return errors.New("operation-document evidence was not loaded")
+			return nil, errors.New("operation-document evidence was not loaded")
 		}
 		if _, ok := healthJSONPointer(document, ref.JSONPointer); !ok {
-			return errors.New("operation-document evidence pointer does not resolve")
+			return nil, errors.New("operation-document evidence pointer does not resolve")
 		}
 	}
 
 	if plan.RequestPlan.RequestContract != nil && plan.RequestPlan.RequestContract.Transport.Authority == "operation_document" {
 		if err := validateHealthOperationDocumentTransportFacts(plan, refs, documents); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return documents, nil
 }
 
 func healthOperationPlanEvidenceRefs(plan healthOperationPlanRecord) ([]healthOperationPlanEvidenceRef, error) {
@@ -160,7 +168,22 @@ func decodeHealthOperationDocumentEvidence(data []byte) (map[string]any, error) 
 	if err := preflightHealthOperationPlanJSON(data); err != nil {
 		return nil, err
 	}
-	schema, err := healthOperationDocumentEvidenceJSONSchema()
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, err
+	}
+	var schema *jsonschema.Schema
+	var err error
+	switch envelope.SchemaVersion {
+	case "datapan.operation-document-evidence.v1":
+		schema, err = healthOperationDocumentEvidenceJSONSchema()
+	case "datapan.operation-document-evidence.v2":
+		schema, err = healthOperationDocumentEvidenceV2JSONSchema()
+	default:
+		return nil, errors.New("operation-document evidence schema version is unsupported")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -199,12 +222,26 @@ func healthOperationDocumentEvidenceJSONSchema() (*jsonschema.Schema, error) {
 	return healthOperationDocumentSchema, healthOperationDocumentSchemaErr
 }
 
+func healthOperationDocumentEvidenceV2JSONSchema() (*jsonschema.Schema, error) {
+	healthOperationDocumentV2SchemaOnce.Do(func() {
+		healthOperationDocumentV2Schema, healthOperationDocumentV2SchemaErr = compileHealthPinnedJSONSchema(
+			healthOperationDocumentEvidenceV2SchemaID,
+			healthOperationDocumentEvidenceV2SHA256,
+			embeddedHealthOperationDocumentEvidenceV2Schema,
+		)
+	})
+	return healthOperationDocumentV2Schema, healthOperationDocumentV2SchemaErr
+}
+
 func validateHealthOperationDocumentEvidenceIdentity(document map[string]any, plan healthOperationPlanRecord) error {
 	identity, ok := document["identity"].(map[string]any)
 	if !ok || stringValueFromJSON(identity["operation_id"]) != plan.OperationIdentity.OperationID ||
 		stringValueFromJSON(identity["provider"]) != plan.SourceBinding.Provider ||
 		stringValueFromJSON(identity["protocol"]) != plan.OperationIdentity.Protocol {
 		return errors.New("operation-document evidence identity does not match the selected plan")
+	}
+	if stringValueFromJSON(document["schema_version"]) == "datapan.operation-document-evidence.v2" && stringValueFromJSON(identity["source_id"]) != plan.SourceBinding.SourceID {
+		return errors.New("operation-document evidence source identity does not match the selected plan")
 	}
 	for _, pair := range [][2]string{
 		{"dataset_id", plan.OperationIdentity.DatasetID},

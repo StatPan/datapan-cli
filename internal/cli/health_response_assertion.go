@@ -17,6 +17,7 @@ import (
 // the manifest-bound assertion artifact, its source identity, and all evidence
 // references. No response bytes or extracted values leave this package.
 type healthNormalizedResponseAssertion struct {
+	ObservationOnly         bool
 	PayloadKind             string
 	AcceptedHTTPStatusCodes []int
 	SOAPEnvelopeNamespace   string
@@ -37,6 +38,7 @@ type healthNormalizedResponseAssertion struct {
 type healthNormalizedResponseBranch struct {
 	ID                       string
 	Classification           string
+	EmptyResultSemantics     string
 	PayloadKind              string
 	AcceptedHTTPStatusCodes  []int
 	RootKind                 string
@@ -107,8 +109,9 @@ type healthResponseAssertionResult struct {
 }
 
 const (
-	healthResponseAssertionMaxPredicates = 128
-	healthResponseXMLMaxNodes            = healthOperationPlanMaxJSONTokens / 2
+	healthResponseAssertionMaxPredicates    = 128
+	healthResponseAssertionMaxSelectedNodes = healthOperationPlanMaxJSONTokens / 2
+	healthResponseXMLMaxNodes               = healthResponseAssertionMaxSelectedNodes
 )
 
 var healthXMLIntegerValuePattern = regexp.MustCompile(`^[+-]?[0-9]+$`)
@@ -119,6 +122,21 @@ var healthXMLNumberValuePattern = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]+
 // that cannot be parsed or does not prove the reviewed success shape is
 // indeterminate. It never includes response values in an error or result.
 func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedResponseAssertion, response healthHTTPResponse) healthResponseAssertionResult {
+	if assertion.ObservationOnly {
+		if err := validateHealthNormalizedResponseAssertion(assertion); err != nil {
+			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_assertion_invalid"}
+		}
+		if response.StatusCode < 100 || response.StatusCode > 599 {
+			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_status_invalid"}
+		}
+		if int64(len(response.Body)) > healthTransportMaxBytes {
+			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_body_limit_exceeded"}
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return healthResponseAssertionResult{Outcome: healthResponseUnhealthy, ReasonCode: "response_http_failure", ProviderErrorClass: "provider_failure"}
+		}
+		return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_semantics_unestablished"}
+	}
 	if len(assertion.Branches) > 0 {
 		if !healthNormalizedResponseLegacyFieldsEmpty(assertion) {
 			return healthResponseAssertionResult{Outcome: healthResponseIndeterminate, ReasonCode: "response_assertion_invalid"}
@@ -211,6 +229,12 @@ func evaluateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 }
 
 func validateHealthNormalizedResponseAssertion(assertion healthNormalizedResponseAssertion) error {
+	if assertion.ObservationOnly {
+		if !healthNormalizedResponseAssertionOnlyObservation(assertion) {
+			return errors.New("observation-only assertion contains response predicates")
+		}
+		return nil
+	}
 	if len(assertion.Branches) > 0 {
 		if !healthNormalizedResponseLegacyFieldsEmpty(assertion) {
 			return errors.New("branch assertion mixes legacy predicates")
@@ -244,7 +268,7 @@ func validateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 		return errors.New("response assertion predicate count exceeds its ceiling")
 	}
 	for _, field := range assertion.RequiredFields {
-		if field.MinimumCount < 0 || field.MaximumCount < field.MinimumCount || field.MaximumCount > healthResponseAssertionMaxPredicates || !healthResponsePathValid(assertion.PayloadKind, field.Path) || !healthResponseValueTypeSupported(assertion.PayloadKind, field.ValueType) {
+		if field.MinimumCount < 0 || field.MaximumCount < field.MinimumCount || field.MaximumCount > healthResponseAssertionMaxSelectedNodes || !healthResponsePathValid(assertion.PayloadKind, field.Path) || !healthResponseValueTypeSupported(assertion.PayloadKind, field.ValueType) {
 			return errors.New("response field predicate is invalid")
 		}
 	}
@@ -284,7 +308,11 @@ func validateHealthNormalizedResponseAssertion(assertion healthNormalizedRespons
 }
 
 func healthNormalizedResponseLegacyFieldsEmpty(assertion healthNormalizedResponseAssertion) bool {
-	return assertion.PayloadKind == "" && len(assertion.AcceptedHTTPStatusCodes) == 0 && assertion.SOAPEnvelopeNamespace == "" && len(assertion.RequiredFields) == 0 && assertion.ProviderResultCodeMode == "" && assertion.ProviderResultCodePath.JSONPointer == "" && len(assertion.ProviderResultCodePath.XMLPath) == 0 && assertion.ProviderResultCodeType == "" && len(assertion.ProviderSuccessCodes) == 0 && len(assertion.ProviderErrorCodes) == 0 && assertion.ResultCollection == nil
+	return !assertion.ObservationOnly && assertion.PayloadKind == "" && len(assertion.AcceptedHTTPStatusCodes) == 0 && assertion.SOAPEnvelopeNamespace == "" && len(assertion.RequiredFields) == 0 && assertion.ProviderResultCodeMode == "" && assertion.ProviderResultCodePath.JSONPointer == "" && len(assertion.ProviderResultCodePath.XMLPath) == 0 && assertion.ProviderResultCodeType == "" && len(assertion.ProviderSuccessCodes) == 0 && len(assertion.ProviderErrorCodes) == 0 && assertion.ResultCollection == nil
+}
+
+func healthNormalizedResponseAssertionOnlyObservation(assertion healthNormalizedResponseAssertion) bool {
+	return assertion.ObservationOnly && assertion.PayloadKind == "" && len(assertion.AcceptedHTTPStatusCodes) == 0 && assertion.SOAPEnvelopeNamespace == "" && len(assertion.RequiredFields) == 0 && assertion.ProviderResultCodeMode == "" && assertion.ProviderResultCodePath.JSONPointer == "" && len(assertion.ProviderResultCodePath.XMLPath) == 0 && assertion.ProviderResultCodeType == "" && len(assertion.ProviderSuccessCodes) == 0 && len(assertion.ProviderErrorCodes) == 0 && assertion.ResultCollection == nil && len(assertion.Branches) == 0
 }
 
 func evaluateHealthNormalizedResponseBranches(branches []healthNormalizedResponseBranch, response healthHTTPResponse) healthResponseAssertionResult {
@@ -443,6 +471,15 @@ func validateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 		if branch.Classification != "success" && branch.Classification != "provider_error" {
 			return errors.New("response branch classification is unsupported")
 		}
+		if branch.EmptyResultSemantics != "" {
+			if branch.ResultCollection == nil {
+				if branch.EmptyResultSemantics != "not_applicable" {
+					return errors.New("response branch without a collection has empty semantics")
+				}
+			} else if branch.EmptyResultSemantics != branch.ResultCollection.EmptySemantics {
+				return errors.New("response branch and collection empty semantics differ")
+			}
+		}
 		if branch.PayloadKind != "json" && branch.PayloadKind != "xml" && branch.PayloadKind != "soap_xml" {
 			return errors.New("response branch payload kind is unsupported")
 		}
@@ -506,7 +543,7 @@ func validateHealthNormalizedResponseBranches(branches []healthNormalizedRespons
 			return errors.New("response branch predicate count exceeds its ceiling")
 		}
 		for _, field := range branch.RequiredFields {
-			if field.MinimumCount < 0 || field.MaximumCount < field.MinimumCount || field.MaximumCount > healthResponseAssertionMaxPredicates || !healthResponsePathValid(branch.PayloadKind, field.Path) || !healthResponseValueTypeSupported(branch.PayloadKind, field.ValueType) {
+			if field.MinimumCount < 0 || field.MaximumCount < field.MinimumCount || field.MaximumCount > healthResponseAssertionMaxSelectedNodes || !healthResponsePathValid(branch.PayloadKind, field.Path) || !healthResponseValueTypeSupported(branch.PayloadKind, field.ValueType) {
 				return errors.New("response branch field predicate is invalid")
 			}
 		}

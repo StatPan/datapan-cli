@@ -13847,7 +13847,10 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
 		"schemas/datapan.operation-observation-plan.v1.schema.json",
+		"schemas/datapan.operation-observation-policy.v1.schema.json",
+		"schemas/datapan.operation-response-assertion.v2.schema.json",
 		"schemas/datapan.operation-document-evidence.v1.schema.json",
+		"schemas/datapan.operation-document-evidence.v2.schema.json",
 		"schemas/datapan.health-credential-bindings.v1.schema.json",
 		"schemas/datapan.health-operation-plan-probe.v1.schema.json",
 		"schemas/datapan.verification-plan.v1.schema.json",
@@ -14755,6 +14758,9 @@ func loadReleaseSchemaValidator(root string) (*releaseSchemaValidator, bool, err
 		}
 		doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 		if err != nil {
+			return nil, true, err
+		}
+		if err := normalizeHealthJSONSchemaRegexps(doc); err != nil {
 			return nil, true, err
 		}
 		if err := compiler.AddResource(meta.ID, doc); err != nil {

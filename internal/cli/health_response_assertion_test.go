@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -133,6 +134,37 @@ func TestHealthNormalizedJSONResponseAssertionOutcomes(t *testing.T) {
 			t.Fatalf("invalid UTF-8 was accepted: %#v", result)
 		}
 	})
+}
+
+func TestHealthObservationOnlyResponseOutcomes(t *testing.T) {
+	assertion := healthNormalizedResponseAssertion{ObservationOnly: true}
+	cases := []struct {
+		name       string
+		status     int
+		body       []byte
+		outcome    healthResponseAssertionOutcome
+		reasonCode string
+	}{
+		{"200 remains semantically unknown", 200, []byte(`{"items":[{"secret":"private"}]}`), healthResponseIndeterminate, "response_semantics_unestablished"},
+		{"204 remains semantically unknown", 204, nil, healthResponseIndeterminate, "response_semantics_unestablished"},
+		{"redirect is an HTTP failure", 302, []byte("redirect target"), healthResponseUnhealthy, "response_http_failure"},
+		{"server failure is an HTTP failure", 500, []byte("provider response"), healthResponseUnhealthy, "response_http_failure"},
+		{"invalid status is indeterminate", 99, nil, healthResponseIndeterminate, "response_status_invalid"},
+		{"body beyond global bound is indeterminate", 200, bytes.Repeat([]byte("x"), int(healthTransportMaxBytes+1)), healthResponseIndeterminate, "response_body_limit_exceeded"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			got := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: test.status, Body: test.body})
+			if got.Outcome != test.outcome || got.ReasonCode != test.reasonCode {
+				t.Fatalf("observation-only result = %#v, want outcome %q reason %q", got, test.outcome, test.reasonCode)
+			}
+		})
+	}
+	withPredicates := assertion
+	withPredicates.AcceptedHTTPStatusCodes = []int{200}
+	if got := evaluateHealthNormalizedResponseAssertion(withPredicates, healthHTTPResponse{StatusCode: 200}); got.Outcome != healthResponseIndeterminate || got.ReasonCode != "response_assertion_invalid" {
+		t.Fatalf("observation-only assertion with semantic predicates was accepted: %#v", got)
+	}
 }
 
 func TestHealthNormalizedJSONResponseAssertionBoundsAndSemantics(t *testing.T) {
@@ -564,6 +596,43 @@ func TestHealthNormalizedXMLResponseAssertionOutcomes(t *testing.T) {
 				t.Fatalf("got outcome=%q reason=%q, want %q/%q", result.Outcome, result.ReasonCode, test.wantState, test.wantCode)
 			}
 		})
+	}
+}
+
+func TestHealthNormalizedResponseNodeCardinalityUsesParserCeiling(t *testing.T) {
+	itemPath := healthNormalizedResponsePath{XMLPath: []xml.Name{{Local: "root"}, {Local: "item"}}}
+	assertion := healthNormalizedResponseAssertion{
+		PayloadKind:             "xml",
+		AcceptedHTTPStatusCodes: []int{200},
+		RequiredFields: []healthNormalizedResponseField{{
+			Path: itemPath, ValueType: "string", MinimumCount: 1,
+			// The Registry wire decoder maps a null maximum to this parser ceiling.
+			MaximumCount: healthResponseAssertionMaxSelectedNodes,
+		}},
+		ProviderResultCodeMode: "none",
+	}
+	body := `<root>` + strings.Repeat(`<item>x</item>`, 129) + `</root>`
+	result := evaluateHealthNormalizedResponseAssertion(assertion, healthHTTPResponse{StatusCode: 200, Body: []byte(body)})
+	if result.Outcome != healthResponseHealthy {
+		t.Fatalf("field cardinality above the unrelated 128-predicate limit was rejected: %#v", result)
+	}
+
+	tooHigh := assertion
+	tooHigh.RequiredFields = append([]healthNormalizedResponseField(nil), assertion.RequiredFields...)
+	tooHigh.RequiredFields[0].MaximumCount = healthResponseAssertionMaxSelectedNodes + 1
+	if err := validateHealthNormalizedResponseAssertion(tooHigh); err == nil {
+		t.Fatal("field cardinality above the bounded parser-node ceiling was accepted")
+	}
+
+	tooManyPredicates := assertion
+	tooManyPredicates.RequiredFields = make([]healthNormalizedResponseField, healthResponseAssertionMaxPredicates+1)
+	for index := range tooManyPredicates.RequiredFields {
+		tooManyPredicates.RequiredFields[index] = healthNormalizedResponseField{
+			Path: itemPath, ValueType: "string", MinimumCount: 1, MaximumCount: 1,
+		}
+	}
+	if err := validateHealthNormalizedResponseAssertion(tooManyPredicates); err == nil {
+		t.Fatal("predicate-count ceiling was incorrectly raised with the node-cardinality ceiling")
 	}
 }
 
