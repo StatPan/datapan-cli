@@ -394,6 +394,46 @@ func TestHealthOperationPlanProbeReceiptPreservesSemanticAssertionKind(t *testin
 	}
 }
 
+func TestHealthOperationPlanOversizedResponseIsIndeterminate(t *testing.T) {
+	plan := readSyntheticHealthPlan(t, "synthetic-rest-list.json")
+	plan.RequestPlan.RequestContract.Limits.MaxResponseBytes = 4
+	shape, err := healthOperationPlanRequestShape(plan, healthPlanSyntheticCredential, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shape.MaxResponseBytes = 4
+	loaded := healthOperationPlanLoadResult{
+		Options: healthOperationPlanOptions{
+			AttemptID:        "17e1fa72-eaf4-493a-9d97-d3fd3bc52a3c",
+			RegistryRevision: strings.Repeat("a", 40),
+			Deadline:         time.Now().Add(5 * time.Second),
+		},
+		Plan: plan,
+	}
+	client := &healthPlanCaptureClient{response: "12345"}
+	var stdout bytes.Buffer
+	a := app{http: client, stdout: &stdout, healthOperationPlan: &loaded}
+	receipt := newHealthOperationPlanProbeReceipt(loaded, strings.Repeat("3", 64))
+	output := filepath.Join(t.TempDir(), "receipt.json")
+	if code := a.executeHealthOperationPlanRequest(output, receipt, shape, time.Now()); code != exitRequest {
+		t.Fatalf("oversized response execution returned %d, want non-healthy receipt exit %d", code, exitRequest)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got healthOperationPlanProbeReceipt
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if client.calls != 1 || got.Observation.Outcome != "indeterminate" || got.Observation.ReasonCode != "response_limit_exceeded" || got.Observation.AssertionStatus != "not_run" {
+		t.Fatalf("oversized response was misclassified: calls=%d receipt=%#v", client.calls, got)
+	}
+	if !got.Observation.ResponseObserved || got.Observation.HTTPStatus != http.StatusOK || got.Observation.ObservedAt == "" {
+		t.Fatalf("bounded response receipt lost the observed HTTP response metadata: %#v", got.Observation)
+	}
+}
+
 func compileTestJSONSchema(path string) (*jsonschema.Schema, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

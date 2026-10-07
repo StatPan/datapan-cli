@@ -235,7 +235,7 @@ func (a app) executeHealthOperationPlanRequest(output string, receipt healthOper
 				receipt.Observation.ReasonCode = "request_limit_exceeded"
 			case healthTransportResponseLimit:
 				receipt.Observation.ReasonCode = "response_limit_exceeded"
-				receipt.Observation.Outcome = "unhealthy"
+				receipt.Observation.Outcome = "indeterminate"
 			case healthTransportResponseRead:
 				receipt.Observation.ReasonCode = "response_read_failed"
 			case healthTransportInvalidResponse:
