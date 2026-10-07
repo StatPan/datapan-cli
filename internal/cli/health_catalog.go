@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,8 @@ const (
 	healthCatalogMaxBytes   = 32 << 20
 	healthCatalogMaxEntries = 32_000
 )
+
+var errHealthCatalogEntryLimit = errors.New("health catalog entry count exceeds limit")
 
 type manifestHealthCatalog struct {
 	SchemaVersion  string `json:"schema_version"`
@@ -117,6 +120,12 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	data, err := readBoundedFile(options.Path, healthCatalogMaxBytes)
 	if err != nil {
 		return datago.Registry{}, registryTrustContext{}, err
+	}
+	if err := preflightHealthCatalogJSON(data); err != nil {
+		if errors.Is(err, errHealthCatalogEntryLimit) {
+			return datago.Registry{}, registryTrustContext{}, errors.New("health catalog contract is invalid")
+		}
+		return datago.Registry{}, registryTrustContext{}, errors.New("decode health catalog")
 	}
 	var catalog manifestHealthCatalog
 	if err := json.Unmarshal(data, &catalog); err != nil {
@@ -240,10 +249,18 @@ func healthCatalogEndpoint(entry manifestHealthCatalogEntry) (string, error) {
 }
 
 func readBoundedFile(path string, maximum int64) ([]byte, error) {
+	return readBoundedFileWithOpener(path, maximum, openBoundedCandidate)
+}
+
+func readBoundedFileWithOpener(path string, maximum int64, open func(string) (*os.File, error)) ([]byte, error) {
 	if maximum < 1 {
 		return nil, errors.New("bounded file is unavailable")
 	}
-	file, err := os.Open(path)
+	pathInfo, err := os.Stat(path)
+	if err != nil || !pathInfo.Mode().IsRegular() {
+		return nil, errors.New("bounded file is unavailable")
+	}
+	file, err := open(path)
 	if err != nil {
 		return nil, errors.New("bounded file is unavailable")
 	}
@@ -257,6 +274,107 @@ func readBoundedFile(path string, maximum int64) ([]byte, error) {
 		return nil, errors.New("bounded file is unavailable")
 	}
 	return data, nil
+}
+
+// preflightHealthCatalogJSON validates the complete JSON document while
+// counting entry values before json.Unmarshal can allocate the typed slice.
+func preflightHealthCatalogJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return errors.New("health catalog is not an object")
+	}
+	entryCount := 0
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return errors.New("health catalog field name is invalid")
+		}
+		if key == "entries" {
+			entryCount, err = scanHealthCatalogEntries(decoder, entryCount)
+		} else {
+			err = skipHealthCatalogJSONValue(decoder)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return errors.New("health catalog object is incomplete")
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("health catalog has trailing JSON")
+		}
+		return err
+	}
+	return nil
+}
+
+func scanHealthCatalogEntries(decoder *json.Decoder, currentCount int) (int, error) {
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('[') {
+		return currentCount, errors.New("health catalog entries are not an array")
+	}
+	for decoder.More() {
+		currentCount++
+		if currentCount > healthCatalogMaxEntries {
+			return currentCount, errHealthCatalogEntryLimit
+		}
+		if err := skipHealthCatalogJSONValue(decoder); err != nil {
+			return currentCount, err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim(']') {
+		return currentCount, errors.New("health catalog entries are incomplete")
+	}
+	return currentCount, nil
+}
+
+func skipHealthCatalogJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		for decoder.More() {
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+			if err := skipHealthCatalogJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim('}') {
+			return errors.New("health catalog object value is incomplete")
+		}
+	case '[':
+		for decoder.More() {
+			if err := skipHealthCatalogJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim(']') {
+			return errors.New("health catalog array value is incomplete")
+		}
+	default:
+		return errors.New("health catalog delimiter is invalid")
+	}
+	return nil
 }
 
 func manifestArtifact(manifest releaseManifest, path string) (releaseManifestArtifact, bool) {

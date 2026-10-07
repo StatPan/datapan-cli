@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,7 +69,7 @@ func TestManifestBoundHealthCatalogRejectsInvalidInputs(t *testing.T) {
 			}
 		}, want: "bounded file is unavailable"},
 		{name: "empty entries", change: func(t *testing.T, path string) {
-			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) { c.Entries = nil })
+			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) { c.Entries = []manifestHealthCatalogEntry{} })
 		}, want: "health catalog contract is invalid"},
 		{name: "duplicate identity", change: func(t *testing.T, path string) {
 			rewriteBoundCatalog(t, path, func(c *manifestHealthCatalog) { c.Entries = append(c.Entries, c.Entries[0]) })
@@ -140,6 +141,15 @@ func TestManifestBoundHealthCatalogRejectsInvalidInputs(t *testing.T) {
 				t.Fatalf("error=%v, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestHealthCatalogPreflightRejectsNullEntryCountBomb(t *testing.T) {
+	const nullEntryCount = healthCatalogMaxEntries * 16
+	entries := strings.TrimSuffix(strings.Repeat("null,", nullEntryCount), ",")
+	data := []byte(`{"entries":[` + entries + `]}`)
+	if err := preflightHealthCatalogJSON(data); !errors.Is(err, errHealthCatalogEntryLimit) {
+		t.Fatalf("preflight error=%v, want entry limit error", err)
 	}
 }
 
