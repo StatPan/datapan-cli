@@ -157,7 +157,7 @@ type app struct {
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
 	env = maybeLoadDotEnv(env)
 	installRecovered := false
-	planModeRequested := hasAnyArg(args, "--health-plan-index")
+	planModeRequested := hasAnyArg(args, "--health-plan-index", "--health-source-id")
 	if !isHelpInvocation(args) && !planModeRequested {
 		if recovered, err := recoverRegistryInstallTransaction(defaultRegistryInstallTransactionPath); err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: datago.DefaultRegistry()}
@@ -5640,6 +5640,10 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	healthSourceID, args, err := consumeString(args, "--health-source-id", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	healthCredentialBindings, args, err := consumeString(args, "--health-credential-bindings", "")
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
@@ -5681,15 +5685,18 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if health && healthPlanIndex == "" && (strings.TrimSpace(ref) == "" || strings.TrimSpace(operation) == "") {
 		return a.fail(exitUsage, "--health requires exactly one --ref and --operation")
 	}
+	if healthSourceID != "" && healthPlanIndex == "" {
+		return a.fail(exitUsage, "--health-source-id requires --health-plan-index")
+	}
 	if healthPlanIndex != "" {
-		if !health || healthCatalog != "" || a.healthOperationPlan == nil || healthOperationID != a.healthOperationPlan.Plan.OperationIdentity.OperationID || healthPlanIndex != a.healthOperationPlan.IndexPath || healthRegistryRevision != a.healthOperationPlan.Options.RegistryRevision || healthCredentialBindings != a.healthOperationPlan.Options.CredentialBindingsPath || healthAttemptID != a.healthOperationPlan.Options.AttemptID || healthCLIVersion != a.healthOperationPlan.Options.CLIVersion || healthDeadlineRaw != a.healthOperationPlan.Options.Deadline.Format(time.RFC3339Nano) {
+		if !health || healthCatalog != "" || a.healthOperationPlan == nil || healthOperationID != a.healthOperationPlan.Plan.OperationIdentity.OperationID || healthSourceID != a.healthOperationPlan.Options.SourceID || healthPlanIndex != a.healthOperationPlan.IndexPath || healthRegistryRevision != a.healthOperationPlan.Options.RegistryRevision || healthCredentialBindings != a.healthOperationPlan.Options.CredentialBindingsPath || healthAttemptID != a.healthOperationPlan.Options.AttemptID || healthCLIVersion != a.healthOperationPlan.Options.CLIVersion || healthDeadlineRaw != a.healthOperationPlan.Options.Deadline.Format(time.RFC3339Nano) {
 			return a.fail(exitUsage, "health operation plan selection does not match its verified immutable Registry plan")
 		}
 		if input != "" || excludeInput != "" || registryPath != "" || ref != "" || operation != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || probeUnadapted || timeoutProvided || statusFilter != "" || (limitRaw != "" && limit != 1) {
 			return a.fail(exitUsage, "--health-plan-index selects one immutable operation and cannot be combined with legacy selectors, filters, reports, or overrides")
 		}
 		if len(args) != 0 {
-			return a.fail(exitUsage, "usage: datapan verify --health --health-plan-index PATH --health-operation-id ID --health-registry-revision SHA [--output PATH] [--json]")
+			return a.fail(exitUsage, "usage: datapan verify --health --health-plan-index PATH --health-operation-id ID [--health-source-id SOURCE_ID] --health-registry-revision SHA [--output PATH] [--json]")
 		}
 		if jsonOut && output == "-" {
 			return a.fail(exitUsage, "use --output PATH with --json")

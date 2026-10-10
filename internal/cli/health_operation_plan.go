@@ -109,6 +109,7 @@ type healthOperationPlanOptions struct {
 	IndexPath              string
 	RegistryRevision       string
 	OperationID            string
+	SourceID               string
 	CredentialBindingsPath string
 	AttemptID              string
 	CLIVersion             string
@@ -379,9 +380,31 @@ type healthOperationPlanLoadResult struct {
 func healthOperationPlanInvocation(args []string) (healthOperationPlanOptions, bool, error) {
 	options := healthOperationPlanOptions{}
 	planSelectorSeen := false
+	sourceSelectorSeen := false
 	health := false
 	jsonOut := false
 	for index := 0; index < len(args); index++ {
+		if args[index] == "--health-source-id" || strings.HasPrefix(args[index], "--health-source-id=") {
+			if sourceSelectorSeen {
+				return healthOperationPlanOptions{}, false, errors.New("--health-source-id may be provided only once")
+			}
+			sourceSelectorSeen = true
+			value := ""
+			if strings.HasPrefix(args[index], "--health-source-id=") {
+				value = strings.TrimPrefix(args[index], "--health-source-id=")
+			} else {
+				if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
+					return healthOperationPlanOptions{}, false, errors.New("--health-source-id requires a value")
+				}
+				index++
+				value = args[index]
+			}
+			if !validHealthOperationPlanSourceID(value) {
+				return healthOperationPlanOptions{}, false, errors.New("--health-source-id must be a canonical source ID")
+			}
+			options.SourceID = value
+			continue
+		}
 		switch args[index] {
 		case "--health":
 			health = true
@@ -418,6 +441,9 @@ func healthOperationPlanInvocation(args []string) (healthOperationPlanOptions, b
 		}
 	}
 	if !planSelectorSeen {
+		if sourceSelectorSeen {
+			return healthOperationPlanOptions{}, false, errors.New("--health-source-id requires --health-plan-index and --health-operation-id")
+		}
 		return healthOperationPlanOptions{}, false, nil
 	}
 	if options.IndexPath == "" || options.OperationID == "" || !validGitCommitRevision(options.RegistryRevision) || options.CredentialBindingsPath == "" || !validCanonicalUUID(options.AttemptID) || options.CLIVersion == "" || options.CLIVersion != version || options.Deadline.IsZero() || !options.Deadline.After(time.Now()) {
@@ -436,6 +462,25 @@ func healthOperationPlanInvocation(args []string) (healthOperationPlanOptions, b
 		return healthOperationPlanOptions{}, false, errors.New("health operation plan selector is invalid")
 	}
 	return options, true, nil
+}
+
+func validHealthOperationPlanSourceID(value string) bool {
+	if value == "" {
+		return false
+	}
+	previousUnderscore := true
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' {
+			previousUnderscore = false
+			continue
+		}
+		if character == '_' && !previousUnderscore {
+			previousUnderscore = true
+			continue
+		}
+		return false
+	}
+	return !previousUnderscore
 }
 
 func validCanonicalUUID(value string) bool {
@@ -510,7 +555,7 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan index references are not bound to the installed Registry release")
 	}
 
-	shardRef, found, ambiguous := selectHealthOperationPlanShard(index, options.OperationID)
+	shardRef, found, ambiguous := selectHealthOperationPlanShard(index, options.SourceID, options.OperationID)
 	if !found || ambiguous {
 		if ambiguous {
 			return healthOperationPlanLoadResult{}, errors.New("health operation ID is ambiguous across Registry source scopes")
@@ -535,9 +580,15 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 	if err := json.Unmarshal(shardData, &shard); err != nil || shard.SchemaVersion != healthOperationPlanSchemaVersion || shard.ArtifactKind != "shard" || shard.SourceID != shardRef.SourceID || shard.ShardIndex != shardRef.ShardIndex || len(shard.Records) != shardRef.RecordCount {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan shard identity is invalid")
 	}
+	if options.SourceID != "" && shard.SourceID != options.SourceID {
+		return healthOperationPlanLoadResult{}, errors.New("selected Registry plan shard does not match the requested source")
+	}
 	sourceScope, ok := healthOperationPlanSourceScopeByID(index.SourceScopes, shardRef.SourceID)
 	if !ok {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan source scope is missing")
+	}
+	if options.SourceID != "" && sourceScope.SourceID != options.SourceID {
+		return healthOperationPlanLoadResult{}, errors.New("selected Registry source scope does not match the requested source")
 	}
 	var selected healthOperationPlanRecord
 	selectedCount := 0
@@ -568,6 +619,9 @@ func loadManifestBoundHealthOperationPlan(options healthOperationPlanOptions, no
 			return healthOperationPlanLoadResult{}, errors.New("health operation ID is duplicated within its Registry source scope")
 		}
 		return healthOperationPlanLoadResult{}, errors.New("health operation ID is not present in the selected Registry plan shard")
+	}
+	if options.SourceID != "" && selected.SourceBinding.SourceID != options.SourceID {
+		return healthOperationPlanLoadResult{}, errors.New("selected operation record does not match the requested source")
 	}
 	if err := validateHealthOperationPlanRecord(selected); err != nil {
 		return healthOperationPlanLoadResult{}, errors.New("health operation plan is not executable under its declared bounds")
@@ -1118,10 +1172,13 @@ func validateHealthOperationPlanEvidenceRef(reference healthOperationPlanEvidenc
 	return nil
 }
 
-func selectHealthOperationPlanShard(index healthOperationPlanIndex, operationID string) (healthOperationPlanShardRef, bool, bool) {
+func selectHealthOperationPlanShard(index healthOperationPlanIndex, sourceID, operationID string) (healthOperationPlanShardRef, bool, bool) {
 	var selected healthOperationPlanShardRef
 	count := 0
 	for _, shard := range index.Shards {
+		if sourceID != "" && shard.SourceID != sourceID {
+			continue
+		}
 		if operationID >= shard.FirstOperationID && operationID <= shard.LastOperationID {
 			selected = shard
 			count++
