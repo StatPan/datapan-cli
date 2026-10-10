@@ -238,6 +238,101 @@ func TestLoadSelectedHealthOperationPolicyAcceptsObservationOnlyProfileArm(t *te
 	}
 }
 
+func TestReusableResponseProfileBindsObservationOnlyAssertionExactly(t *testing.T) {
+	plan, artifact, selected := validReusableResponseProfileBindingFixture(true)
+	if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err != nil {
+		t.Fatalf("exact observation-only profile and assertion were rejected: %v", err)
+	}
+
+	t.Run("observation profile cannot bind typed assertion", func(t *testing.T) {
+		plan, artifact, selected := validReusableResponseProfileBindingFixture(true)
+		artifact.Assertion = healthOperationResponseAssertionV2Body{PayloadKind: "json"}
+		if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err == nil {
+			t.Fatal("observation-only profile was accepted for a typed assertion")
+		}
+	})
+
+	t.Run("typed profile still binds typed assertion", func(t *testing.T) {
+		plan, artifact, selected := validReusableResponseProfileBindingFixture(false)
+		if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err != nil {
+			t.Fatalf("exact typed profile and assertion were rejected: %v", err)
+		}
+	})
+
+	t.Run("typed profile cannot bind observation assertion", func(t *testing.T) {
+		plan, artifact, selected := validReusableResponseProfileBindingFixture(false)
+		artifact.Assertion = healthOperationResponseAssertionV2Body{Mode: "observation_only"}
+		if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err == nil {
+			t.Fatal("typed profile was accepted for an observation-only assertion")
+		}
+	})
+
+	t.Run("observation profile rejects added predicates", func(t *testing.T) {
+		plan, artifact, selected := validReusableResponseProfileBindingFixture(true)
+		request := selected.Rows[healthOperationPolicyRowKey{Section: "profiles", Index: 0}]["request"].(map[string]any)
+		request["response"].(map[string]any)["branches"] = []any{}
+		if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err == nil {
+			t.Fatal("observation-only profile with typed predicate fields was accepted")
+		}
+	})
+}
+
+func validReusableResponseProfileBindingFixture(observationOnly bool) (healthOperationPlanRecord, healthOperationResponseAssertionV2Artifact, healthSelectedOperationPolicy) {
+	plan := healthOperationPlanRecord{}
+	plan.SourceBinding.SourceID = "data_go_kr"
+	plan.SourceBinding.Provider = "data.go.kr"
+	plan.OperationIdentity.Protocol = "REST"
+	plan.RequestPlan.RequestContract = &healthOperationPlanRequestContract{}
+	contract := plan.RequestPlan.RequestContract
+	contract.Transport.Protocol = "REST"
+	contract.Transport.HTTPMethod = "GET"
+	contract.Authentication.Requirement = "none"
+	contract.Authentication.Mechanism = "none"
+	contract.Authentication.Placement = "none"
+	contract.Limits.RequestBudget = 1
+	contract.Limits.TimeoutMS = 1000
+	contract.Limits.MaxRequestBytes = 1024
+	contract.Limits.MaxResponseBytes = 1024
+	if observationOnly {
+		contract.ResponseAssertion.Kind = "observation_only"
+	} else {
+		contract.ResponseAssertion.Kind = "response_assertion"
+	}
+	plan.RequestPlan.EvidenceRefs = []healthOperationPlanEvidenceRef{{
+		ArtifactPath: healthOperationPolicyArtifactPath,
+		SHA256:       strings.Repeat("a", 64),
+		JSONPointer:  "#/profiles/0",
+		EvidenceKind: "reviewed_policy",
+	}}
+
+	review := map[string]any{"review_ref": "https://example.invalid/review", "reviewed_by": "test reviewer", "rationale": "Exact synthetic observation contract."}
+	response := map[string]any{"mode": "observation_only"}
+	assertion := healthOperationResponseAssertionV2Body{Mode: "observation_only"}
+	if !observationOnly {
+		response = map[string]any{"payload_kind": "json", "branches": []any{}}
+		assertion = healthOperationResponseAssertionV2Body{PayloadKind: "json"}
+	}
+	profile := map[string]any{
+		"selector": map[string]any{
+			"source_id": "data_go_kr", "provider": "data.go.kr", "protocol": "REST", "effect": "read_only", "method": "GET",
+			"authentication": map[string]any{"requirement": "none", "mechanism": "none", "placement": "none", "parameter_name": nil},
+		},
+		"review": review,
+		"request": map[string]any{
+			"parameter_strategies": []any{}, "omit_unmapped_optional_parameters": true,
+			"limits":   map[string]any{"request_budget": 1, "timeout_ms": 1000, "max_request_bytes": 1024, "max_response_bytes": 1024},
+			"response": response,
+		},
+	}
+	selected := healthSelectedOperationPolicy{Rows: map[healthOperationPolicyRowKey]map[string]any{
+		{Section: "profiles", Index: 0}: profile,
+	}}
+	artifact := healthOperationResponseAssertionV2Artifact{}
+	artifact.Review = review
+	artifact.Assertion = assertion
+	return plan, artifact, selected
+}
+
 func TestLoadSelectedHealthOperationPolicyCapsArtifactBeforeReading(t *testing.T) {
 	plan := healthOperationPlanRecord{}
 	plan.OperationIdentity.OperationID = "selected-op"
