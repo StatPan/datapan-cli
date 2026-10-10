@@ -349,3 +349,179 @@ func validDocumentedOperationEffectFixture(t *testing.T) (healthOperationPlanRec
 	document["effect"] = effect
 	return plan, documents, documentPath
 }
+
+func TestDocumentedSOAPReadOnlyEffectRequiresExactSourceBoundTransport(t *testing.T) {
+	for _, version := range []string{"1.1", "1.2"} {
+		t.Run(version, func(t *testing.T) {
+			plan, documents, _ := validDocumentedSOAPOperationEffectFixture(t, version)
+			if err := validateSelectedHealthOperationDocumentEffect(plan, plan.RequestPlan.RequestContract, documents); err != nil {
+				t.Fatalf("source-bound SOAP %s read-only operation was rejected: %v", version, err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*healthOperationPlanRecord, map[string]map[string]any)
+	}{
+		{
+			name: "service-level POST",
+			mutate: func(_ *healthOperationPlanRecord, documents map[string]map[string]any) {
+				soapDocumentTransportFact(documents, "#/transport/http_method")["authority_scope"] = "service_level_only"
+			},
+		},
+		{
+			name: "action mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.SOAPAction = "urn:other:Write"
+			},
+		},
+		{
+			name: "envelope namespace mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.EnvelopeNamespace = "urn:other:soap"
+			},
+		},
+		{
+			name: "SOAP version mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.SOAPVersion = "1.2"
+			},
+		},
+		{
+			name: "body encoding mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.BodyEncoding = "rpc_encoded"
+			},
+		},
+		{
+			name: "operation QName mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.OperationQName.LocalName = "Write"
+			},
+		},
+		{
+			name: "method mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.HTTPMethod = "GET"
+			},
+		},
+		{
+			name: "evidence split across source documents",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.Transport.EvidenceRefs[0].ArtifactPath = "reports/other-operation.json"
+			},
+		},
+		{
+			name: "effect digest mismatch",
+			mutate: func(plan *healthOperationPlanRecord, _ map[string]map[string]any) {
+				plan.RequestPlan.RequestContract.OperationEffect.EvidenceRefs[0].SHA256 = strings.Repeat("c", 64)
+			},
+		},
+		{
+			name: "source identity mismatch",
+			mutate: func(_ *healthOperationPlanRecord, documents map[string]map[string]any) {
+				documents["reports/operation-document-evidence/synthetic.json"]["identity"].(map[string]any)["source_id"] = "other_source"
+			},
+		},
+		{
+			name: "mutating purpose",
+			mutate: func(_ *healthOperationPlanRecord, documents map[string]map[string]any) {
+				documents["reports/operation-document-evidence/synthetic.json"]["operation_document"].(map[string]any)["purpose"].(map[string]any)["value"] = "Submit records"
+			},
+		},
+		{
+			name: "caller-controlled action selector",
+			mutate: func(_ *healthOperationPlanRecord, documents map[string]map[string]any) {
+				documents["reports/operation-document-evidence/synthetic.json"]["parameters"] = []any{map[string]any{"name": "command"}}
+			},
+		},
+		{
+			name: "effect not documented read-only",
+			mutate: func(_ *healthOperationPlanRecord, documents map[string]map[string]any) {
+				documents["reports/operation-document-evidence/synthetic.json"]["effect"].(map[string]any)["classification"] = "unknown"
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, documents, _ := validDocumentedSOAPOperationEffectFixture(t, "1.1")
+			test.mutate(&plan, documents)
+			if err := validateSelectedHealthOperationDocumentEffect(plan, plan.RequestPlan.RequestContract, documents); err == nil {
+				t.Fatal("ambiguous or mismatched SOAP read-only evidence was accepted")
+			}
+		})
+	}
+
+	t.Run("reviewed HTTP safe-method policy does not admit SOAP POST", func(t *testing.T) {
+		plan, policy, documents, _ := validReviewedReadOnlyEffectFixture(t, "POST")
+		plan.OperationIdentity.Protocol = "SOAP"
+		plan.RequestPlan.RequestContract.Transport.Protocol = "SOAP"
+		plan.RequestPlan.RequestContract.OperationEffect.Authority = "reviewed_policy"
+		if err := validateSelectedHealthOperationEffectPolicy(plan, policy, documents); err == nil {
+			t.Fatal("reviewed HTTP safe-method policy classified SOAP POST as read-only")
+		}
+	})
+}
+
+func validDocumentedSOAPOperationEffectFixture(t *testing.T, version string) (healthOperationPlanRecord, map[string]map[string]any, string) {
+	t.Helper()
+	plan, documents, documentPath := validDocumentedOperationEffectFixture(t)
+	plan.OperationIdentity.Protocol = "SOAP"
+	contract := plan.RequestPlan.RequestContract
+	contract.Transport.Protocol = "SOAP"
+	contract.Transport.Scheme = "https"
+	contract.Transport.Host = "soap.example.invalid"
+	contract.Transport.Path = "/service"
+	contract.Transport.HTTPMethod = "POST"
+	contract.Transport.SOAPAction = "urn:synthetic:Read"
+	contract.Transport.SOAPVersion = version
+	contract.Transport.EnvelopeNamespace = "http://schemas.xmlsoap.org/soap/envelope/"
+	if version == "1.2" {
+		contract.Transport.EnvelopeNamespace = "http://www.w3.org/2003/05/soap-envelope"
+	}
+	contract.Transport.OperationQName = healthOperationPlanQName{Namespace: "urn:synthetic", LocalName: "Read"}
+	contract.Transport.BodyEncoding = "document_literal"
+	contract.Transport.EvidenceRefs = nil
+	for _, pointer := range []string{
+		"#/transport/protocol", "#/transport/scheme", "#/transport/host", "#/transport/path", "#/transport/http_method",
+		"#/transport/soap_action", "#/transport/soap_version", "#/transport/envelope_namespace", "#/transport/body_encoding", "#/transport/operation_qname",
+	} {
+		contract.Transport.EvidenceRefs = append(contract.Transport.EvidenceRefs, healthOperationPlanEvidenceRef{
+			ArtifactPath: documentPath, SHA256: strings.Repeat("b", 64), JSONPointer: pointer, EvidenceKind: "operation_document",
+		})
+	}
+
+	document := documents[documentPath]
+	identity := document["identity"].(map[string]any)
+	identity["protocol"] = "SOAP"
+	effect := map[string]any{
+		"status": "documented", "classification": "read_only", "authority": "operation_document",
+		"source_refs": []any{map[string]any{"evidence_kind": "operation_effect"}},
+	}
+	document["effect"] = effect
+	transport := map[string]any{}
+	fact := func(value, sourceKind string) map[string]any {
+		return map[string]any{"status": "documented", "value": value, "source_refs": []any{map[string]any{"evidence_kind": sourceKind}}}
+	}
+	transport["protocol"] = fact("SOAP", "registered_manifest")
+	transport["scheme"] = fact(contract.Transport.Scheme, "operation_endpoint")
+	transport["host"] = fact(contract.Transport.Host, "operation_endpoint")
+	transport["path"] = fact(contract.Transport.Path, "operation_endpoint")
+	transport["http_method"] = map[string]any{
+		"status": "documented", "authority_scope": "operation_specific", "value": "POST",
+		"source_refs": []any{map[string]any{"evidence_kind": "operation_http_method"}},
+	}
+	transport["soap_action"] = fact(contract.Transport.SOAPAction, "soap_action")
+	transport["soap_version"] = fact(version, "soap_version")
+	transport["envelope_namespace"] = fact(contract.Transport.EnvelopeNamespace, "envelope_namespace")
+	transport["body_encoding"] = fact("document_literal", "body_encoding")
+	transport["operation_qname"] = fact("{urn:synthetic}Read", "operation_qname")
+	transport["fixed_query_selectors"] = []any{}
+	document["transport"] = transport
+	document["schema_version"] = "datapan.operation-document-evidence.v2"
+	return plan, documents, documentPath
+}
+
+func soapDocumentTransportFact(documents map[string]map[string]any, pointer string) map[string]any {
+	return documents["reports/operation-document-evidence/synthetic.json"]["transport"].(map[string]any)[strings.TrimPrefix(pointer, "#/transport/")].(map[string]any)
+}
