@@ -23,31 +23,37 @@ import (
 )
 
 const (
-	healthOperationPlanSchemaVersion             = "datapan.operation-observation-plan.v1"
-	healthOperationPlanSchemaID                  = "https://schemas.datapan.dev/datapan.operation-observation-plan.v1.schema.json"
-	healthOperationPlanSchemaSHA256              = "cafa93014d7a32ef072f74df1a730f681e5b206440e4a83e9cdf426f6686e162"
-	healthOperationPlanSchemaSourceRevision      = "123e9cdaa82998e77b14c4f1007791d39cfc7b96"
-	healthOperationPlanSchemaPath                = "schemas/datapan.operation-observation-plan.v1.schema.json"
-	healthOperationPolicySchemaID                = "https://schemas.datapan.dev/datapan.operation-observation-policy.v1.schema.json"
-	healthOperationPolicySchemaSHA256            = "acd9e80d3f41e4a0f16b010975fc716bf1ead5c5a3b128c12d03dd51b025f31d"
-	healthOperationPolicySchemaPath              = "schemas/datapan.operation-observation-policy.v1.schema.json"
-	healthOperationResponseAssertionSchemaID     = "https://schemas.datapan.dev/datapan.operation-response-assertion.v2.schema.json"
-	healthOperationResponseAssertionSchemaSHA256 = "78878ab22183e419e58d2a15b0a6a32bc585a3822cfa5a3a4bfd9f23d893055b"
-	healthOperationResponseAssertionSchemaPath   = "schemas/datapan.operation-response-assertion.v2.schema.json"
-	healthOperationResponseAssertionMaxBytes     = 1 << 20
-	healthOperationDocumentEvidenceSchemaID      = "https://schemas.datapan.dev/datapan.operation-document-evidence.v1.schema.json"
-	healthOperationDocumentEvidenceSHA256        = "0b4a5a7ab10eeccb523d2af8a8e62e76f14a6243eea00558ac49e9959e7a3d1d"
-	healthOperationDocumentEvidenceRevision      = "18d75eef2977afdc58f1830a3fae2b8875956711"
-	healthOperationDocumentEvidencePath          = "schemas/datapan.operation-document-evidence.v1.schema.json"
-	healthOperationDocumentEvidenceV2SchemaID    = "https://schemas.datapan.dev/datapan.operation-document-evidence.v2.schema.json"
-	healthOperationDocumentEvidenceV2SHA256      = "d6edb7dad63b9d7cdac6753fc02cba962cb8d96d7c01119c031935abfc973108"
-	healthOperationDocumentEvidenceV2Revision    = "6e52aa59d79afa0371423ead8c287a05c4ab6210"
-	healthOperationDocumentEvidenceV2Path        = "schemas/datapan.operation-document-evidence.v2.schema.json"
-	healthOperationPlanIndexPath                 = "reports/operation-observation-plan/index.json"
-	healthOperationPlanSourceRegistryPath        = "data/data-go-kr.registry.json"
-	healthOperationPlanIndexMaxBytes             = 8 << 20
-	healthOperationPlanShardMaxBytes             = 16 << 20
-	healthOperationPlanMaxJSONTokens             = 100_000
+	healthOperationPlanSchemaVersion                     = "datapan.operation-observation-plan.v1"
+	healthOperationPlanSchemaID                          = "https://schemas.datapan.dev/datapan.operation-observation-plan.v1.schema.json"
+	healthOperationPlanSchemaSHA256                      = "cafa93014d7a32ef072f74df1a730f681e5b206440e4a83e9cdf426f6686e162"
+	healthOperationPlanSchemaSourceRevision              = "123e9cdaa82998e77b14c4f1007791d39cfc7b96"
+	healthOperationPlanSchemaPath                        = "schemas/datapan.operation-observation-plan.v1.schema.json"
+	healthOperationPolicySchemaID                        = "https://schemas.datapan.dev/datapan.operation-observation-policy.v1.schema.json"
+	healthOperationPolicySchemaSHA256                    = "acd9e80d3f41e4a0f16b010975fc716bf1ead5c5a3b128c12d03dd51b025f31d"
+	healthOperationPolicySchemaPath                      = "schemas/datapan.operation-observation-policy.v1.schema.json"
+	healthOperationResponseAssertionSchemaID             = "https://schemas.datapan.dev/datapan.operation-response-assertion.v2.schema.json"
+	healthOperationResponseAssertionSchemaSHA256         = "bba64ddd581b41b77f1b3ae2de36f66261d25d7606e1c13c8146e5030787172d"
+	healthOperationResponseAssertionSchemaSourceRevision = "446b8dcd86ceeb0a540baabcef479aec47820e9b"
+	healthOperationResponseAssertionSchemaPath           = "schemas/datapan.operation-response-assertion.v2.schema.json"
+	healthOperationResponseAssertionMaxBytes             = 1 << 20
+	healthOperationDocumentEvidenceSchemaID              = "https://schemas.datapan.dev/datapan.operation-document-evidence.v1.schema.json"
+	healthOperationDocumentEvidenceSHA256                = "0b4a5a7ab10eeccb523d2af8a8e62e76f14a6243eea00558ac49e9959e7a3d1d"
+	healthOperationDocumentEvidenceRevision              = "18d75eef2977afdc58f1830a3fae2b8875956711"
+	healthOperationDocumentEvidencePath                  = "schemas/datapan.operation-document-evidence.v1.schema.json"
+	healthOperationDocumentEvidenceV2SchemaID            = "https://schemas.datapan.dev/datapan.operation-document-evidence.v2.schema.json"
+	healthOperationDocumentEvidenceV2SHA256              = "d6edb7dad63b9d7cdac6753fc02cba962cb8d96d7c01119c031935abfc973108"
+	healthOperationDocumentEvidenceV2Revision            = "6e52aa59d79afa0371423ead8c287a05c4ab6210"
+	healthOperationDocumentEvidenceV2Path                = "schemas/datapan.operation-document-evidence.v2.schema.json"
+	healthOperationPlanIndexPath                         = "reports/operation-observation-plan/index.json"
+	healthOperationPlanSourceRegistryPath                = "data/data-go-kr.registry.json"
+	healthOperationPlanManifestMaxBytes                  = 16 << 20
+	// The manifest is a fleet-sized artifact: its bounded 32,000 refs need a
+	// separate token budget from a single plan, while depth, duplicate-key,
+	// and total-ref checks still reject structurally excessive input.
+	healthOperationPlanMaxManifestJSONTokens = 500_000
+	healthOperationPlanIndexMaxBytes         = 8 << 20
+	healthOperationPlanShardMaxBytes         = 16 << 20
+	healthOperationPlanMaxJSONTokens         = 100_000
 	// A Registry shard can contain up to 256 operation plans plus their
 	// manifest-bound evidence references. The largest current production shard
 	// is 246,400 JSON decoder tokens; keep a separate 500,000-token ceiling for
@@ -625,9 +631,12 @@ func readTrustedHealthOperationPlanManifest() (registryInstallProvenance, releas
 	if err != nil || provenance.ManifestRegistryVerified == nil || !*provenance.ManifestRegistryVerified || provenance.ReleaseManifestSHA256 == "" || !validSHA256(provenance.RegistrySHA256) {
 		return registryInstallProvenance{}, releaseManifest{}, nil, errors.New("installed Registry provenance is invalid")
 	}
-	manifestData, err := readBoundedFile(defaultReleaseManifestPath, 4<<20)
+	manifestData, err := readBoundedFile(defaultReleaseManifestPath, healthOperationPlanManifestMaxBytes)
 	if err != nil {
 		return registryInstallProvenance{}, releaseManifest{}, nil, errors.New("installed Registry release manifest is unavailable")
+	}
+	if err := preflightHealthOperationPlanManifestJSON(manifestData); err != nil {
+		return registryInstallProvenance{}, releaseManifest{}, nil, errors.New("installed Registry release manifest exceeds operation-plan bounds")
 	}
 	manifestSum := sha256.Sum256(manifestData)
 	if !strings.EqualFold(provenance.ReleaseManifestSHA256, hex.EncodeToString(manifestSum[:])) {
@@ -818,6 +827,27 @@ func preflightHealthOperationPlanShardJSON(data []byte) error {
 
 func preflightHealthOperationPlanIndexJSON(data []byte) error {
 	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxIndexJSONTokens, healthOperationPlanMaxIndexArtifactRefs, true)
+}
+
+func preflightHealthOperationPlanManifestJSON(data []byte) error {
+	if err := validateHealthReleaseManifestSize(data); err != nil {
+		return err
+	}
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxManifestJSONTokens, healthOperationPlanMaxIndexArtifactRefs, true)
+}
+
+func preflightHealthReleaseManifestJSON(data []byte) error {
+	if err := validateHealthReleaseManifestSize(data); err != nil {
+		return err
+	}
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxManifestJSONTokens, 0, true)
+}
+
+func validateHealthReleaseManifestSize(data []byte) error {
+	if len(data) == 0 || int64(len(data)) > healthOperationPlanManifestMaxBytes {
+		return errors.New("release manifest byte ceiling exceeded")
+	}
+	return nil
 }
 
 // Provider response objects are decoded into maps, so case-distinct member

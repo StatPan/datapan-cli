@@ -198,10 +198,7 @@ func loadSelectedHealthResponseAssertion(root string, plan healthOperationPlanRe
 	if assertionPointerCount != 1 || reviewPointerCount > 1 {
 		return healthNormalizedResponseAssertion{}, errors.New("response assertion artifact pointers are duplicated or incomplete")
 	}
-	if artifactValue.SchemaVersion != "datapan.operation-response-assertion.v2" || artifactValue.ArtifactKind != "operation_response_assertion" ||
-		artifactValue.SourceBinding.SourceID != plan.SourceBinding.SourceID || artifactValue.SourceBinding.Provider != plan.SourceBinding.Provider || artifactValue.SourceBinding.Protocol != plan.OperationIdentity.Protocol ||
-		artifactValue.OperationIdentity.OperationID != plan.OperationIdentity.OperationID || artifactValue.OperationIdentity.DatasetID != plan.OperationIdentity.DatasetID ||
-		artifactValue.OperationIdentity.OperationName != plan.OperationIdentity.OperationName || artifactValue.OperationIdentity.UpstreamOperationKey != plan.OperationIdentity.UpstreamOperationKey {
+	if artifactValue.SchemaVersion != "datapan.operation-response-assertion.v2" || artifactValue.ArtifactKind != "operation_response_assertion" || !healthResponseAssertionIdentityMatchesPlan(artifactValue, plan) {
 		return healthNormalizedResponseAssertion{}, errors.New("response assertion identity does not match its selected operation")
 	}
 	if err := validateHealthResponseAssertionDocumentEvidence(artifactValue.DocumentEvidence, plan, index, manifest, documents); err != nil {
@@ -231,6 +228,16 @@ func loadSelectedHealthResponseAssertion(root string, plan healthOperationPlanRe
 		return healthNormalizedResponseAssertion{}, err
 	}
 	return assertion, nil
+}
+
+func healthResponseAssertionIdentityMatchesPlan(artifact healthOperationResponseAssertionV2Artifact, plan healthOperationPlanRecord) bool {
+	return artifact.SourceBinding.SourceID == plan.SourceBinding.SourceID &&
+		artifact.SourceBinding.Provider == plan.SourceBinding.Provider &&
+		artifact.SourceBinding.Protocol == plan.OperationIdentity.Protocol &&
+		artifact.OperationIdentity.OperationID == plan.OperationIdentity.OperationID &&
+		artifact.OperationIdentity.DatasetID == plan.OperationIdentity.DatasetID &&
+		artifact.OperationIdentity.OperationName == plan.OperationIdentity.OperationName &&
+		artifact.OperationIdentity.UpstreamOperationKey == plan.OperationIdentity.UpstreamOperationKey
 }
 
 func validateHealthResponseAssertionDocumentEvidence(ref healthOperationPlanArtifactRef, plan healthOperationPlanRecord, index healthOperationPlanIndex, manifest releaseManifest, documents map[string]map[string]any) error {

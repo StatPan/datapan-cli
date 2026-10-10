@@ -239,6 +239,113 @@ func TestHealthOperationPlanIndexRejectsArtifactReferenceCountAboveCeiling(t *te
 	}
 }
 
+func TestHealthOperationPlanManifestSupportsFullPopulationEvidenceClosure(t *testing.T) {
+	// The #95 population has 12,666 identities. Two operation-specific evidence
+	// artifacts per identity plus the compact
+	// release metadata exceed the former 4 MiB install ceiling.
+	const populationSize = 12_666
+	const evidenceArtifactCount = 2*populationSize + 18
+	const manifestArtifactCount = evidenceArtifactCount + 1
+	manifest := releaseManifest{
+		SchemaVersion:  "datapan.release-manifest.v1",
+		SourceRegistry: healthOperationPlanSourceRegistryPath,
+		ArtifactCount:  manifestArtifactCount,
+		Artifacts:      make([]releaseManifestArtifact, 0, manifestArtifactCount),
+	}
+	for index := 0; index < evidenceArtifactCount; index++ {
+		manifest.Artifacts = append(manifest.Artifacts, releaseManifestArtifact{
+			Path:   "reports/operation-evidence/" + strconv.Itoa(index) + strings.Repeat("x", 88) + ".json",
+			Kind:   "operation_document_evidence",
+			Bytes:  1024,
+			SHA256: strings.Repeat("a", 64),
+		})
+	}
+	invalidIndex := []byte(`{}`)
+	invalidIndexSHA := sha256.Sum256(invalidIndex)
+	manifest.Artifacts = append(manifest.Artifacts, releaseManifestArtifact{
+		Path: healthOperationPlanIndexPath, Kind: "operation_observation_plan", Bytes: int64(len(invalidIndex)), SHA256: hex.EncodeToString(invalidIndexSHA[:]),
+	})
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) <= 4<<20 || int64(len(data)) > healthOperationPlanManifestMaxBytes {
+		t.Fatalf("full-population manifest fixture is %d bytes; want above 4 MiB and within the %d-byte ceiling", len(data), healthOperationPlanManifestMaxBytes)
+	}
+	tokens, err := countJSONDecoderTokens(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokens > healthOperationPlanMaxManifestJSONTokens {
+		t.Fatalf("full-population manifest has %d tokens, above the %d-token ceiling", tokens, healthOperationPlanMaxManifestJSONTokens)
+	}
+	t.Logf("12,666-identity manifest fixture: %d artifacts, %d bytes, %d JSON tokens", manifestArtifactCount, len(data), tokens)
+	if err := preflightHealthOperationPlanManifestJSON(data); err != nil {
+		t.Fatalf("bounded full-population evidence manifest was rejected: %v", err)
+	}
+	projection, err := datapanRegistryHealthOperationPlanProjection(data, map[string][]byte{healthOperationPlanIndexPath: invalidIndex}, func(string, int64) ([]byte, error) {
+		return nil, os.ErrNotExist
+	})
+	if err == nil || !strings.Contains(err.Error(), "operation-plan index does not match") {
+		t.Fatalf("Registry plan projection did not pass the bounded manifest gate and reach index validation: files=%d err=%v", len(projection), err)
+	}
+
+	path := filepath.Join(t.TempDir(), "release-manifest.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBoundedFile(path, healthOperationPlanManifestMaxBytes); err != nil {
+		t.Fatalf("bounded manifest reader rejected the full-population fixture: %v", err)
+	}
+}
+
+func TestHealthOperationPlanManifestKeepsByteTokenAndReferenceBounds(t *testing.T) {
+	withinByteLimit := []byte(`{"schema_version":"datapan.release-manifest.v1","artifact_count":0,"artifacts":[]}`)
+	withinByteLimit = append(withinByteLimit, bytes.Repeat([]byte{' '}, int(healthOperationPlanManifestMaxBytes)-len(withinByteLimit))...)
+	if err := preflightHealthOperationPlanManifestJSON(withinByteLimit); err != nil {
+		t.Fatalf("manifest exactly at the byte ceiling was rejected: %v", err)
+	}
+	overByteLimit := append(append([]byte(nil), withinByteLimit...), ' ')
+	if err := preflightHealthOperationPlanManifestJSON(overByteLimit); err == nil {
+		t.Fatal("manifest above the byte ceiling was accepted")
+	}
+
+	var tokenBomb strings.Builder
+	tokenBomb.Grow(3 * healthOperationPlanMaxManifestJSONTokens)
+	tokenBomb.WriteByte('[')
+	for index := 0; index < healthOperationPlanMaxManifestJSONTokens; index++ {
+		if index > 0 {
+			tokenBomb.WriteByte(',')
+		}
+		tokenBomb.WriteString("null")
+	}
+	tokenBomb.WriteByte(']')
+	if int64(tokenBomb.Len()) > healthOperationPlanManifestMaxBytes {
+		t.Fatalf("token-limit fixture unexpectedly exceeds the manifest byte ceiling: %d", tokenBomb.Len())
+	}
+	if err := preflightHealthOperationPlanManifestJSON([]byte(tokenBomb.String())); err == nil {
+		t.Fatal("manifest above the token ceiling was accepted")
+	}
+
+	overReferenceLimit := releaseManifest{SchemaVersion: "datapan.release-manifest.v1", ArtifactCount: healthOperationPlanMaxIndexArtifactRefs + 1}
+	overReferenceLimit.Artifacts = make([]releaseManifestArtifact, 0, overReferenceLimit.ArtifactCount)
+	for index := 0; index < overReferenceLimit.ArtifactCount; index++ {
+		overReferenceLimit.Artifacts = append(overReferenceLimit.Artifacts, releaseManifestArtifact{
+			Path: "reports/ref/" + strconv.Itoa(index) + ".json", Kind: "source", Bytes: 1, SHA256: strings.Repeat("b", 64),
+		})
+	}
+	referenceData, err := json.Marshal(overReferenceLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(referenceData)) > healthOperationPlanManifestMaxBytes {
+		t.Fatalf("reference-limit fixture unexpectedly exceeds the manifest byte ceiling: %d", len(referenceData))
+	}
+	if err := preflightHealthOperationPlanManifestJSON(referenceData); err == nil {
+		t.Fatal("manifest above the 32,000-artifact reference ceiling was accepted")
+	}
+}
+
 func syntheticOperationPlanIndexWithDocumentEvidence(t *testing.T, documentCount int) healthOperationPlanIndex {
 	t.Helper()
 	ref := func(path, value string) healthOperationPlanArtifactRef {
