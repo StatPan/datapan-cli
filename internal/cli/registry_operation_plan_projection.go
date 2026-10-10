@@ -29,7 +29,7 @@ type datapanRegistryPlanProjectionFetch func(path string, maximumBytes int64) ([
 // artifacts referenced by plan records. Every byte is verified against the
 // release manifest before it is returned for installation.
 func datapanRegistryHealthOperationPlanProjection(manifestData []byte, available map[string][]byte, fetch datapanRegistryPlanProjectionFetch) (map[string][]byte, error) {
-	if len(manifestData) == 0 || len(manifestData) > 4<<20 {
+	if err := preflightHealthReleaseManifestJSON(manifestData); err != nil {
 		return nil, errors.New("Registry release manifest is missing or exceeds its install bound")
 	}
 	var manifest releaseManifest
@@ -47,6 +47,9 @@ func datapanRegistryHealthOperationPlanProjection(manifestData []byte, available
 		// Older Registry releases have no observation-plan projection and
 		// retain the existing install path without plan-specific closure gates.
 		return map[string][]byte{}, nil
+	}
+	if err := preflightHealthOperationPlanManifestJSON(manifestData); err != nil {
+		return nil, errors.New("Registry operation-plan manifest exceeds its structure or reference budget")
 	}
 	if manifest.ArtifactCount != len(manifest.Artifacts) {
 		return nil, errors.New("Registry release manifest is invalid for operation-plan projection")

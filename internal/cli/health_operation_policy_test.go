@@ -254,15 +254,15 @@ func TestLoadSelectedHealthOperationPolicyCapsArtifactBeforeReading(t *testing.T
 }
 
 func TestHealthOperationPlanRuntimeSelectedReadCeilingsMatchDocument(t *testing.T) {
-	selectedFileBytes := int64(4<<20) + registryInstallProvenanceMaxBytes + int64(5<<20) +
+	selectedFileBytes := int64(healthOperationPlanManifestMaxBytes) + registryInstallProvenanceMaxBytes + int64(5<<20) +
 		healthOperationPlanIndexMaxBytes + healthOperationPlanShardMaxBytes +
 		int64(healthOperationPlanMaxSelectedEvidenceArtifacts)*healthOperationDocumentEvidenceMaxBytes +
 		healthOperationPolicyMaxBytes + healthOperationResponseAssertionMaxBytes + healthCredentialBindingsMaxBytes
 	boundedFileReads := int64(1 + 1 + 5 + 1 + 1 + healthOperationPlanMaxSelectedEvidenceArtifacts + 1 + 1 + 1)
-	if want := int64(46<<20) + 320<<10; selectedFileBytes != want {
+	if want := int64(58<<20) + 320<<10; selectedFileBytes != want {
 		t.Fatalf("selected release files have a %d byte ceiling, want %d", selectedFileBytes, want)
 	}
-	if want := int64(174<<20) + 320<<10 + boundedFileReads + 1; selectedFileBytes+(128<<20)+boundedFileReads+1 != want {
+	if want := int64(186<<20) + 320<<10 + boundedFileReads + 1; selectedFileBytes+(128<<20)+boundedFileReads+1 != want {
 		t.Fatalf("selected release and running-image reads exceed the documented %d byte ceiling", want)
 	}
 }

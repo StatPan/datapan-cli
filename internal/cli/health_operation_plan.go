@@ -45,9 +45,14 @@ const (
 	healthOperationDocumentEvidenceV2Path        = "schemas/datapan.operation-document-evidence.v2.schema.json"
 	healthOperationPlanIndexPath                 = "reports/operation-observation-plan/index.json"
 	healthOperationPlanSourceRegistryPath        = "data/data-go-kr.registry.json"
-	healthOperationPlanIndexMaxBytes             = 8 << 20
-	healthOperationPlanShardMaxBytes             = 16 << 20
-	healthOperationPlanMaxJSONTokens             = 100_000
+	healthOperationPlanManifestMaxBytes          = 16 << 20
+	// The manifest is a fleet-sized artifact: its bounded 32,000 refs need a
+	// separate token budget from a single plan, while depth, duplicate-key,
+	// and total-ref checks still reject structurally excessive input.
+	healthOperationPlanMaxManifestJSONTokens = 500_000
+	healthOperationPlanIndexMaxBytes         = 8 << 20
+	healthOperationPlanShardMaxBytes         = 16 << 20
+	healthOperationPlanMaxJSONTokens         = 100_000
 	// A Registry shard can contain up to 256 operation plans plus their
 	// manifest-bound evidence references. The largest current production shard
 	// is 246,400 JSON decoder tokens; keep a separate 500,000-token ceiling for
@@ -625,9 +630,12 @@ func readTrustedHealthOperationPlanManifest() (registryInstallProvenance, releas
 	if err != nil || provenance.ManifestRegistryVerified == nil || !*provenance.ManifestRegistryVerified || provenance.ReleaseManifestSHA256 == "" || !validSHA256(provenance.RegistrySHA256) {
 		return registryInstallProvenance{}, releaseManifest{}, nil, errors.New("installed Registry provenance is invalid")
 	}
-	manifestData, err := readBoundedFile(defaultReleaseManifestPath, 4<<20)
+	manifestData, err := readBoundedFile(defaultReleaseManifestPath, healthOperationPlanManifestMaxBytes)
 	if err != nil {
 		return registryInstallProvenance{}, releaseManifest{}, nil, errors.New("installed Registry release manifest is unavailable")
+	}
+	if err := preflightHealthOperationPlanManifestJSON(manifestData); err != nil {
+		return registryInstallProvenance{}, releaseManifest{}, nil, errors.New("installed Registry release manifest exceeds operation-plan bounds")
 	}
 	manifestSum := sha256.Sum256(manifestData)
 	if !strings.EqualFold(provenance.ReleaseManifestSHA256, hex.EncodeToString(manifestSum[:])) {
@@ -818,6 +826,27 @@ func preflightHealthOperationPlanShardJSON(data []byte) error {
 
 func preflightHealthOperationPlanIndexJSON(data []byte) error {
 	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxIndexJSONTokens, healthOperationPlanMaxIndexArtifactRefs, true)
+}
+
+func preflightHealthOperationPlanManifestJSON(data []byte) error {
+	if err := validateHealthReleaseManifestSize(data); err != nil {
+		return err
+	}
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxManifestJSONTokens, healthOperationPlanMaxIndexArtifactRefs, true)
+}
+
+func preflightHealthReleaseManifestJSON(data []byte) error {
+	if err := validateHealthReleaseManifestSize(data); err != nil {
+		return err
+	}
+	return preflightHealthJSONWithLimits(data, healthOperationPlanMaxManifestJSONTokens, 0, true)
+}
+
+func validateHealthReleaseManifestSize(data []byte) error {
+	if len(data) == 0 || int64(len(data)) > healthOperationPlanManifestMaxBytes {
+		return errors.New("release manifest byte ceiling exceeded")
+	}
+	return nil
 }
 
 // Provider response objects are decoded into maps, so case-distinct member

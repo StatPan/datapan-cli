@@ -147,9 +147,12 @@ func loadManifestBoundHealthCatalog(options healthCatalogOptions, now time.Time)
 	if err != nil {
 		return datago.Registry{}, registryTrustContext{}, errors.New("read installed Registry provenance")
 	}
-	manifestData, err := readBoundedFile(defaultReleaseManifestPath, 4<<20)
+	manifestData, err := readBoundedFile(defaultReleaseManifestPath, healthOperationPlanManifestMaxBytes)
 	if err != nil {
 		return datago.Registry{}, registryTrustContext{}, errors.New("read installed release manifest")
+	}
+	if err := preflightHealthReleaseManifestJSON(manifestData); err != nil {
+		return datago.Registry{}, registryTrustContext{}, errors.New("installed release manifest exceeds its bounded structure")
 	}
 	manifestSum := sha256.Sum256(manifestData)
 	if !strings.EqualFold(provenance.ReleaseManifestSHA256, hex.EncodeToString(manifestSum[:])) || provenance.ManifestRegistryVerified == nil || !*provenance.ManifestRegistryVerified {
