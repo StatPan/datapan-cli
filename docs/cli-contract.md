@@ -638,7 +638,8 @@ The Registry operation-plan child ABI is a separate Health-owned selector:
 
 ```text
 datapan verify --health --health-plan-index PATH \
-  --health-operation-id ID --health-registry-revision COMMIT \
+  --health-operation-id ID [--health-source-id SOURCE_ID] \
+  --health-registry-revision COMMIT \
   --health-credential-bindings PRIVATE_FILE --health-attempt-id UUID \
   --health-cli-version VERSION --health-deadline RFC3339Nano_UTC \
   --output NEW_RECEIPT_PATH --json
@@ -656,6 +657,13 @@ only through an exact local mapping of the Registry credential reference,
 credential scope, provider, adapter, authentication kind, allowlisted
 credential group, and environment variable. The private binding file stores
 references only, never secret values.
+
+When operation-ID ranges overlap across Registry sources, Health may provide
+`--health-source-id` to select the exact case-sensitive source before shard
+range matching. The selected shard, source scope, operation record, and receipt
+must all agree with that source. Omitting the flag preserves the existing
+global unique-range selection and rejects ambiguous ranges; a source-qualified
+lookup never falls back to another source.
 
 Plan loading bounds the index to 8 MiB, 500,000 JSON decoder tokens, 32,000
 combined generation/source/shard artifact references, 4,096 source scopes,

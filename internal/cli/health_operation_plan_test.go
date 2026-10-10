@@ -443,6 +443,72 @@ func TestIncompletePlanWithDistinctDatasetRevisionStopsBeforeHTTP(t *testing.T) 
 	}
 }
 
+func TestHealthOperationPlanShardSelectionCanBeQualifiedByExactSource(t *testing.T) {
+	index := healthOperationPlanIndex{Shards: []healthOperationPlanShardRef{
+		{SourceID: "ecos", FirstOperationID: "operation-001", LastOperationID: "operation-099"},
+		{SourceID: "data_go_kr", FirstOperationID: "operation-001", LastOperationID: "operation-099"},
+	}}
+	for _, test := range []struct {
+		name          string
+		sourceID      string
+		wantSource    string
+		wantFound     bool
+		wantAmbiguous bool
+	}{
+		{name: "unqualified overlapping ranges remain ambiguous", wantAmbiguous: true},
+		{name: "exact source selects its overlapping range", sourceID: "ecos", wantSource: "ecos", wantFound: true},
+		{name: "other exact source selects its overlapping range", sourceID: "data_go_kr", wantSource: "data_go_kr", wantFound: true},
+		{name: "wrong source does not fall back", sourceID: "unknown", wantFound: false},
+		{name: "source match is case sensitive", sourceID: "ECOS", wantFound: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			selected, found, ambiguous := selectHealthOperationPlanShard(index, test.sourceID, "operation-050")
+			if found != test.wantFound || ambiguous != test.wantAmbiguous || (found && selected.SourceID != test.wantSource) {
+				t.Fatalf("selection=(%q, found=%t, ambiguous=%t), want source=%q found=%t ambiguous=%t", selected.SourceID, found, ambiguous, test.wantSource, test.wantFound, test.wantAmbiguous)
+			}
+		})
+	}
+
+	unique := healthOperationPlanIndex{Shards: []healthOperationPlanShardRef{
+		{SourceID: "ecos", FirstOperationID: "operation-001", LastOperationID: "operation-099"},
+	}}
+	selected, found, ambiguous := selectHealthOperationPlanShard(unique, "", "operation-050")
+	if !found || ambiguous || selected.SourceID != "ecos" {
+		t.Fatalf("legacy unqualified unique-range selection changed: selection=(%q, found=%t, ambiguous=%t)", selected.SourceID, found, ambiguous)
+	}
+
+	sameSourceAmbiguous := healthOperationPlanIndex{Shards: []healthOperationPlanShardRef{
+		{SourceID: "ecos", FirstOperationID: "operation-001", LastOperationID: "operation-099"},
+		{SourceID: "ecos", FirstOperationID: "operation-050", LastOperationID: "operation-120"},
+	}}
+	if _, found, ambiguous := selectHealthOperationPlanShard(sameSourceAmbiguous, "ecos", "operation-060"); found || !ambiguous {
+		t.Fatalf("same-source overlapping ranges were not rejected as ambiguous: found=%t ambiguous=%t", found, ambiguous)
+	}
+}
+
+func TestHealthOperationPlanLoaderHonorsExactSourceSelector(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registryRevision := strings.Repeat("a", 40)
+	datasetRevision := strings.Repeat("d", 40)
+	operationID := "synthetic-incomplete-operation"
+	indexPath := writeSyntheticIncompletePlanInstallation(t, registryRevision, datasetRevision, operationID)
+	base := healthOperationPlanOptions{IndexPath: indexPath, OperationID: operationID, RegistryRevision: registryRevision}
+
+	qualified := base
+	qualified.SourceID = "synthetic_scope"
+	_, err := loadManifestBoundHealthOperationPlan(qualified, time.Now().UTC())
+	if err == nil || !strings.Contains(err.Error(), "not executable under its declared bounds") {
+		t.Fatalf("exact source selection did not load the matching incomplete plan: %v", err)
+	}
+
+	wrongSource := base
+	wrongSource.SourceID = "other_scope"
+	_, err = loadManifestBoundHealthOperationPlan(wrongSource, time.Now().UTC())
+	if err == nil || !strings.Contains(err.Error(), "not present in the Registry plan index") {
+		t.Fatalf("unknown source selection fell back to another source: %v", err)
+	}
+}
+
 func TestOperationPlanManifestMustNamePinnedSourceSnapshot(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
@@ -756,10 +822,11 @@ func TestHealthOperationPlanInvocationSeparatesSharedRevisionFlag(t *testing.T) 
 	revision := strings.Repeat("a", 40)
 	planArgs := []string{"--health", "--json", "--health-plan-index", "reports/operation-observation-plan/index.json", "--health-operation-id", "synthetic-rest-list", "--health-registry-revision", revision, "--health-credential-bindings", "private-bindings.json", "--health-attempt-id", "17e1fa72-eaf4-493a-9d97-d3fd3bc52a3c", "--health-cli-version", version, "--health-deadline", "2099-01-01T00:00:00Z"}
 	for _, test := range []struct {
-		name      string
-		args      []string
-		wantPlan  bool
-		wantError bool
+		name         string
+		args         []string
+		wantPlan     bool
+		wantError    bool
+		wantSourceID string
 	}{
 		{
 			name: "v1 catalog revision is not plan mode",
@@ -769,6 +836,43 @@ func TestHealthOperationPlanInvocationSeparatesSharedRevisionFlag(t *testing.T) 
 			name:     "valid plan selectors",
 			args:     append([]string{"verify"}, planArgs...),
 			wantPlan: true,
+		},
+		{
+			name:         "valid exact source selector",
+			args:         append(append([]string{"verify"}, planArgs...), "--health-source-id", "source_a"),
+			wantPlan:     true,
+			wantSourceID: "source_a",
+		},
+		{
+			name:         "valid equals source selector",
+			args:         append(append([]string{"verify"}, planArgs...), "--health-source-id=source_a"),
+			wantPlan:     true,
+			wantSourceID: "source_a",
+		},
+		{
+			name:      "duplicate source selector",
+			args:      append(append(append([]string{"verify"}, planArgs...), "--health-source-id", "source_a"), "--health-source-id", "source_a"),
+			wantError: true,
+		},
+		{
+			name:      "missing source selector value",
+			args:      append(append([]string{"verify"}, planArgs...), "--health-source-id"),
+			wantError: true,
+		},
+		{
+			name:      "empty source selector",
+			args:      append(append([]string{"verify"}, planArgs...), "--health-source-id="),
+			wantError: true,
+		},
+		{
+			name:      "noncanonical casefold source selector",
+			args:      append(append([]string{"verify"}, planArgs...), "--health-source-id", "SOURCE_A"),
+			wantError: true,
+		},
+		{
+			name:      "source selector outside plan mode",
+			args:      []string{"verify", "--health-source-id", "source_a"},
+			wantError: true,
 		},
 		{
 			name:      "missing operation ID",
@@ -792,10 +896,28 @@ func TestHealthOperationPlanInvocationSeparatesSharedRevisionFlag(t *testing.T) 
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, plan, err := healthOperationPlanInvocation(test.args)
+			options, plan, err := healthOperationPlanInvocation(test.args)
 			if (err != nil) != test.wantError || plan != test.wantPlan {
 				t.Fatalf("plan=%t err=%v; wantPlan=%t wantError=%t", plan, err, test.wantPlan, test.wantError)
 			}
+			if err == nil && options.SourceID != test.wantSourceID {
+				t.Fatalf("source selector=%q, want %q", options.SourceID, test.wantSourceID)
+			}
 		})
+	}
+}
+
+func TestHealthSourceSelectorOutsidePlanModeFailsBeforeHTTP(t *testing.T) {
+	client := &healthPlanCaptureClient{}
+	var stdout, stderr bytes.Buffer
+	code := Run(
+		[]string{"verify", "--health", "--health-source-id", "source_a", "--ref", "https://example.invalid/registry", "--operation", "list"},
+		&stdout,
+		&stderr,
+		fakeEnv{},
+		client,
+	)
+	if code != exitUsage || client.calls != 0 {
+		t.Fatalf("source selector outside immutable plan mode returned code=%d HTTP calls=%d, want usage failure and no calls; stderr=%s", code, client.calls, stderr.String())
 	}
 }

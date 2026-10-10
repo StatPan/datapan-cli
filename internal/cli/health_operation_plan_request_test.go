@@ -448,7 +448,7 @@ func TestHealthCredentialBindingPreflightBoundsEntriesBeforeDecode(t *testing.T)
 
 func TestHealthOperationPlanProbeReceiptIsBoundRedactedAndAtomic(t *testing.T) {
 	loaded := healthOperationPlanLoadResult{
-		Options:        healthOperationPlanOptions{AttemptID: "17e1fa72-eaf4-493a-9d97-d3fd3bc52a3c", RegistryRevision: strings.Repeat("a", 40)},
+		Options:        healthOperationPlanOptions{AttemptID: "17e1fa72-eaf4-493a-9d97-d3fd3bc52a3c", RegistryRevision: strings.Repeat("a", 40), SourceID: "synthetic-source"},
 		RegistryTrust:  registryTrustContext{DatasetID: "StatPan/datapan-registry", DatasetRevision: strings.Repeat("b", 40), Distribution: "huggingface_dataset", RegistrySHA256: strings.Repeat("c", 64)},
 		ManifestSHA256: strings.Repeat("c", 64),
 		IndexSHA256:    strings.Repeat("d", 64),
@@ -472,6 +472,9 @@ func TestHealthOperationPlanProbeReceiptIsBoundRedactedAndAtomic(t *testing.T) {
 	loaded.Plan.RequestPlan.RequestContract.ResponseAssertion.Kind = "http_status"
 	loaded.Plan.RequestPlan.RequestContract.Limits.TimeoutMS = 1000
 	receipt := newHealthOperationPlanProbeReceipt(loaded, strings.Repeat("3", 64))
+	if receipt.Operation.OperationID != loaded.Plan.OperationIdentity.OperationID || receipt.Operation.SourceID != loaded.Options.SourceID {
+		t.Fatalf("receipt lost the selected source/operation binding: operation=%+v options=%+v", receipt.Operation, loaded.Options)
+	}
 	receipt.Execution.RequestStarted = true
 	receipt.Execution.RequestBudget = 1
 	receipt.Execution.DurationMS = 4
