@@ -634,6 +634,64 @@ Registry digest, and resolves the selected operation without decoding the
 retained in the receipt. These flags are invalid outside `verify --health`;
 they do not change the `--timeout` request budget.
 
+The Registry operation-plan child ABI is a separate Health-owned selector:
+
+```text
+datapan verify --health --health-plan-index PATH \
+  --health-operation-id ID --health-registry-revision COMMIT \
+  --health-credential-bindings PRIVATE_FILE --health-attempt-id UUID \
+  --health-cli-version VERSION --health-deadline RFC3339Nano_UTC \
+  --output NEW_RECEIPT_PATH --json
+```
+
+The CLI verifies the installed Registry manifest, pinned operation-plan and
+operation-document-evidence schemas, selected index and shard digests, source
+identity, and every declared quota scope before it constructs a request. It
+accepts only an explicit read-only REST or SOAP request contract with
+one-request and byte/time bounds. The absolute deadline covers the whole
+request and can shorten the timeout in the Registry plan; `--timeout` is not
+accepted in this mode. Missing or mismatched local credential bindings and
+unsupported request semantics fail before dispatch. Credentials are resolved
+only through an exact local mapping of the Registry credential reference,
+credential scope, provider, adapter, authentication kind, allowlisted
+credential group, and environment variable. The private binding file stores
+references only, never secret values.
+
+Plan loading bounds the index to 8 MiB, 500,000 JSON decoder tokens, 32,000
+combined generation/source/shard artifact references, 4,096 source scopes,
+and 2,048 shards. This index-specific token budget accommodates the bounded
+fleet inventory. A shard has a separate 500,000-token limit; the largest shard
+in the current 54-shard closed package is 246,400 tokens. The 100,000-token
+limit for individual operation metadata, operation-document evidence, and JSON
+provider responses remains unchanged.
+
+This command requires a new receipt path outside the installed Registry and
+emits a `datapan.health-operation-plan-probe.v1` receipt atomically with mode
+0600, then writes identical JSON to stdout. The receipt carries the Health
+attempt UUID, exact CLI version and running-binary SHA-256, selected operation
+identity, immutable Registry/index/shard digests, whether request dispatch
+started, whether a response was observed, its observation timestamp and HTTP
+status when present, assertion outcome, and bounded duration. It omits
+endpoint details, query values, request and response bodies, response rows,
+credential references/scopes/names/values, and quota details. A child loss
+after dispatch is an ambiguous attempt for the Health scheduler and must not
+be retried automatically. Scheduling, cadence, durable attempt history, and
+atomic admission across quota scopes remain owned by Health.
+
+Plan-probe execution currently requires Linux `/proc/self/exe` so the CLI can
+hash the executable inode actually running, even if its original path changes.
+On other platforms this mode fails before request dispatch with an explicit
+unsupported-platform error; legacy Health catalog/query commands remain
+available on their supported platforms.
+
+In plan mode, `--health-registry-revision` must match the operation-plan
+index's `registry_revision` (the source Git commit that generated that index).
+The receipt names this separately as `registry.registry_revision`; installer
+provenance's distribution and optional immutable dataset snapshot revision are
+reported as `registry.distribution` and
+`registry.distribution_dataset_revision`. These revisions identify different
+artifacts and are validated independently.
+
 Health mode exits 0 for `healthy`, 4 for `unhealthy`, 3 for skipped or
 indeterminate/not-probeable operations, 1 for invalid usage, and 4 for a failed
 Registry trust/provenance gate. Empty data is an observation and remains

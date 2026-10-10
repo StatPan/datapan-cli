@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -48,6 +49,7 @@ const defaultBrowserProfilePath = ".datapan/browser-profile"
 const defaultRegistryPath = ".datapan/data-go-kr.registry.json"
 const defaultRegistryInstallProvenancePath = ".datapan/registry-install.json"
 const defaultRegistryInstallTransactionPath = ".datapan/registry-install.transaction.json"
+const registryInstallProvenanceMaxBytes int64 = 64 << 10
 const defaultReleaseDir = ".datapan/release"
 const defaultReleaseManifestPath = ".datapan/release/manifest.json"
 const defaultReleaseNotesPath = ".datapan/release/RELEASE_NOTES.md"
@@ -67,6 +69,8 @@ const defaultReleaseErrorActionCatalogPath = ".datapan/release/reports/data-go-k
 const defaultReleaseErrorActionCatalogSchemaPath = ".datapan/release/schemas/datapan.error-action-catalog.v1.schema.json"
 const defaultReleaseRuntimeRemediationPath = ".datapan/release/reports/source-runtime-remediation-map.json"
 const defaultReleaseRuntimeRemediationSchemaPath = ".datapan/release/schemas/datapan.source-runtime-remediation-map.v1.schema.json"
+
+const releaseJSONLMaxRecordBytes = 1 << 20
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
 const defaultDatapanRegistryReleaseAPI = "https://huggingface.co/api/datasets/StatPan/datapan-registry"
@@ -113,10 +117,16 @@ type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type RealHTTPClient struct{ rejectRedirects bool }
+type RealHTTPClient struct {
+	rejectRedirects   bool
+	publicTargetsOnly bool
+}
 
 func (c RealHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
+	if c.publicTargetsOnly {
+		client.Transport = newHealthPublicHTTPTransport()
+	}
 	if c.rejectRedirects {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
@@ -131,22 +141,24 @@ var (
 )
 
 type app struct {
-	args               []string
-	stdout             io.Writer
-	stderr             io.Writer
-	env                Env
-	http               HTTPClient
-	reg                datago.Registry
-	registryPath       string
-	registrySource     string
-	installRecovered   bool
-	healthCatalogTrust *registryTrustContext
+	args                []string
+	stdout              io.Writer
+	stderr              io.Writer
+	env                 Env
+	http                HTTPClient
+	reg                 datago.Registry
+	registryPath        string
+	registrySource      string
+	installRecovered    bool
+	healthCatalogTrust  *registryTrustContext
+	healthOperationPlan *healthOperationPlanLoadResult
 }
 
 func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient) int {
 	env = maybeLoadDotEnv(env)
 	installRecovered := false
-	if !isHelpInvocation(args) {
+	planModeRequested := hasAnyArg(args, "--health-plan-index")
+	if !isHelpInvocation(args) && !planModeRequested {
 		if recovered, err := recoverRegistryInstallTransaction(defaultRegistryInstallTransactionPath); err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: datago.DefaultRegistry()}
 			jsonOut, _ := consumeBool(args, "--json")
@@ -171,16 +183,36 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 	reg := datago.DefaultRegistry()
 	registrySource := "embedded"
 	var healthCatalogTrust *registryTrustContext
+	var healthOperationPlan *healthOperationPlanLoadResult
+	healthPlanOptions, healthPlanSet, err := healthOperationPlanInvocation(args)
+	if err != nil {
+		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+		return a.fail(exitUsage, "%v", err)
+	}
 	healthCatalog, healthCatalogSet, err := healthCatalogInvocation(args)
 	if err != nil {
 		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
 		return a.fail(exitUsage, "%v", err)
 	}
+	if healthPlanSet && healthCatalogSet {
+		a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+		return a.fail(exitUsage, "choose either --health-catalog or --health-plan-index")
+	}
 	registryEnvPath, registryEnvSet := env.LookupEnv("DATAPAN_REGISTRY_PATH")
 	registryEnvPath = strings.TrimSpace(registryEnvPath)
 	registryPath := registryEnvPath
 	registrySet := registryEnvSet && registryEnvPath != ""
-	if healthCatalogSet {
+	if healthPlanSet {
+		loaded, err := loadManifestBoundHealthOperationPlan(healthPlanOptions, time.Now().UTC())
+		if err != nil {
+			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
+			return a.fail(exitUsage, "health operation plan is not ready: %v", err)
+		}
+		healthOperationPlan = &loaded
+		registryPath = defaultRegistryPath
+		registrySource = "operation_observation_plan"
+		registrySet = false
+	} else if healthCatalogSet {
 		loaded, trust, err := loadManifestBoundHealthCatalog(healthCatalog, time.Now().UTC())
 		if err != nil {
 			a := app{args: args, stdout: stdout, stderr: stderr, env: env, http: httpClient, reg: reg}
@@ -213,16 +245,17 @@ func Run(args []string, stdout, stderr io.Writer, env Env, httpClient HTTPClient
 		reg = loaded
 	}
 	a := app{
-		args:               args,
-		stdout:             stdout,
-		stderr:             stderr,
-		env:                env,
-		http:               httpClient,
-		reg:                reg,
-		registryPath:       registryPath,
-		registrySource:     registrySource,
-		installRecovered:   installRecovered,
-		healthCatalogTrust: healthCatalogTrust,
+		args:                args,
+		stdout:              stdout,
+		stderr:              stderr,
+		env:                 env,
+		http:                httpClient,
+		reg:                 reg,
+		registryPath:        registryPath,
+		registrySource:      registrySource,
+		installRecovered:    installRecovered,
+		healthCatalogTrust:  healthCatalogTrust,
+		healthOperationPlan: healthOperationPlan,
 	}
 	return a.run()
 }
@@ -2256,6 +2289,30 @@ func (a app) fetchHuggingFaceDistributionRelease(datasetID, pointerRevision stri
 			registryData = data
 		}
 	}
+	manifestData := evidence["manifest.json"]
+	if len(manifestData) == 0 {
+		return datapanRegistryRelease{}, fmt.Errorf("Hugging Face distribution is missing the installed Registry manifest")
+	}
+	planProjection, err := datapanRegistryHealthOperationPlanProjection(manifestData, evidence, func(path string, maximumBytes int64) ([]byte, error) {
+		record, ok := records[path]
+		if !ok || record.Bytes < 1 || record.Bytes > maximumBytes {
+			return nil, fmt.Errorf("artifact is absent or exceeds its declared operation-plan byte bound")
+		}
+		data, err := a.downloadBytesBounded(huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, path), maximumBytes)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyHuggingFaceDistributionArtifact(record, data); err != nil {
+			return nil, err
+		}
+		return data, nil
+	})
+	if err != nil {
+		return datapanRegistryRelease{}, fmt.Errorf("load Hugging Face operation-plan install projection: %w", err)
+	}
+	for path, data := range planProjection {
+		evidence[path] = data
+	}
 	registryRecord := records[datapanRegistryHFRegistryPath]
 	return datapanRegistryRelease{
 		TagName: manifest.Dataset.Revision, ZipAssetURL: huggingFaceResolveURL(datasetID, manifest.Dataset.Revision, datapanRegistryHFRegistryPath),
@@ -2318,8 +2375,12 @@ func normalizeGitHubReleaseURL(raw string) string {
 }
 
 func (a app) downloadBytes(rawURL string) ([]byte, error) {
+	return a.downloadBytesBounded(rawURL, 256<<20)
+}
+
+func (a app) downloadBytesBounded(rawURL string, maximumBytes int64) ([]byte, error) {
 	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
+	if rawURL == "" || maximumBytes < 1 {
 		return nil, fmt.Errorf("download URL is empty")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -2347,12 +2408,15 @@ func (a app) downloadBytes(rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maximumBytes+1))
 	if err != nil {
 		if strings.EqualFold(req.URL.Host, "huggingface.co") {
 			return nil, registryDistributionError{Category: "distribution_interrupted", Action: "retry the immutable Hugging Face Registry download", Err: err}
 		}
 		return nil, err
+	}
+	if int64(len(body)) > maximumBytes {
+		return nil, fmt.Errorf("download exceeds its %d-byte resource ceiling", maximumBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if strings.EqualFold(req.URL.Host, "huggingface.co") {
@@ -2425,16 +2489,35 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 		return datapanRegistryZipSnapshot{}, fmt.Errorf("open registry zip: %w", err)
 	}
 	entries := map[string][]byte{}
+	archiveFiles := make(map[string]*zip.File, len(reader.File))
 	for _, file := range reader.File {
 		name := filepath.ToSlash(file.Name)
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		if _, duplicate := archiveFiles[name]; duplicate {
+			return datapanRegistryZipSnapshot{}, fmt.Errorf("registry zip contains duplicate path %s", name)
+		}
+		archiveFiles[name] = file
 		if !datapanRegistryInstallKeepsZipEntry(name) {
 			continue
 		}
-		data, err := readZipFile(file)
-		if err != nil {
-			return datapanRegistryZipSnapshot{}, err
+		if datapanRegistryDeferZipProjectionPath(name) {
+			// The index determines the exact transitive projection. Keep ZIP
+			// entries addressable here, but do not read unrelated sidecars.
+			continue
 		}
-		entries[name] = data
+		maximumBytes := int64(datapanRegistryZipDefaultEntryMaxBytes)
+		if name == datapanRegistryZipRegistryPath {
+			maximumBytes = int64(datapanRegistryZipRegistryMaxBytes)
+		} else if name == "manifest.json" {
+			maximumBytes = 4 << 20
+		}
+		entryData, err := readBoundedRegistryZipFile(file, maximumBytes)
+		if err != nil {
+			return datapanRegistryZipSnapshot{}, fmt.Errorf("read registry zip entry %s: %w", name, err)
+		}
+		entries[name] = entryData
 	}
 	registryData, ok := entries[datapanRegistryZipRegistryPath]
 	if !ok {
@@ -2445,6 +2528,19 @@ func datapanRegistrySnapshotFromZip(data []byte) (datapanRegistryZipSnapshot, er
 		return datapanRegistryZipSnapshot{}, err
 	}
 	if data, ok := entries["manifest.json"]; ok {
+		projection, err := datapanRegistryHealthOperationPlanProjection(data, entries, func(path string, maximumBytes int64) ([]byte, error) {
+			file := archiveFiles[path]
+			if file == nil {
+				return nil, fmt.Errorf("missing ZIP entry %s", path)
+			}
+			return readBoundedRegistryZipFile(file, maximumBytes)
+		})
+		if err != nil {
+			return datapanRegistryZipSnapshot{}, fmt.Errorf("validate Registry operation-plan install projection: %w", err)
+		}
+		for path, artifact := range projection {
+			entries[path] = artifact
+		}
 		if err := verifyInstalledRegistryManifestArtifact(data, registryData); err != nil {
 			return datapanRegistryZipSnapshot{}, err
 		}
@@ -2524,6 +2620,12 @@ func verifyInstalledRegistryManifestArtifact(manifestData, registryData []byte) 
 }
 
 func datapanRegistryInstallKeepsZipEntry(name string) bool {
+	if datapanRegistryIsPlanProjectionPath(name) {
+		return true
+	}
+	if strings.HasPrefix(name, "policy/") && strings.HasSuffix(name, ".json") {
+		return true
+	}
 	switch name {
 	case datapanRegistryZipRegistryPath,
 		"manifest.json",
@@ -2698,27 +2800,8 @@ func printConsumerCompatibility(w io.Writer, release datapanRegistryInstallRelea
 
 func installReleaseFilesFromZip(entries map[string][]byte) map[string][]byte {
 	files := map[string][]byte{}
-	for _, name := range []string{
-		"manifest.json",
-		"RELEASE_NOTES.md",
-		"policy/sustainable-coverage.json",
-		"schemas/datapan.sustainable-coverage-policy.v1.schema.json",
-		"schemas/datapan.release-consumer-decision.v1.schema.json",
-		"schemas/datapan.error-action-catalog.v1.schema.json",
-		"schemas/datapan.source-runtime-remediation-map.v1.schema.json",
-		datapanRegistryConsumerCompatibilityPath,
-		"reports/latest-release-verification.json",
-		"reports/latest-release-readiness.json",
-		"reports/latest-verification.json",
-		"reports/latest-verification-summary.json",
-		"reports/coverage.json",
-		"reports/route-disposition.json",
-		"reports/sustainable-coverage.json",
-		"reports/release-consumer-decision.json",
-		"reports/data-go-kr/error-action-catalog.json",
-		"reports/source-runtime-remediation-map.json",
-	} {
-		if data, ok := entries[name]; ok {
+	for name, data := range entries {
+		if name != datapanRegistryZipRegistryPath && datapanRegistryInstallKeepsZipEntry(name) {
 			files[name] = data
 		}
 	}
@@ -5549,6 +5632,30 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
+	healthPlanIndex, args, err := consumeString(args, "--health-plan-index", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthOperationID, args, err := consumeString(args, "--health-operation-id", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthCredentialBindings, args, err := consumeString(args, "--health-credential-bindings", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthAttemptID, args, err := consumeString(args, "--health-attempt-id", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthCLIVersion, args, err := consumeString(args, "--health-cli-version", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
+	healthDeadlineRaw, args, err := consumeString(args, "--health-deadline", "")
+	if err != nil {
+		return a.fail(exitUsage, "%v", err)
+	}
 	if healthCatalog != "" && !health {
 		return a.fail(exitUsage, "--health-catalog requires --health")
 	}
@@ -5556,7 +5663,7 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if err != nil {
 		return a.fail(exitUsage, "%v", err)
 	}
-	if healthRegistryRevision != "" && healthCatalog == "" {
+	if healthRegistryRevision != "" && healthCatalog == "" && healthPlanIndex == "" {
 		return a.fail(exitUsage, "--health-registry-revision requires --health-catalog")
 	}
 	timeoutProvided := hasAnyArg(args, "--timeout")
@@ -5571,8 +5678,23 @@ func (a app) catalogVerify(args []string, jsonOut bool) int {
 	if operation != "" && ref == "" {
 		return a.fail(exitUsage, "--operation requires --ref or a positional ref")
 	}
-	if health && (strings.TrimSpace(ref) == "" || strings.TrimSpace(operation) == "") {
+	if health && healthPlanIndex == "" && (strings.TrimSpace(ref) == "" || strings.TrimSpace(operation) == "") {
 		return a.fail(exitUsage, "--health requires exactly one --ref and --operation")
+	}
+	if healthPlanIndex != "" {
+		if !health || healthCatalog != "" || a.healthOperationPlan == nil || healthOperationID != a.healthOperationPlan.Plan.OperationIdentity.OperationID || healthPlanIndex != a.healthOperationPlan.IndexPath || healthRegistryRevision != a.healthOperationPlan.Options.RegistryRevision || healthCredentialBindings != a.healthOperationPlan.Options.CredentialBindingsPath || healthAttemptID != a.healthOperationPlan.Options.AttemptID || healthCLIVersion != a.healthOperationPlan.Options.CLIVersion || healthDeadlineRaw != a.healthOperationPlan.Options.Deadline.Format(time.RFC3339Nano) {
+			return a.fail(exitUsage, "health operation plan selection does not match its verified immutable Registry plan")
+		}
+		if input != "" || excludeInput != "" || registryPath != "" || ref != "" || operation != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || probeUnadapted || timeoutProvided || statusFilter != "" || (limitRaw != "" && limit != 1) {
+			return a.fail(exitUsage, "--health-plan-index selects one immutable operation and cannot be combined with legacy selectors, filters, reports, or overrides")
+		}
+		if len(args) != 0 {
+			return a.fail(exitUsage, "usage: datapan verify --health --health-plan-index PATH --health-operation-id ID --health-registry-revision SHA [--output PATH] [--json]")
+		}
+		if jsonOut && output == "-" {
+			return a.fail(exitUsage, "use --output PATH with --json")
+		}
+		return a.catalogVerifyHealthOperationPlan(output, jsonOut)
 	}
 	if health && (input != "" || excludeInput != "" || providerFilter != "" || organizationFilter != "" || hostFilter != "" || kindFilter != "" || probeUnadapted || (limitRaw != "" && limit != 1)) {
 		return a.fail(exitUsage, "--health selects exactly one operation and cannot be combined with report or batch filters")
@@ -9123,6 +9245,9 @@ type registryFailureRouting struct {
 }
 
 func (a app) localRegistryTrust() registryTrustContext {
+	if a.healthOperationPlan != nil {
+		return a.healthOperationPlan.RegistryTrust
+	}
 	if a.healthCatalogTrust != nil {
 		return *a.healthCatalogTrust
 	}
@@ -9919,6 +10044,18 @@ func readRegistryInstallProvenance(path string) (registryInstallProvenance, erro
 	if err != nil {
 		return registryInstallProvenance{}, err
 	}
+	return decodeRegistryInstallProvenance(data)
+}
+
+func readBoundedRegistryInstallProvenance(path string) (registryInstallProvenance, error) {
+	data, err := readBoundedFile(path, registryInstallProvenanceMaxBytes)
+	if err != nil {
+		return registryInstallProvenance{}, err
+	}
+	return decodeRegistryInstallProvenance(data)
+}
+
+func decodeRegistryInstallProvenance(data []byte) (registryInstallProvenance, error) {
 	var provenance registryInstallProvenance
 	if err := json.Unmarshal(data, &provenance); err != nil {
 		return registryInstallProvenance{}, fmt.Errorf("decode registry install provenance: %w", err)
@@ -13762,6 +13899,13 @@ func datapanSchemaFiles() []string {
 		"schemas/datapan.providers.v1.schema.json",
 		"schemas/datapan.coverage.v1.schema.json",
 		"schemas/datapan.verification.v1.schema.json",
+		"schemas/datapan.operation-observation-plan.v1.schema.json",
+		"schemas/datapan.operation-observation-policy.v1.schema.json",
+		"schemas/datapan.operation-response-assertion.v2.schema.json",
+		"schemas/datapan.operation-document-evidence.v1.schema.json",
+		"schemas/datapan.operation-document-evidence.v2.schema.json",
+		"schemas/datapan.health-credential-bindings.v1.schema.json",
+		"schemas/datapan.health-operation-plan-probe.v1.schema.json",
 		"schemas/datapan.verification-plan.v1.schema.json",
 		"schemas/datapan.verification-summary.v1.schema.json",
 		"schemas/datapan.runtime-evidence-growth.v1.schema.json",
@@ -14627,7 +14771,7 @@ func verifyReleaseManifestArtifact(root string, artifact releaseManifestArtifact
 			result.Reason = "schema_unavailable"
 			return result
 		}
-		if err := validator.validate(artifact.Schema, data); err != nil {
+		if err := validator.validateArtifact(artifact.Schema, artifact.Path, data); err != nil {
 			result.Status = "failed"
 			result.Reason = "schema_validation_failed"
 			return result
@@ -14669,6 +14813,9 @@ func loadReleaseSchemaValidator(root string) (*releaseSchemaValidator, bool, err
 		if err != nil {
 			return nil, true, err
 		}
+		if err := normalizeHealthJSONSchemaRegexps(doc); err != nil {
+			return nil, true, err
+		}
 		if err := compiler.AddResource(meta.ID, doc); err != nil {
 			return nil, true, err
 		}
@@ -14698,6 +14845,33 @@ func (v *releaseSchemaValidator) validate(schemaID string, data []byte) error {
 		return err
 	}
 	return schema.Validate(instance)
+}
+
+func (v *releaseSchemaValidator) validateArtifact(schemaID, artifactPath string, data []byte) error {
+	if !strings.EqualFold(filepath.Ext(artifactPath), ".jsonl") {
+		return v.validate(schemaID, data)
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 64*1024), releaseJSONLMaxRecordBytes)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			return fmt.Errorf("JSONL record %d is empty", lineNumber)
+		}
+		if err := v.validate(schemaID, line); err != nil {
+			return fmt.Errorf("JSONL record %d is invalid: %w", lineNumber, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("JSONL record exceeds the %d-byte limit or cannot be read: %w", releaseJSONLMaxRecordBytes, err)
+	}
+	if lineNumber == 0 {
+		return errors.New("JSONL artifact contains no records")
+	}
+	return nil
 }
 
 func isSHA256Hex(value string) bool {

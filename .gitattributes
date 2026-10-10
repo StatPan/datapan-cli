@@ -1,2 +1,4 @@
 internal/cli/testdata/diagnostic-envelope/*.json text eol=lf
 internal/cli/testdata/diagnostic-envelope/fixtures/*.json text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf

@@ -6712,7 +6712,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"unadapted_external_probe":`,
 		`"unadapted_external_probe_summary":`,
 		`"manifest":`,
-		`"artifacts": 39`,
+		`"artifacts": 46`,
 		`"runtime_evidence_growth":`,
 		`"provenance":`,
 		`"release_notes":`,
@@ -6731,6 +6731,10 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		outputDir + "/schemas/datapan.providers.v1.schema.json",
 		outputDir + "/schemas/datapan.coverage.v1.schema.json",
 		outputDir + "/schemas/datapan.verification.v1.schema.json",
+		outputDir + "/schemas/datapan.operation-observation-plan.v1.schema.json",
+		outputDir + "/schemas/datapan.operation-document-evidence.v1.schema.json",
+		outputDir + "/schemas/datapan.health-credential-bindings.v1.schema.json",
+		outputDir + "/schemas/datapan.health-operation-plan-probe.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-plan.v1.schema.json",
 		outputDir + "/schemas/datapan.verification-summary.v1.schema.json",
 		outputDir + "/schemas/datapan.runtime-evidence-growth.v1.schema.json",
@@ -6871,7 +6875,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.schema-index.v1"`,
-		`"count": 20`,
+		`"count": 27`,
 		`"path": "schemas/datapan.dependencies.v1.schema.json"`,
 		`"path": "schemas/datapan.adapter-targets.v1.schema.json"`,
 		`"path": "schemas/datapan.route-disposition.v1.schema.json"`,
@@ -6912,7 +6916,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"schema_version": "datapan.release-manifest.v1"`,
-		`"artifact_count": 39`,
+		`"artifact_count": 46`,
 		`"path": "schemas/index.json"`,
 		`"kind": "schema_index"`,
 		`"path": "data/provider-index.json"`,
@@ -6959,7 +6963,7 @@ func TestCatalogReleaseDraftWritesLayout(t *testing.T) {
 		`"schema_version": "datapan.release-verification.v1"`,
 		`"manifest_schema_version": "datapan.release-manifest.v1"`,
 		`"output": "` + jsonEscaped(verifyOutput) + `"`,
-		`"checked": 39`,
+		`"checked": 46`,
 		`"failed": 0`,
 		`"status": "verified"`,
 	} {
@@ -7050,7 +7054,7 @@ func TestCatalogReleaseDraftWarnsWhenRuntimeEvidenceBelowTarget(t *testing.T) {
 	for _, want := range []string{
 		`"ok": true`,
 		`"runtime_evidence_growth":`,
-		`"artifacts": 34`,
+		`"artifacts": 41`,
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
@@ -7152,7 +7156,7 @@ func TestCatalogReleaseDraftRunsFromSchemaOnlyRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"ok": true`,
-		`"artifacts": 37`,
+		`"artifacts": 44`,
 		`"runtime_evidence_growth":`,
 		`"catalog_diff":`,
 		`"verification_summary_written": true`,
@@ -7285,6 +7289,117 @@ func TestCatalogReleaseVerifyRejectsSchemaInvalidArtifact(t *testing.T) {
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+}
+
+func TestCatalogReleaseVerifyValidatesJSONLRecordsIndividually(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		data      []byte
+		wantOK    bool
+		wantError string
+	}{
+		{name: "valid records", data: []byte("{\"id\":\"first\"}\n{\"id\":\"second\"}\n"), wantOK: true},
+		{name: "invalid later record", data: []byte("{\"id\":\"first\"}\n{\"id\":5}\n"), wantError: "schema_validation_failed"},
+		{name: "blank record", data: []byte("{\"id\":\"first\"}\n\n"), wantError: "schema_validation_failed"},
+		{name: "oversized record", data: append([]byte("{\"id\":\""), append(bytes.Repeat([]byte("x"), releaseJSONLMaxRecordBytes), []byte("\"}\n")...)...), wantError: "schema_validation_failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "schemas"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			manifestSchema, err := os.ReadFile("../../schemas/datapan.release-manifest.v1.schema.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "schemas", "datapan.release-manifest.v1.schema.json"), manifestSchema, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			const rowSchemaID = "https://schemas.datapan.dev/datapan.test-operation-document-work-item.v1.schema.json"
+			rowSchema := []byte(`{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"` + rowSchemaID + `","type":"object","additionalProperties":false,"required":["id"],"properties":{"id":{"type":"string","minLength":1}}}`)
+			if err := os.WriteFile(filepath.Join(dir, "schemas", "datapan.test-operation-document-work-item.v1.schema.json"), rowSchema, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			artifactPath := "reports/operation-document-evidence/queue.v1.jsonl"
+			fullArtifactPath := filepath.Join(dir, filepath.FromSlash(artifactPath))
+			if err := os.MkdirAll(filepath.Dir(fullArtifactPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fullArtifactPath, test.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(test.data)
+			manifest := releaseManifest{
+				SchemaVersion:  "datapan.release-manifest.v1",
+				GeneratedAt:    "2026-10-07T00:00:00Z",
+				DatapanVersion: "test",
+				Provider:       "data.go.kr",
+				SourceRegistry: "synthetic-registry",
+				OutputDir:      ".",
+				ArtifactCount:  1,
+				Artifacts: []releaseManifestArtifact{{
+					Path: artifactPath, Kind: "operation_document_work_queue", Schema: rowSchemaID,
+					Bytes: int64(len(test.data)), SHA256: fmt.Sprintf("%x", sum),
+				}},
+			}
+			manifestPath := filepath.Join(dir, "manifest.json")
+			if err := writeJSONFile(manifestPath, manifest); err != nil {
+				t.Fatal(err)
+			}
+			report, err := verifyReleaseManifest(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.OK != test.wantOK {
+				t.Fatalf("verifyReleaseManifest ok=%t want %t report=%+v", report.OK, test.wantOK, report)
+			}
+			if test.wantError != "" {
+				if len(report.Results) != 1 || report.Results[0].Reason != test.wantError {
+					t.Fatalf("expected artifact reason %q, got %+v", test.wantError, report.Results)
+				}
+			}
+		})
+	}
+}
+
+func TestCatalogReleaseManifestKeepsDenominatorArtifactKindsDistinct(t *testing.T) {
+	dir := t.TempDir()
+	schemaDir := filepath.Join(dir, "schemas")
+	if err := os.MkdirAll(schemaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	schemaBytes, err := os.ReadFile("../../schemas/datapan.release-manifest.v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(schemaDir, "datapan.release-manifest.v1.schema.json"), schemaBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	validator, available, err := loadReleaseSchemaValidator(dir)
+	if err != nil || !available {
+		t.Fatalf("release manifest schema unavailable: available=%t err=%v", available, err)
+	}
+	for _, test := range []struct {
+		kind   string
+		schema string
+	}{
+		{kind: "operation_denominator_expectation", schema: "https://schemas.datapan.dev/datapan.data-go-kr-operation-denominator-expectation.v1.schema.json"},
+		{kind: "operation_denominator", schema: "https://schemas.datapan.dev/datapan.operation-denominator.v1.schema.json"},
+		{kind: "operation_document_capture_receipt", schema: "https://schemas.datapan.dev/datapan.operation-document-capture-receipt.v2.schema.json"},
+	} {
+		manifest := releaseManifest{
+			SchemaVersion: "datapan.release-manifest.v1", GeneratedAt: "2026-10-07T00:00:00Z", DatapanVersion: "test",
+			Provider: "data.go.kr", SourceRegistry: "synthetic-registry", OutputDir: ".", ArtifactCount: 1,
+			Artifacts: []releaseManifestArtifact{{Path: "reports/denominator.json", Kind: test.kind, Schema: test.schema, Bytes: 1, SHA256: strings.Repeat("a", 64)}},
+		}
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.validate("https://schemas.datapan.dev/datapan.release-manifest.v1.schema.json", data); err != nil {
+			t.Errorf("manifest kind %q was rejected: %v", test.kind, err)
 		}
 	}
 }
