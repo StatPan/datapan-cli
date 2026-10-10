@@ -405,8 +405,22 @@ func validateSelectedHealthOperationEffectPolicy(plan healthOperationPlanRecord,
 }
 
 func validateSelectedHealthOperationDocumentEffect(plan healthOperationPlanRecord, contract *healthOperationPlanRequestContract, documents map[string]map[string]any) error {
-	if contract.Transport.Protocol != "REST" || (contract.Transport.HTTPMethod != "GET" && contract.Transport.HTTPMethod != "HEAD") {
-		return errors.New("documented read-only effect requires the exact REST GET or HEAD method")
+	soapTransport := false
+	switch contract.Transport.Protocol {
+	case "REST":
+		if contract.Transport.HTTPMethod != "GET" && contract.Transport.HTTPMethod != "HEAD" {
+			return errors.New("documented REST read-only effect requires the exact GET or HEAD method")
+		}
+	case "SOAP":
+		if contract.Transport.HTTPMethod != "POST" || contract.Transport.BodyEncoding != "document_literal" || !healthOperationPlanSOAPEnvelopeMatches(contract.Transport.SOAPVersion, contract.Transport.EnvelopeNamespace) {
+			return errors.New("documented SOAP read-only effect requires the exact POST document-literal envelope")
+		}
+		// SOAP uses POST at the HTTP layer. Admit it only through this
+		// operation-document authority path; a reviewed HTTP-safe method policy
+		// cannot classify SOAP POST as read-only.
+		soapTransport = true
+	default:
+		return errors.New("documented read-only effect uses an unsupported protocol")
 	}
 	var effectRef *healthOperationPlanEvidenceRef
 	for index := range contract.OperationEffect.EvidenceRefs {
@@ -427,6 +441,20 @@ func validateSelectedHealthOperationDocumentEffect(plan healthOperationPlanRecor
 	document := documents[effectRef.ArtifactPath]
 	if document == nil || stringValueFromJSON(document["schema_version"]) != "datapan.operation-document-evidence.v2" {
 		return errors.New("documented operation effect requires the source-bound evidence-v2 identity")
+	}
+	if soapTransport {
+		refs, err := healthOperationPlanEvidenceRefs(plan)
+		if err != nil {
+			return err
+		}
+		if err := validateHealthOperationDocumentTransportFacts(plan, refs, documents); err != nil {
+			return errors.New("documented SOAP transport facts do not match the selected operation")
+		}
+		for _, ref := range contract.Transport.EvidenceRefs {
+			if ref.EvidenceKind != "operation_document" || ref.ArtifactPath != effectRef.ArtifactPath || !strings.EqualFold(ref.SHA256, effectRef.SHA256) {
+				return errors.New("SOAP transport facts and read-only effect must use one exact source document")
+			}
+		}
 	}
 	if err := validateHealthOperationDocumentEvidenceIdentity(document, plan); err != nil {
 		return err
@@ -452,7 +480,7 @@ func validateSelectedHealthOperationDocumentEffect(plan healthOperationPlanRecor
 	methodValue, ok := healthJSONPointer(document, methodRef.JSONPointer)
 	methodFact, isObject := methodValue.(map[string]any)
 	if !ok || !isObject || methodFact["status"] != "documented" || methodFact["authority_scope"] != "operation_specific" || methodFact["value"] != contract.Transport.HTTPMethod || !healthPolicySourceRefsContain(methodFact["source_refs"], "operation_http_method") {
-		return errors.New("documented effect lacks the exact operation-specific GET or HEAD evidence")
+		return errors.New("documented effect lacks the exact operation-specific HTTP method evidence")
 	}
 	operationDocument, _ := document["operation_document"].(map[string]any)
 	for _, fieldName := range []string{"title", "purpose"} {
