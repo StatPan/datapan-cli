@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func TestExtractSelectedHealthOperationPolicyRows(t *testing.T) {
@@ -275,6 +278,161 @@ func TestReusableResponseProfileBindsObservationOnlyAssertionExactly(t *testing.
 			t.Fatal("observation-only profile with typed predicate fields was accepted")
 		}
 	})
+}
+
+func TestReusableSOAPResponseProfileBindsOptionalDiscriminatorValueType(t *testing.T) {
+	for _, predicate := range []string{"present", "absent"} {
+		t.Run(predicate+" without value_type", func(t *testing.T) {
+			plan, artifact, selected := reusableSOAPDiscriminatorBindingFixture(predicate, "", false, nil)
+			if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err != nil {
+				t.Fatalf("schema-valid SOAP %s discriminator profile was rejected: %v", predicate, err)
+			}
+			validateSOAPProfileBranchSchema(t, selected)
+		})
+	}
+
+	t.Run("typed node_type value matches exactly", func(t *testing.T) {
+		plan, artifact, selected := reusableSOAPDiscriminatorBindingFixture("node_type", "string", true, "string")
+		if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err != nil {
+			t.Fatalf("typed SOAP node_type discriminator profile was rejected: %v", err)
+		}
+		validateSOAPProfileBranchSchema(t, selected)
+	})
+
+	for _, test := range []struct {
+		name     string
+		value    any
+		present  bool
+		expected string
+	}{
+		{name: "explicit empty string", value: "", present: true},
+		{name: "null", value: nil, present: true},
+		{name: "false", value: false, present: true},
+		{name: "zero", value: json.Number("0"), present: true},
+		{name: "array", value: []any{}, present: true},
+		{name: "object", value: map[string]any{}, present: true},
+		{name: "typed null", value: nil, present: true, expected: "string"},
+		{name: "typed number", value: json.Number("0"), present: true, expected: "string"},
+		{name: "typed wrong string", value: "array", present: true, expected: "string"},
+	} {
+		t.Run("reject "+test.name, func(t *testing.T) {
+			predicate := "present"
+			if test.expected != "" {
+				predicate = "node_type"
+			}
+			plan, artifact, selected := reusableSOAPDiscriminatorBindingFixture(predicate, test.expected, false, nil)
+			profileDiscriminator := selectedSOAPProfileDiscriminator(selected)
+			if test.present {
+				profileDiscriminator["value_type"] = test.value
+			}
+			if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err == nil {
+				t.Fatalf("SOAP discriminator accepted invalid profile value_type %#v", test.value)
+			}
+		})
+	}
+
+	t.Run("typed missing and mismatched values reject", func(t *testing.T) {
+		for name, setValue := range map[string]func(map[string]any){
+			"missing":    func(map[string]any) {},
+			"mismatched": func(discriminator map[string]any) { discriminator["value_type"] = "object" },
+		} {
+			t.Run(name, func(t *testing.T) {
+				plan, artifact, selected := reusableSOAPDiscriminatorBindingFixture("node_type", "string", false, nil)
+				setValue(selectedSOAPProfileDiscriminator(selected))
+				if err := validateHealthResponseAssertionPolicyBindings(plan, healthOperationPlanIndex{}, releaseManifest{}, artifact, selected); err == nil {
+					t.Fatal("SOAP node_type discriminator accepted a missing or mismatched value_type")
+				}
+			})
+		}
+	})
+}
+
+func reusableSOAPDiscriminatorBindingFixture(predicate, assertionValueType string, includeProfileValueType bool, profileValueType any) (healthOperationPlanRecord, healthOperationResponseAssertionV2Artifact, healthSelectedOperationPolicy) {
+	plan, artifact, selected := validReusableResponseProfileBindingFixture(false)
+	plan.OperationIdentity.Protocol = "SOAP"
+	plan.RequestPlan.RequestContract.Transport.Protocol = "SOAP"
+	plan.RequestPlan.RequestContract.Transport.HTTPMethod = "POST"
+
+	profile := selected.Rows[healthOperationPolicyRowKey{Section: "profiles", Index: 0}]
+	profile["profile_id"] = "synthetic-soap-response"
+	selector := profile["selector"].(map[string]any)
+	selector["protocol"] = "SOAP"
+	selector["method"] = "POST"
+
+	path := healthOperationResponseAssertionV2Path{Kind: "xml_qname_path"}
+	path.Segments = []struct {
+		Namespace string `json:"namespace"`
+		LocalName string `json:"local_name"`
+	}{{Namespace: "urn:example:soap", LocalName: "Body"}}
+	discriminator := healthOperationResponseAssertionV2Discriminator{Path: path, Predicate: predicate, ValueType: assertionValueType}
+	assertionBranch := healthOperationResponseAssertionV2{
+		ID: "success", Classification: "success", EmptyResultSemantics: "not_applicable",
+		Selector: healthOperationResponseAssertionV2Selector{
+			AcceptedHTTPStatusCodes: []int{200}, RootKind: "xml_element",
+			RootQName:      &healthOperationPlanQName{Namespace: "urn:example:soap", LocalName: "Envelope"},
+			Discriminators: []healthOperationResponseAssertionV2Discriminator{discriminator},
+		},
+		ProviderResultCodeStatus: "none_by_policy",
+		ReviewRefs: []healthOperationPlanEvidenceRef{{
+			ArtifactPath: healthOperationPolicyArtifactPath,
+			JSONPointer:  "#/profiles/0/request/response/branches/0",
+			EvidenceKind: "reviewed_policy",
+		}},
+	}
+	profileDiscriminator := map[string]any{
+		"path": path, "predicate": predicate,
+	}
+	if includeProfileValueType {
+		profileDiscriminator["value_type"] = profileValueType
+	}
+	profileBranch := map[string]any{
+		"branch_id": "success", "classification": "success", "empty_result_semantics": "not_applicable",
+		"selector": map[string]any{
+			"accepted_http_status_codes": []int{200}, "root_kind": "xml_element",
+			"root_qname":     map[string]any{"namespace": "urn:example:soap", "local_name": "Envelope"},
+			"discriminators": []any{profileDiscriminator},
+		},
+		"code_mode": "none", "code_mode_rationale": "Synthetic SOAP response has no provider result code.",
+		"required_fields": []any{},
+	}
+	profile["request"].(map[string]any)["response"] = map[string]any{"payload_kind": "soap_xml", "branches": []any{profileBranch}}
+	artifact.Assertion = healthOperationResponseAssertionV2Body{PayloadKind: "soap_xml", Branches: []healthOperationResponseAssertionV2{assertionBranch}}
+	return plan, artifact, selected
+}
+
+func selectedSOAPProfileDiscriminator(selected healthSelectedOperationPolicy) map[string]any {
+	profile := selected.Rows[healthOperationPolicyRowKey{Section: "profiles", Index: 0}]
+	request := profile["request"].(map[string]any)
+	response := request["response"].(map[string]any)
+	branches := response["branches"].([]any)
+	branch := branches[0].(map[string]any)
+	selector := branch["selector"].(map[string]any)
+	discriminators := selector["discriminators"].([]any)
+	return discriminators[0].(map[string]any)
+}
+
+func validateSOAPProfileBranchSchema(t *testing.T, selected healthSelectedOperationPolicy) {
+	t.Helper()
+	profile := selected.Rows[healthOperationPolicyRowKey{Section: "profiles", Index: 0}]
+	raw, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := healthOperationPolicyValidationEnvelope("profiles", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(envelope))
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := healthOperationPolicyJSONSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(instance); err != nil {
+		t.Fatalf("SOAP profile did not match the pinned observation-policy schema: %v", err)
+	}
 }
 
 func validReusableResponseProfileBindingFixture(observationOnly bool) (healthOperationPlanRecord, healthOperationResponseAssertionV2Artifact, healthSelectedOperationPolicy) {
