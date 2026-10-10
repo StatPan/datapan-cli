@@ -782,7 +782,16 @@ func validateHealthResponseAssertionPolicyBindings(plan healthOperationPlanRecor
 		return err
 	}
 	profileResponse, _ := request["response"].(map[string]any)
-	if profileResponse == nil || profileResponse["payload_kind"] != artifact.Assertion.PayloadKind || artifact.Review == nil || !healthPolicyJSONValuesEqual(row["review"], artifact.Review) {
+	if profileResponse == nil || artifact.Review == nil || !healthPolicyJSONValuesEqual(row["review"], artifact.Review) {
+		return errors.New("selected reusable request profile response payload differs from the assertion")
+	}
+	if artifact.Assertion.Mode == "observation_only" {
+		if artifact.Assertion.PayloadKind != "" || len(artifact.Assertion.Branches) != 0 || profileResponse["mode"] != "observation_only" || len(profileResponse) != 1 {
+			return errors.New("selected reusable request profile response mode differs from the observation-only assertion")
+		}
+		return nil
+	}
+	if profileResponse["payload_kind"] != artifact.Assertion.PayloadKind {
 		return errors.New("selected reusable request profile response payload differs from the assertion")
 	}
 	branches, _ := profileResponse["branches"].([]any)
