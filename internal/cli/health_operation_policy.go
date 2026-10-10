@@ -861,7 +861,7 @@ func healthOperationPolicyProfileBranchMatches(profile map[string]any, assertion
 	}
 	for index, discriminator := range assertion.Selector.Discriminators {
 		policyDiscriminator, _ := policyDiscriminators[index].(map[string]any)
-		if policyDiscriminator == nil || policyDiscriminator["predicate"] != discriminator.Predicate || policyDiscriminator["value_type"] != discriminator.ValueType || !healthPolicyJSONValuesEqual(policyDiscriminator["path"], discriminator.Path) || !healthPolicyJSONValuesEqual(policyDiscriminator["values"], discriminator.Values) {
+		if policyDiscriminator == nil || policyDiscriminator["predicate"] != discriminator.Predicate || !healthPolicyOptionalStringMatches(policyDiscriminator, "value_type", discriminator.ValueType) || !healthPolicyJSONValuesEqual(policyDiscriminator["path"], discriminator.Path) || !healthPolicyJSONValuesEqual(policyDiscriminator["values"], discriminator.Values) {
 			return false
 		}
 	}
@@ -890,6 +890,15 @@ func healthOperationPolicyProfileBranchMatches(profile map[string]any, assertion
 		}
 	}
 	return true
+}
+
+func healthPolicyOptionalStringMatches(object map[string]any, key, expected string) bool {
+	value, present := object[key]
+	if expected == "" {
+		return !present
+	}
+	actual, ok := value.(string)
+	return ok && actual == expected
 }
 
 func healthPolicyJSONValuesEqual(left, right any) bool {
