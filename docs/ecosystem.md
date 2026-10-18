@@ -47,7 +47,7 @@ reference-consumer surface.
 | Repository | Timing | Owns | Must Not Own |
 | --- | --- | --- | --- |
 | `datapan-cli` | Active now | registry consumption, CLI runtime, command contract, local auth, request execution, caching, and developer exports | canonical registry truth, global coverage policy, or hosted service responsibilities |
-| `datapan-data` | Existing research/server-side reference | prior data.go.kr application research, browser/application workflow evidence, server-side experiments worth mining | the canonical user-facing contract or released registry artifacts |
+| `datapan-data` | Existing Data production and supply owner | actual public-data acquisition, normalization, quality evidence, retained lineage, dataset revisions, and declared dataset outputs/facades | Registry's cross-product contract/admission/release trust plane; CLI behavior, local credentials, or provider call execution |
 | `datapan-registry` | Active standardization ledger | canonical metadata, source contracts, coverage and freshness evidence, consumer compatibility, versioned releases | CLI behavior, local credentials, or provider call execution |
 | `datapan-providers` | Create after multiple external adapters prove the boundary | reusable provider adapters, provider auth/error/approval semantics | catalog release policy or UI state |
 | `datapan-spec` | Optional after schemas have consumers outside the CLI | canonical JSON Schemas and codegen inputs | implementation-specific Go internals |
@@ -99,31 +99,23 @@ Non-goals for this repository:
 
 ### datapan-data
 
-Status: existing reference and research repository.
+Status: active Data production and supply owner.
 
 Purpose:
 
-- preserve earlier data.go.kr exploration and server-side experiments;
-- keep evidence about application/login/browser workflows that the CLI can
-  turn into explicit user commands;
-- provide real-world examples for approval, authentication, and provider quirks;
-- help identify what should become schema, adapter behavior, or documentation.
+- acquire supported public-data sources and produce reusable dataset revisions;
+- own source qualification, normalization, row quality, transformations, retained lineage, and promotion evidence;
+- publish declared dataset metadata, materializations, packs, facades, and read-only service/export paths;
+- supply the same qualified data assets to products and consumers without requiring needless re-collection.
 
-`datapan-data` should be treated as research material, not as the canonical
-public contract. When useful behavior is discovered there, the behavior should
-move into one of these Datapan-owned layers:
-
-- CLI command contract in `docs/cli-contract.md`;
-- registry/provider/verification schema under `schemas/`;
-- provider adapter behavior under `internal/provider`;
-- release artifact policy in `docs/registry-release.md`.
+`datapan-data` is not merely a reference or research repository. Data owns payload truth and dataset production; Registry owns the cross-product identity, admission, provenance/version vocabulary, and release/distribution trust plane. The CLI remains the local execution and consumer-compatibility surface: it consumes Registry contracts, owns local calls and credentials, and does not depend on Data for its local workflows.
 
 Non-goals for this repository:
 
 - replacing the CLI as the local user-facing runtime;
-- publishing registry release artifacts;
-- owning SDK or Studio behavior;
-- hiding browser automation behind unclear server behavior.
+- owning Registry's canonical contract, admission, or release artifacts;
+- owning CLI behavior, local credentials, or provider call execution;
+- silently moving product workflow state or customer-specific writes into Data.
 
 ### datapan-registry
 
