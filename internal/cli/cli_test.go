@@ -8984,6 +8984,72 @@ func TestSuccessfulSyncReplacesWholePreviousGeneration(t *testing.T) {
 	}
 }
 
+func TestOfflineBYOKCallInspectExportJourney(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registryPath := "registry.json"
+	registry := `[{"id":"196","title":"오프라인 여정 테스트 API","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	if err := osWriteFile(registryPath, []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.RawQuery, "serviceKey=secret-value") {
+			t.Fatalf("fake provider did not receive the BYOK credential")
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":1,"name":"alpha"}]}`)),
+		}, nil
+	})
+	env := fakeEnv{"DATAPAN_REGISTRY_PATH": registryPath, "DATAPAN_DATA_GO_KR_KEY": "secret-value"}
+	cacheDir := "offline-cache"
+
+	code, stdout, stderr := runTest([]string{"sync", "196", "--operation", "목록", "--output-dir", cacheDir, "--json"}, env, client)
+	if code != exitOK || stderr != "" || !strings.Contains(stdout, `"ok": true`) {
+		t.Fatalf("sync code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, name := range []string{"response.json", "rows.json", "rows.csv", "params.json", "manifest.json"} {
+		if _, err := os.Stat(filepath.Join(cacheDir, name)); err != nil {
+			t.Fatalf("offline journey missing cache artifact %s: %v", name, err)
+		}
+	}
+
+	code, stdout, stderr = runTest([]string{"preview", "--input", filepath.Join(cacheDir, "response.json"), "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("preview code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"cache_integrity"`, `"status": "verified"`, `"actual_sha256"`, `"name": "alpha"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("preview missing %q: %s", want, stdout)
+		}
+	}
+
+	code, stdout, stderr = runTest([]string{"export", "--input", filepath.Join(cacheDir, "response.json"), "--format", "json", "--json"}, nil, nil)
+	if code != exitOK || stderr != "" {
+		t.Fatalf("export code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ok": true`, `"count": 1`, `"rows":`, `"name": "alpha"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("export missing %q: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout+stderr, "secret-value") {
+		t.Fatalf("credential leaked from offline journey: stdout=%s stderr=%s", stdout, stderr)
+	}
+
+	response, err := osReadFile(filepath.Join(cacheDir, "response.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFile(filepath.Join(cacheDir, "response.json"), append(response, ' ')); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runTest([]string{"export", "--input", filepath.Join(cacheDir, "response.json"), "--format", "json", "--json"}, nil, nil)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, `"error": "cache_integrity_failed"`) || strings.Contains(stdout, `"rows":`) {
+		t.Fatalf("tampered export was not rejected: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
 func TestPreviewAndExportVerifySyncCacheArtifactBeforeUse(t *testing.T) {
 	t.Chdir(t.TempDir())
 	registry := `[{"id":"999","title":"동기화 테스트 API","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
