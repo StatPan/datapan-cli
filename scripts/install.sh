@@ -4,7 +4,7 @@ set -eu
 repo="StatPan/datapan-cli"
 version="${DATAPAN_VERSION:-latest}"
 install_dir="${DATAPAN_INSTALL_DIR:-"$HOME/.datapan/bin"}"
-install_dp="${DATAPAN_INSTALL_DP:-1}"
+install_dp="${DATAPAN_INSTALL_DP:-0}"
 
 usage() {
   echo "Usage: DATAPAN_VERSION=latest DATAPAN_INSTALL_DIR=\$HOME/.datapan/bin sh scripts/install.sh"
