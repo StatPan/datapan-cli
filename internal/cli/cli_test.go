@@ -8134,6 +8134,50 @@ func TestGetOpenAPIServiceResponseErrorJSONPreservesProviderFields(t *testing.T)
 	}
 }
 
+func TestSyncProviderErrorHTTP200PreservesFailureContractAndRedaction(t *testing.T) {
+	t.Chdir(t.TempDir())
+	registry := `[{"id":"196","title":"provider error test","provider":"data.go.kr","operations":[{"name":"목록","endpoint":"https://apis.data.go.kr/test/list"}]}]`
+	if err := osWriteFile("registry.json", []byte(registry)); err != nil {
+		t.Fatal(err)
+	}
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"response":{"header":{"resultCode":"30","resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR."}}}`))}, nil
+	})
+	code, stdout, stderr := runTest([]string{"sync", "196", "--operation", "목록", "--output-dir", "cache", "--json"}, fakeEnv{"DATAPAN_REGISTRY_PATH": "registry.json", "DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client)
+	if code != exitRequest || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{`"ok": false`, `"status_code": 200`, `"semantic_status": "provider_error"`, `"reason": "provider_rejected_credential"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in output: %s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked from provider failure: %s", stdout)
+	}
+	manifest, err := os.ReadFile("cache/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifest), "secret-value") || !strings.Contains(string(manifest), `"ok": false`) {
+		t.Fatalf("failure receipt was not redacted: %s", manifest)
+	}
+}
+
+func TestCallRejectsResponseAboveLocalCeiling(t *testing.T) {
+	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := strings.Repeat("x", int(maxCallResponseBytes)+1)
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	code, stdout, stderr := runTest([]string{"get", "15084084", "--json", "base_date=20260622", "base_time=0500"}, fakeEnv{"DATAPAN_DATA_GO_KR_KEY": "secret-value"}, client)
+	if code != exitRequest || stderr != "" || !strings.Contains(stdout, `"error": "request_failed"`) || !strings.Contains(stdout, "response ceiling") {
+		t.Fatalf("oversized response was not rejected: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, "secret-value") {
+		t.Fatalf("credential leaked from oversized response failure: %s", stdout)
+	}
+}
+
 func TestGetHTMLResponseJSONReturnsRequestExit(t *testing.T) {
 	client := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		header := make(http.Header)

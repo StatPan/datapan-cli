@@ -73,6 +73,10 @@ const defaultReleaseRuntimeRemediationSchemaPath = ".datapan/release/schemas/dat
 const releaseJSONLMaxRecordBytes = 1 << 20
 const defaultDiffLimit = 20
 const defaultCallTimeout = 30 * time.Second
+
+// maxCallResponseBytes bounds local BYOK response materialization and cache size.
+// It keeps a provider response from exhausting the caller's local resources.
+const maxCallResponseBytes int64 = 2 << 20
 const defaultDatapanRegistryReleaseAPI = "https://huggingface.co/api/datasets/StatPan/datapan-registry"
 const defaultDatapanRegistryGitHubReleaseAPI = "https://api.github.com/repos/StatPan/datapan-registry/releases/latest"
 const datapanRegistryHFDatasetID = "StatPan/datapan-registry"
@@ -12970,9 +12974,12 @@ func (a app) execute(plan requestPlan) (datago.ResponseEnvelope, error) {
 		return datago.ResponseEnvelope{}, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCallResponseBytes+1))
 	if err != nil {
 		return datago.ResponseEnvelope{}, err
+	}
+	if int64(len(body)) > maxCallResponseBytes {
+		return datago.ResponseEnvelope{}, fmt.Errorf("provider response exceeds the %d-byte local response ceiling", maxCallResponseBytes)
 	}
 	contentType := resp.Header.Get("Content-Type")
 	ok, semanticStatus, message, providerStatus := datago.ClassifyEndpointResponse(plan.Operation.Endpoint, resp.StatusCode, contentType, body)
