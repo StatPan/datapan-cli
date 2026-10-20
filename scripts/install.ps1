@@ -1,6 +1,7 @@
 param(
     [string]$Version = "latest",
     [string]$InstallDir = "$HOME\.datapan\bin",
+    [switch]$InstallAlias,
     [switch]$NoDp,
     [switch]$Help
 )
@@ -22,7 +23,7 @@ function Get-GitHubHeaders {
 }
 
 if ($Help) {
-    Write-Output "Usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Version latest|vX.Y.Z] [-InstallDir DIR] [-NoDp]"
+    Write-Output "Usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Version latest|vX.Y.Z] [-InstallDir DIR] [-InstallAlias] [-NoDp]"
     exit 0
 }
 
@@ -81,11 +82,17 @@ try {
 
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     Copy-Item -LiteralPath $datapan -Destination (Join-Path $InstallDir "datapan.exe") -Force
-    if (-not $NoDp) {
-        if (-not (Test-Path $dp)) {
+    if ($InstallAlias -and $NoDp) {
+        throw "-InstallAlias and -NoDp cannot be used together"
+    }
+    if ($InstallAlias) {
+        if (Get-Command dp.exe -ErrorAction SilentlyContinue) {
+            Write-Warning "Skipping dp.exe because another dp command is already available"
+        } elseif (-not (Test-Path $dp)) {
             throw "dp.exe not found in $asset"
+        } else {
+            Copy-Item -LiteralPath $dp -Destination (Join-Path $InstallDir "dp.exe") -Force
         }
-        Copy-Item -LiteralPath $dp -Destination (Join-Path $InstallDir "dp.exe") -Force
     }
 
     & (Join-Path $InstallDir "datapan.exe") version --json

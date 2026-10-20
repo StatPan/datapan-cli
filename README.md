@@ -49,6 +49,8 @@ runtime verification coverage distinct.
 
 ## Install
 
+User documentation is split into [install](docs-site/install.md), [quickstart](docs-site/quickstart.md), [command reference](docs-site/command-reference.md), and [troubleshooting](docs-site/troubleshooting.md) pages.
+
 Windows PowerShell:
 
 ```powershell
